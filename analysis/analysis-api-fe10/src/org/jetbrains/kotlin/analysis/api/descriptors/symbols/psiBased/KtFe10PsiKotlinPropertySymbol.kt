@@ -30,6 +30,8 @@ import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.KtProperty
+import org.jetbrains.kotlin.psi.psiUtil.hasActualModifier
+import org.jetbrains.kotlin.psi.psiUtil.hasExpectModifier
 import org.jetbrains.kotlin.psi.psiUtil.isExtensionDeclaration
 import org.jetbrains.kotlin.resolve.BindingContext
 
@@ -70,6 +72,12 @@ internal class KtFe10PsiKotlinPropertySymbol(
             return KtFe10PsiPropertySetterSymbol(setter, analysisContext)
         }
 
+    override val backingFieldSymbol: KtBackingFieldSymbol?
+        get() = withValidityAssertion {
+            if (psi.isLocal) null
+            else KtFe10PsiDefaultBackingFieldSymbol(propertyPsi = psi, owningProperty = this, analysisContext)
+        }
+
     override val hasBackingField: Boolean
         get() = withValidityAssertion {
             val bindingContext = analysisContext.analyze(psi, AnalysisMode.PARTIAL)
@@ -90,8 +98,14 @@ internal class KtFe10PsiKotlinPropertySymbol(
     override val isStatic: Boolean
         get() = withValidityAssertion { false }
 
+    override val isActual: Boolean
+        get() = withValidityAssertion { descriptor?.isActual ?: psi.hasActualModifier() }
+
+    override val isExpect: Boolean
+        get() = withValidityAssertion { descriptor?.isExpect ?: psi.hasExpectModifier() }
+
     override val initializer: KtInitializerValue?
-        get() = withValidityAssertion { createKtInitializerValue(psi, descriptor, analysisContext) }
+        get() = withValidityAssertion { createKtInitializerValue(psi.initializer, descriptor, analysisContext) }
 
     override val isVal: Boolean
         get() = withValidityAssertion { !psi.isVar }
@@ -143,3 +157,4 @@ internal class KtFe10PsiKotlinPropertySymbol(
     override fun equals(other: Any?): Boolean = isEqualTo(other)
     override fun hashCode(): Int = calculateHashCode()
 }
+

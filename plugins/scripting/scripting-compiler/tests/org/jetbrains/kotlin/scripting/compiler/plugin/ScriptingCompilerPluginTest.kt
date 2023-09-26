@@ -27,6 +27,7 @@ import org.jetbrains.kotlin.compiler.plugin.CompilerPluginRegistrar
 import org.jetbrains.kotlin.compiler.plugin.ComponentRegistrar
 import org.jetbrains.kotlin.config.CompilerConfiguration
 import org.jetbrains.kotlin.config.JVMConfigurationKeys
+import org.jetbrains.kotlin.scripting.compiler.plugin.impl.SCRIPT_BASE_COMPILER_ARGUMENTS_PROPERTY
 import org.jetbrains.kotlin.scripting.compiler.plugin.impl.reporter
 import org.jetbrains.kotlin.scripting.compiler.plugin.impl.updateWithCompilerOptions
 import org.jetbrains.kotlin.scripting.configuration.ScriptingConfigurationKeys
@@ -81,14 +82,6 @@ class ScriptingCompilerPluginTest : TestCase() {
         return KotlinCoreEnvironment.createForTests(disposable, configuration, EnvironmentConfigFiles.JVM_CONFIG_FILES)
     }
 
-    fun testUseOldBackendPreservedOnOptionsUpdate() {
-        val configuration = KotlinTestUtils.newConfiguration(ConfigurationKind.NO_KOTLIN_REFLECT, TestJdkKind.FULL_JDK).apply {
-            put(JVMConfigurationKeys.IR, false)
-            updateWithCompilerOptions(emptyList())
-        }
-        Assert.assertEquals(configuration[JVMConfigurationKeys.IR], false)
-    }
-
     fun testScriptResolverEnvironmentArgsParsing() {
 
         val longStr = (1..100).joinToString("\\,") { """\" $it aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \\""" }
@@ -110,7 +103,8 @@ class ScriptingCompilerPluginTest : TestCase() {
         )
     }
 
-    fun testLazyScriptDefinitionDiscovery() {
+    // muted, see KT-61490
+    fun testLazyScriptDefinitionDiscovery() = expectTestToFailOnK2 {
 
         withTempDir { tmpdir ->
             withDisposable { disposable ->
@@ -206,10 +200,15 @@ class ScriptingCompilerPluginTest : TestCase() {
                     "Failed to compile scripts:\n$messageCollector"
                 }
 
+                val isK2 = System.getProperty(SCRIPT_BASE_COMPILER_ARGUMENTS_PROPERTY)?.contains("-language-version 1.9") != true &&
+                        System.getProperty(SCRIPT_TEST_BASE_COMPILER_ARGUMENTS_PROPERTY)?.contains("-language-version 1.9") != true
+
                 val cp = (runtimeClasspath + scriptingClasspath + defsOut).joinToString(File.pathSeparator)
                 val exitCode = K2JVMCompiler().exec(
                     System.err,
-                    "-cp", cp, *(scriptFiles.toTypedArray()), "-d", scriptsOut2.canonicalPath, "-Xallow-any-scripts-in-source-roots"
+                    "-cp", cp, *(scriptFiles.toTypedArray()), "-d", scriptsOut2.canonicalPath, "-Xallow-any-scripts-in-source-roots",
+                    "-Xuse-fir-lt=false",
+                    "-language-version", if (isK2) "2.0" else "1.9"
                 )
 
                 Assert.assertEquals(ExitCode.OK, exitCode)

@@ -2,22 +2,21 @@ package org.jetbrains.kotlin.backend.konan.lower
 
 import org.jetbrains.kotlin.backend.common.descriptors.synthesizedName
 import org.jetbrains.kotlin.backend.common.lower.*
+import org.jetbrains.kotlin.backend.common.lower.optimizations.LivenessAnalysis
 import org.jetbrains.kotlin.backend.konan.Context
 import org.jetbrains.kotlin.backend.konan.NativeGenerationState
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.IrStatement
+import org.jetbrains.kotlin.ir.ObsoleteDescriptorBasedAPI
 import org.jetbrains.kotlin.ir.builders.*
 import org.jetbrains.kotlin.ir.builders.irCall
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.declarations.impl.IrFunctionImpl
 import org.jetbrains.kotlin.ir.declarations.impl.IrVariableImpl
 import org.jetbrains.kotlin.ir.expressions.*
-import org.jetbrains.kotlin.ir.expressions.impl.IrGetValueImpl
-import org.jetbrains.kotlin.ir.expressions.impl.IrSetValueImpl
-import org.jetbrains.kotlin.ir.expressions.impl.IrSuspendableExpressionImpl
-import org.jetbrains.kotlin.ir.expressions.impl.IrSuspensionPointImpl
+import org.jetbrains.kotlin.ir.expressions.impl.*
 import org.jetbrains.kotlin.ir.symbols.IrClassSymbol
 import org.jetbrains.kotlin.ir.symbols.IrVariableSymbol
 import org.jetbrains.kotlin.ir.symbols.impl.IrSimpleFunctionSymbolImpl
@@ -28,6 +27,8 @@ import org.jetbrains.kotlin.ir.types.makeNotNull
 import org.jetbrains.kotlin.ir.util.*
 import org.jetbrains.kotlin.ir.visitors.*
 import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.resolve.calls.checkers.isRestrictedSuspendFunction
+import org.jetbrains.kotlin.resolve.calls.checkers.isRestrictsSuspensionReceiver
 
 internal class NativeSuspendFunctionsLowering(
         generationState: NativeGenerationState
@@ -37,12 +38,13 @@ internal class NativeSuspendFunctionsLowering(
 
     override val stateMachineMethodName = Name.identifier("invokeSuspend")
 
+    @OptIn(ObsoleteDescriptorBasedAPI::class)
     override fun getCoroutineBaseClass(function: IrFunction): IrClassSymbol =
-            (if (function.isRestrictedSuspendFunction()) {
+            if (function.descriptor.isRestrictedSuspendFunction()) {
                 symbols.restrictedContinuationImpl
             } else {
                 symbols.continuationImpl
-            })
+            }
 
     override fun nameForCoroutineClass(function: IrFunction) =
             fileLowerState.getCoroutineImplUniqueName(function).synthesizedName
@@ -85,7 +87,7 @@ internal class NativeSuspendFunctionsLowering(
             // Extract all suspend calls to temporaries in order to make correct jumps to them.
             originalBody.transformChildrenVoid(ExpressionSlicer(labelField.type, transformingFunction, saveState, restoreState, suspendResult, resultArgument))
 
-            val liveLocals = computeLivenessAtSuspensionPoints(originalBody)
+            val liveLocals = LivenessAnalysis.run(originalBody) { it is IrSuspensionPoint }
 
             val immutableLiveLocals = liveLocals.values.flatten().filterNot { it.isVar }.toSet()
             val localsMap = immutableLiveLocals.associate { it to irVar(it.name, it.type, true) }
@@ -161,7 +163,7 @@ internal class NativeSuspendFunctionsLowering(
                                     val scope = liveLocals[suspensionPoint]!!
                                     return irBlock(expression) {
                                         scope.forEach {
-                                            +irSetVar(localsMap[it]
+                                            +irSet(localsMap[it]
                                                     ?: it, irGetField(irGet(thisReceiver), localToPropertyMap[it.symbol]!!))
                                         }
                                     }
@@ -236,31 +238,6 @@ internal class NativeSuspendFunctionsLowering(
                 return newVariable
             }
         })
-    }
-
-    private fun computeLivenessAtSuspensionPoints(body: IrBody): Map<IrSuspensionPoint, List<IrVariable>> {
-        // TODO: data flow analysis.
-        // Just save all visible for now.
-        val result = mutableMapOf<IrSuspensionPoint, List<IrVariable>>()
-        body.acceptChildrenVoid(object: VariablesScopeTracker() {
-
-            override fun visitExpression(expression: IrExpression) {
-                val suspensionPoint = expression as? IrSuspensionPoint
-                if (suspensionPoint == null) {
-                    super.visitExpression(expression)
-                    return
-                }
-
-                suspensionPoint.result.acceptChildrenVoid(this)
-                suspensionPoint.resumeResult.acceptChildrenVoid(this)
-
-                val visibleVariables = mutableListOf<IrVariable>()
-                scopeStack.forEach { visibleVariables += it }
-                result[suspensionPoint] = visibleVariables
-            }
-        })
-
-        return result
     }
 
     private inner class ExpressionSlicer(val suspensionPointIdType: IrType, val irFunction: IrFunction,

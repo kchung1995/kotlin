@@ -13,7 +13,7 @@ import org.jetbrains.kotlin.analysis.api.calls.KtCallableMemberCall
 import org.jetbrains.kotlin.analysis.api.diagnostics.KtDiagnostic
 import org.jetbrains.kotlin.analysis.api.impl.base.KtMapBackedSubstitutor
 import org.jetbrains.kotlin.analysis.api.renderer.declarations.impl.KtDeclarationRendererForSource
-import org.jetbrains.kotlin.analysis.api.renderer.declarations.modifiers.renderers.KtRendererModifierFilter
+import org.jetbrains.kotlin.analysis.api.renderer.declarations.modifiers.renderers.KtRendererKeywordFilter
 import org.jetbrains.kotlin.analysis.api.scopes.KtScope
 import org.jetbrains.kotlin.analysis.api.signatures.KtCallableSignature
 import org.jetbrains.kotlin.analysis.api.signatures.KtFunctionLikeSignature
@@ -33,7 +33,6 @@ import kotlin.reflect.full.memberProperties
 @OptIn(KtAnalysisApiInternals::class)
 internal fun KtAnalysisSession.stringRepresentation(any: Any): String = with(any) {
     fun KtType.render() = asStringForDebugging().replace('/', '.')
-    fun String.indented() = replace("\n", "\n  ")
     return when (this) {
         is KtFunctionLikeSymbol -> buildString {
             append(
@@ -43,7 +42,7 @@ internal fun KtAnalysisSession.stringRepresentation(any: Any): String = with(any
                     is KtConstructorSymbol -> "<constructor>"
                     is KtPropertyGetterSymbol -> callableIdIfNonLocal ?: "<getter>"
                     is KtPropertySetterSymbol -> callableIdIfNonLocal ?: "<setter>"
-                    else -> error("unexpected symbol kind in KtCall: ${this@with::class.java}")
+                    else -> error("unexpected symbol kind in KtCall: ${this@with::class}")
                 }
             )
             append("(")
@@ -91,6 +90,7 @@ internal fun KtAnalysisSession.stringRepresentation(any: Any): String = with(any
         is Enum<*> -> name
         is Name -> asString()
         is CallableId -> toString()
+        is KtCallableSignature<*> -> this.stringRepresentation()
         else -> buildString {
             val clazz = this@with::class
             val className = clazz.simpleName!!
@@ -113,6 +113,31 @@ internal fun KtAnalysisSession.stringRepresentation(any: Any): String = with(any
         }
     }
 }
+
+context(KtAnalysisSession)
+private fun KtCallableSignature<*>.stringRepresentation(): String = buildString {
+    when (this@stringRepresentation) {
+        is KtFunctionLikeSignature<*> -> append(KtFunctionLikeSignature::class.simpleName)
+        is KtVariableLikeSignature<*> -> append(KtVariableLikeSignature::class.simpleName)
+    }
+    appendLine(":")
+    val memberProperties = listOfNotNull(
+        KtVariableLikeSignature<*>::name.takeIf { this@stringRepresentation is KtVariableLikeSignature<*> },
+        KtCallableSignature<*>::receiverType,
+        KtCallableSignature<*>::returnType,
+        KtCallableSignature<*>::symbol,
+        KtFunctionLikeSignature<*>::valueParameters.takeIf { this@stringRepresentation is KtFunctionLikeSignature<*> },
+        KtCallableSignature<*>::callableIdIfNonLocal
+    )
+    memberProperties.joinTo(this, separator = "\n  ", prefix = "  ") { property ->
+        @Suppress("UNCHECKED_CAST")
+        val value = (property as KProperty1<Any, *>).get(this@stringRepresentation)
+        val valueAsString = value?.let { stringRepresentation(it).indented() }
+        "${property.name} = $valueAsString"
+    }
+}
+
+private fun String.indented() = replace("\n", "\n  ")
 
 internal fun KtAnalysisSession.prettyPrintSignature(signature: KtCallableSignature<*>): String = prettyPrint {
     when (signature) {
@@ -160,7 +185,7 @@ internal fun renderScopeWithParentDeclarations(scope: KtScope): String = prettyP
 
     val renderingOptions = KtDeclarationRendererForSource.WITH_SHORT_NAMES.with {
         modifiersRenderer = modifiersRenderer.with {
-            modifierFilter = KtRendererModifierFilter.NONE
+            keywordsRenderer = keywordsRenderer.with { keywordFilter = KtRendererKeywordFilter.NONE }
         }
     }
 

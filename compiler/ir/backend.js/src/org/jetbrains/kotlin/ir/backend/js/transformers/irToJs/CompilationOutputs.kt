@@ -29,13 +29,16 @@ abstract class CompilationOutputs {
 
     abstract fun writeJsCode(outputJsFile: File, outputJsMapFile: File)
 
-    fun writeAll(outputDir: File, outputName: String, genDTS: Boolean, moduleName: String, moduleKind: ModuleKind): Collection<File> {
-        val writtenFiles = LinkedHashSet<File>(2 * (dependencies.size + 1) + 1)
+    fun createWrittenFilesContainer(): MutableSet<File> = LinkedHashSet(2 * (dependencies.size + 1) + 1)
+
+    open fun writeAll(outputDir: File, outputName: String, genDTS: Boolean, moduleName: String, moduleKind: ModuleKind): Collection<File> {
+        val writtenFiles = createWrittenFilesContainer()
 
         fun File.writeAsJsFile(out: CompilationOutputs) {
             parentFile.mkdirs()
             val jsMapFile = mapForJsFile
-            val jsFile = canonicalFile
+            val jsFile = normalizedAbsoluteFile
+
             out.writeJsCode(jsFile, jsMapFile)
 
             writtenFiles += jsFile
@@ -55,9 +58,11 @@ abstract class CompilationOutputs {
             writtenFiles += dtsFile
         }
 
-        Files.walk(outputDir.toPath()).map { it.toFile() }.filter { it != outputDir && it !in writtenFiles }.forEach(File::delete)
+        return writtenFiles.also { deleteNonWrittenFiles(outputDir, it) }
+    }
 
-        return writtenFiles
+    fun deleteNonWrittenFiles(outputDir: File, writtenFiles: Set<File>) {
+        Files.walk(outputDir.toPath()).map { it.toFile() }.filter { it != outputDir && it !in writtenFiles }.forEach(File::delete)
     }
 
     fun getFullTsDefinition(moduleName: String, moduleKind: ModuleKind): String {
@@ -65,11 +70,14 @@ abstract class CompilationOutputs {
         return allTsDefinitions.toTypeScript(moduleName, moduleKind)
     }
 
-    private val File.mapForJsFile
-        get() = resolveSibling("$name.map").canonicalFile
+    protected val File.normalizedAbsoluteFile
+        get() = absoluteFile.normalize()
 
-    private val File.dtsForJsFile
-        get() = resolveSibling("$nameWithoutExtension.d.ts").canonicalFile
+    protected val File.mapForJsFile
+        get() = resolveSibling("$name.map").normalizedAbsoluteFile
+
+    protected val File.dtsForJsFile
+        get() = resolveSibling("$nameWithoutExtension.d.ts").normalizedAbsoluteFile
 }
 
 private fun File.copyModificationTimeFrom(from: File) {
@@ -97,10 +105,44 @@ class CompilationOutputsBuilt(
         outputJsFile.writeText(rawJsCode + sourceMappingUrl)
     }
 
-    fun writeJsCodeIntoModuleCache(outputJsFile: File, outputJsMapFile: File): CompilationOutputsBuiltForCache {
-        sourceMap?.let { outputJsMapFile.writeText(it) }
+    fun writeJsCodeIntoModuleCache(outputJsFile: File, outputJsMapFile: File?): CompilationOutputsBuiltForCache {
+        sourceMap?.let { outputJsMapFile?.writeText(it) }
         outputJsFile.writeText(rawJsCode)
         return CompilationOutputsBuiltForCache(outputJsFile, outputJsMapFile, this)
+    }
+}
+
+// The output emulates the main module that has all the dependencies. In per-module we expect that the last processed module is a main module
+// and after the compilation we rename it with the provided [outputName] and save all of its dependencies, but with the per-file mode we don't have
+// this last "main" module, as a result we need to emulate it with the output. Also, it helps to save .d.ts files file-by-file instead of the generating
+// one big main .d.ts file
+class PerFileEntryPointCompilationOutput : CompilationOutputs() {
+    override val tsDefinitions: TypeScriptFragment? = null
+    override val jsProgram: JsProgram? = null
+
+    override fun writeJsCode(outputJsFile: File, outputJsMapFile: File) {}
+
+    override fun writeAll(outputDir: File, outputName: String, genDTS: Boolean, moduleName: String, moduleKind: ModuleKind): Collection<File> {
+        val writtenFiles = createWrittenFilesContainer()
+
+        dependencies.forEach { (name, content) ->
+            val dependencyFile = outputDir.resolve("$name${moduleKind.extension}").also { it.parentFile.mkdirs() }
+            val jsMapFile = dependencyFile.mapForJsFile
+            val jsFile = dependencyFile.normalizedAbsoluteFile
+            val tsFile = jsFile.dtsForJsFile
+
+            content.writeJsCode(jsFile, jsMapFile)
+
+            writtenFiles += jsFile
+            writtenFiles += jsMapFile
+
+            content.tsDefinitions.takeIf { genDTS }?.let {
+                tsFile.writeText(listOf(it).toTypeScript(name, moduleKind))
+                writtenFiles += tsFile
+            }
+        }
+
+        return writtenFiles.also { deleteNonWrittenFiles(outputDir, it) }
     }
 }
 
@@ -139,7 +181,7 @@ class CompilationOutputsCached(
 
 class CompilationOutputsBuiltForCache(
     private val jsCodeFile: File,
-    private val sourceMapFile: File,
+    private val sourceMapFile: File?,
     private val outputBuilt: CompilationOutputsBuilt
 ) : CompilationOutputs() {
 
@@ -157,6 +199,6 @@ class CompilationOutputsBuiltForCache(
         outputBuilt.writeJsCode(outputJsFile, outputJsMapFile)
 
         jsCodeFile.copyModificationTimeFrom(outputJsFile)
-        sourceMapFile.copyModificationTimeFrom(outputJsMapFile)
+        sourceMapFile?.copyModificationTimeFrom(outputJsMapFile)
     }
 }

@@ -9,9 +9,10 @@ import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.diagnostics.ConeDiagnostic
 import org.jetbrains.kotlin.fir.references.FirReference
+import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.FirTypeProjection
-import org.jetbrains.kotlin.fir.types.FirTypeRef
 import org.jetbrains.kotlin.fir.visitors.*
+import org.jetbrains.kotlin.fir.expressions.UnresolvedExpressionTypeAccess
 import org.jetbrains.kotlin.fir.FirImplementationDetail
 
 /*
@@ -20,16 +21,17 @@ import org.jetbrains.kotlin.fir.FirImplementationDetail
  */
 
 abstract class FirPropertyAccessExpression : FirQualifiedAccessExpression() {
-    abstract override val typeRef: FirTypeRef
+    @UnresolvedExpressionTypeAccess
+    abstract override val coneTypeOrNull: ConeKotlinType?
     abstract override val annotations: List<FirAnnotation>
     abstract override val calleeReference: FirReference
     abstract override val contextReceiverArguments: List<FirExpression>
     abstract override val typeArguments: List<FirTypeProjection>
     abstract override val explicitReceiver: FirExpression?
-    abstract override val dispatchReceiver: FirExpression
-    abstract override val extensionReceiver: FirExpression
+    abstract override val dispatchReceiver: FirExpression?
+    abstract override val extensionReceiver: FirExpression?
     abstract override val source: KtSourceElement?
-    abstract val nonFatalDiagnostics: List<ConeDiagnostic>
+    abstract override val nonFatalDiagnostics: List<ConeDiagnostic>
 
     override fun <R, D> accept(visitor: FirVisitor<R, D>, data: D): R = visitor.visitPropertyAccessExpression(this, data)
 
@@ -37,7 +39,7 @@ abstract class FirPropertyAccessExpression : FirQualifiedAccessExpression() {
     override fun <E : FirElement, D> transform(transformer: FirTransformer<D>, data: D): E =
         transformer.transformPropertyAccessExpression(this, data) as E
 
-    abstract override fun replaceTypeRef(newTypeRef: FirTypeRef)
+    abstract override fun replaceConeTypeOrNull(newConeTypeOrNull: ConeKotlinType?)
 
     abstract override fun replaceAnnotations(newAnnotations: List<FirAnnotation>)
 
@@ -49,14 +51,14 @@ abstract class FirPropertyAccessExpression : FirQualifiedAccessExpression() {
 
     abstract override fun replaceExplicitReceiver(newExplicitReceiver: FirExpression?)
 
-    abstract override fun replaceDispatchReceiver(newDispatchReceiver: FirExpression)
+    abstract override fun replaceDispatchReceiver(newDispatchReceiver: FirExpression?)
 
-    abstract override fun replaceExtensionReceiver(newExtensionReceiver: FirExpression)
+    abstract override fun replaceExtensionReceiver(newExtensionReceiver: FirExpression?)
 
     @FirImplementationDetail
     abstract override fun replaceSource(newSource: KtSourceElement?)
 
-    abstract fun replaceNonFatalDiagnostics(newNonFatalDiagnostics: List<ConeDiagnostic>)
+    abstract override fun replaceNonFatalDiagnostics(newNonFatalDiagnostics: List<ConeDiagnostic>)
 
     abstract override fun <D> transformAnnotations(transformer: FirTransformer<D>, data: D): FirPropertyAccessExpression
 

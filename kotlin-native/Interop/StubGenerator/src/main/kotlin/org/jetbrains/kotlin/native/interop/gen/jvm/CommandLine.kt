@@ -16,10 +16,7 @@
 
 package org.jetbrains.kotlin.native.interop.tool
 
-import kotlinx.cli.ArgParser
-import kotlinx.cli.ArgType
 import kotlinx.cli.*
-import org.jetbrains.kotlin.native.interop.gen.jvm.GenerationMode
 
 const val HEADER_FILTER_ADDITIONAL_SEARCH_PREFIX = "headerFilterAdditionalSearchPrefix"
 const val NODEFAULTLIBS_DEPRECATED = "nodefaultlibs"
@@ -34,6 +31,8 @@ const val SHORT_MODULE_NAME = "Xshort-module-name"
 const val FOREIGN_EXCEPTION_MODE = "Xforeign-exception-mode"
 const val DUMP_BRIDGES = "Xdump-bridges"
 const val DISABLE_EXCEPTION_PRETTIFIER = "Xdisable-exception-prettifier"
+const val USER_SETUP_HINT = "Xuser-setup-hint"
+const val KONAN_DATA_DIR = "Xkonan-data-dir"
 
 // TODO: unify camel and snake cases.
 // Possible solution is to accept both cases
@@ -52,8 +51,6 @@ open class CommonInteropArguments(val argParser: ArgParser) {
             .default("unspecified")
     val repo by argParser.option(ArgType.String, shortName = "r", description = "repository to resolve dependencies")
             .multiple()
-    val mode by argParser.option(ArgType.Choice<GenerationMode>(), description = "the way interop library is generated")
-            .default(DEFAULT_MODE)
     val nodefaultlibs by argParser.option(ArgType.Boolean, NODEFAULTLIBS,
             description = "don't link the libraries from dist/klib automatically").default(false)
     val nodefaultlibsDeprecated by argParser.option(ArgType.Boolean, NODEFAULTLIBS_DEPRECATED,
@@ -75,10 +72,8 @@ open class CommonInteropArguments(val argParser: ArgParser) {
             fullName = "Xoverride-konan-properties",
             description = "Override konan.properties.values"
         ).multiple().delimiter(";")
-
-    companion object {
-        val DEFAULT_MODE = GenerationMode.METADATA
-    }
+    val konanDataDir by argParser.option(ArgType.String, KONAN_DATA_DIR,
+            description = "Path to konan and dependencies root folder")
 }
 
 open class CInteropArguments(argParser: ArgParser =
@@ -138,17 +133,12 @@ open class CInteropArguments(argParser: ArgParser =
 
     val disableExceptionPrettifier by argParser.option(ArgType.Boolean, DISABLE_EXCEPTION_PRETTIFIER,
             description = "Don't hide exceptions with user-friendly ones").default(false)
-}
 
-class JSInteropArguments(argParser: ArgParser = ArgParser("jsinterop",
-        prefixStyle = ArgParser.OptionPrefixStyle.JVM)): CommonInteropArguments(argParser) {
-    enum class TargetType {
-        WASM32;
+    val userSetupHint by argParser.option(ArgType.String, USER_SETUP_HINT,
+            description = "A suggestion that is displayed to the user if produced lib fails to link")
 
-        override fun toString() = name.lowercase()
-    }
-    val target by argParser.option(ArgType.Choice<TargetType>(),
-            description = "wasm target to compile to").default(TargetType.WASM32)
+    val disableExperimentalAnnotation by argParser.option(ArgType.Boolean, "Xdisable-experimental-annotation",
+            description = "Don't add @ExperimentalForeignApi to generated Kotlin declarations")
 }
 
 internal fun warn(msg: String) {

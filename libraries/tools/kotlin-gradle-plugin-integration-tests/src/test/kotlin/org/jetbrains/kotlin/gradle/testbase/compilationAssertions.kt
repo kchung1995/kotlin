@@ -7,7 +7,6 @@ package org.jetbrains.kotlin.gradle.testbase
 
 import org.gradle.api.logging.LogLevel
 import org.gradle.testkit.runner.BuildResult
-import org.intellij.lang.annotations.Language
 import org.jetbrains.kotlin.build.report.metrics.BuildAttribute
 import java.io.File
 import java.nio.file.Path
@@ -16,27 +15,6 @@ import java.nio.file.Paths
 private val kotlinSrcRegex by lazy { Regex("\\[KOTLIN] compile iteration: ([^\\r\\n]*)") }
 
 private val javaSrcRegex by lazy { Regex("\\[DEBUG] \\[[^]]*JavaCompiler] Compiler arguments: ([^\\r\\n]*)") }
-
-@Language("RegExp")
-private fun taskOutputRegex(
-    taskName: String
-) = """
-    \[org\.gradle\.internal\.operations\.DefaultBuildOperationRunner] Build operation 'Task :$taskName' started
-    ([\s\S]+?)
-    \[org\.gradle\.internal\.operations\.DefaultBuildOperationRunner] Build operation 'Task :$taskName' completed
-    """.trimIndent()
-    .replace("\n", "")
-    .toRegex()
-
-/**
- * Filter [BuildResult.getOutput] for specific task with given [taskName].
- *
- * Requires using [LogLevel.DEBUG].
- */
-fun BuildResult.getOutputForTask(taskName: String): String = taskOutputRegex(taskName)
-    .find(output)
-    ?.let { it.groupValues[1] }
-    ?: error("Could not find output for task $taskName")
 
 /**
  * Extracts the list of compiled .kt files from the build output.

@@ -5,9 +5,11 @@
 
 package org.jetbrains.kotlinx.serialization.compiler.fir
 
+import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.declarations.FirClass
 import org.jetbrains.kotlin.fir.declarations.FirDeclaration
+import org.jetbrains.kotlin.fir.declarations.utils.isFinal
 import org.jetbrains.kotlin.fir.declarations.utils.isInline
 import org.jetbrains.kotlin.fir.expressions.FirAnnotation
 import org.jetbrains.kotlin.fir.expressions.builder.buildAnnotationCall
@@ -24,8 +26,8 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
 import org.jetbrains.kotlin.fir.types.*
 import org.jetbrains.kotlin.name.ClassId
+import org.jetbrains.kotlin.name.JvmStandardClassIds
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.platform.jvm.isJvm
 import org.jetbrains.kotlin.utils.addToStdlib.firstIsInstanceOrNull
 import org.jetbrains.kotlinx.serialization.compiler.fir.services.serializablePropertiesProvider
@@ -42,6 +44,9 @@ class SerializationFirDeclarationsForMetadataProvider(session: FirSession) : Fir
 
     private fun generateDeserializationConstructor(klass: FirClass): FirDeclaration =
         createConstructor(klass.symbol, SerializationPluginKey, isPrimary = false) {
+            // deserialization constructor for final classes could be internal, because it can't be called in inheritors
+            visibility = if (klass.isFinal) Visibilities.Internal else Visibilities.Public
+
             val serializableProperties =
                 session.serializablePropertiesProvider.getSerializablePropertiesForClass(klass.symbol).serializableProperties
             val bitMaskSlotCount = serializableProperties.bitMaskSlotCount()
@@ -71,6 +76,9 @@ class SerializationFirDeclarationsForMetadataProvider(session: FirSession) : Fir
             SerialEntityNames.WRITE_SELF_NAME,
             session.builtinTypes.unitType.type
         ) {
+            // write$Self for final classes could be internal, because it can't be called in inheritors
+            visibility = if (klass.isFinal) Visibilities.Internal else Visibilities.Public
+
             klass.typeParameters.forEach {
                 typeParameter(it.symbol.name)
             }
@@ -99,7 +107,7 @@ class SerializationFirDeclarationsForMetadataProvider(session: FirSession) : Fir
 
     private fun createJvmStaticAnnotation(): FirAnnotation? {
         val jvmStatic =
-            session.symbolProvider.getClassLikeSymbolByClassId(StandardClassIds.Annotations.JvmStatic) as? FirRegularClassSymbol
+            session.symbolProvider.getClassLikeSymbolByClassId(JvmStandardClassIds.Annotations.JvmStatic) as? FirRegularClassSymbol
                 ?: return null
         val jvmStaticCtor =
             jvmStatic.declarationSymbols.firstIsInstanceOrNull<FirConstructorSymbol>() ?: return null

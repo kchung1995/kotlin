@@ -5,12 +5,14 @@
 
 package org.jetbrains.kotlin.light.classes.symbol.classes
 
+import com.intellij.openapi.util.ModificationTracker
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiManager
 import com.intellij.psi.PsiModifier
 import com.intellij.psi.PsiReferenceList
 import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
 import org.jetbrains.kotlin.analysis.api.annotations.hasAnnotation
+import org.jetbrains.kotlin.analysis.api.getModule
 import org.jetbrains.kotlin.analysis.api.symbols.*
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KtSymbolWithMembers
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KtSymbolWithTypeParameters
@@ -21,8 +23,9 @@ import org.jetbrains.kotlin.analysis.api.types.KtType
 import org.jetbrains.kotlin.analysis.api.types.KtTypeMappingMode
 import org.jetbrains.kotlin.analysis.project.structure.KtModule
 import org.jetbrains.kotlin.analysis.project.structure.KtSourceModule
-import org.jetbrains.kotlin.analysis.project.structure.getKtModuleOfTypeSafe
+import org.jetbrains.kotlin.analysis.providers.createProjectWideOutOfBlockModificationTracker
 import org.jetbrains.kotlin.analysis.utils.errors.requireIsInstance
+import org.jetbrains.kotlin.analysis.utils.printer.parentOfType
 import org.jetbrains.kotlin.asJava.builder.LightMemberOriginForDeclaration
 import org.jetbrains.kotlin.asJava.classes.*
 import org.jetbrains.kotlin.asJava.elements.KtLightField
@@ -34,19 +37,19 @@ import org.jetbrains.kotlin.config.JvmDefaultMode
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget
 import org.jetbrains.kotlin.lexer.KtTokens.*
-import org.jetbrains.kotlin.light.classes.symbol.annotations.*
+import org.jetbrains.kotlin.light.classes.symbol.annotations.hasJvmOverloadsAnnotation
+import org.jetbrains.kotlin.light.classes.symbol.annotations.hasJvmStaticAnnotation
+import org.jetbrains.kotlin.light.classes.symbol.annotations.isHiddenOrSynthetic
+import org.jetbrains.kotlin.light.classes.symbol.annotations.toOptionalFilter
 import org.jetbrains.kotlin.light.classes.symbol.copy
 import org.jetbrains.kotlin.light.classes.symbol.fields.SymbolLightField
 import org.jetbrains.kotlin.light.classes.symbol.fields.SymbolLightFieldForEnumEntry
 import org.jetbrains.kotlin.light.classes.symbol.fields.SymbolLightFieldForProperty
-import org.jetbrains.kotlin.light.classes.symbol.isConst
-import org.jetbrains.kotlin.light.classes.symbol.isLateInit
+import org.jetbrains.kotlin.light.classes.symbol.isJvmField
 import org.jetbrains.kotlin.light.classes.symbol.mapType
-import org.jetbrains.kotlin.light.classes.symbol.methods.SymbolLightAccessorMethod
-import org.jetbrains.kotlin.light.classes.symbol.methods.SymbolLightConstructor
-import org.jetbrains.kotlin.light.classes.symbol.methods.SymbolLightNoArgConstructor
-import org.jetbrains.kotlin.light.classes.symbol.methods.SymbolLightSimpleMethod
+import org.jetbrains.kotlin.light.classes.symbol.methods.*
 import org.jetbrains.kotlin.load.java.JvmAbi
+import org.jetbrains.kotlin.name.JvmStandardClassIds
 import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.containingClass
@@ -66,6 +69,16 @@ internal fun createLightClassNoCache(ktClassOrObject: KtClassOrObject, ktModule:
     ktClassOrObject is KtClass && ktClassOrObject.isAnnotation() -> SymbolLightClassForAnnotationClass(ktClassOrObject, ktModule)
     ktClassOrObject is KtClass && ktClassOrObject.isInterface() -> SymbolLightClassForInterface(ktClassOrObject, ktModule)
     else -> SymbolLightClassForClassOrObject(ktClassOrObject, ktModule)
+}
+
+internal fun KtClassOrObject.modificationTrackerForClassInnerStuff(): List<ModificationTracker> {
+    val outOfBlockTracker = project.createProjectWideOutOfBlockModificationTracker()
+    return if (isLocal) {
+        val file = containingKtFile
+        listOf(outOfBlockTracker, ModificationTracker { file.modificationStamp })
+    } else {
+        listOf(outOfBlockTracker)
+    }
 }
 
 context(KtAnalysisSession)
@@ -286,7 +299,32 @@ internal fun SymbolLightClassBase.createPropertyAccessors(
 
     if (declaration.getter?.hasBody != true && declaration.setter?.hasBody != true && declaration.visibility.isPrivateOrPrivateToThis()) return
 
-    if (declaration.hasJvmFieldAnnotation()) return
+    val originalElement = declaration.sourcePsiSafe<KtDeclaration>()
+
+    val generatePropertyAnnotationsMethods =
+        (declaration.getContainingModule() as? KtSourceModule)
+            ?.languageVersionSettings
+            ?.getFlag(JvmAnalysisFlags.generatePropertyAnnotationsMethods) == true
+
+    if (generatePropertyAnnotationsMethods && !this@createPropertyAccessors.isAnnotationType && declaration.psi?.parentOfType<KtClassOrObject>() == this.kotlinOrigin) {
+        val lightMemberOrigin = originalElement?.let {
+            LightMemberOriginForDeclaration(
+                originalElement = it,
+                originKind = JvmDeclarationOriginKind.OTHER,
+            )
+        }
+        val method = SymbolLightAnnotationsMethod(
+            ktAnalysisSession = this@KtAnalysisSession,
+            containingPropertySymbol = declaration,
+            lightMemberOrigin = lightMemberOrigin,
+            containingClass = this@createPropertyAccessors
+        )
+        if (method.annotations.size > 1) { // There's always a @java.lang.Deprecated
+            result.add(method)
+        }
+    }
+
+    if (declaration.isJvmField) return
     val propertyTypeIsValueClass = declaration.hasTypeForValueClassInSignature()
 
     /*
@@ -320,8 +358,6 @@ internal fun SymbolLightClassBase.createPropertyAccessors(
         if (declaration.isHiddenOrSynthetic(siteTarget)) return false
         return !isHiddenOrSynthetic(siteTarget, useSiteTargetFilterForPropertyAccessor)
     }
-
-    val originalElement = declaration.sourcePsiSafe<KtDeclaration>()
 
     val getter = declaration.getter?.takeIf {
         it.needToCreateAccessor(AnnotationUseSiteTarget.PROPERTY_GETTER)
@@ -364,11 +400,10 @@ context(KtAnalysisSession)
 internal fun SymbolLightClassBase.createField(
     declaration: KtPropertySymbol,
     nameGenerator: SymbolLightField.FieldNameGenerator,
-    isTopLevel: Boolean,
-    forceStatic: Boolean,
-    takePropertyVisibility: Boolean,
+    isStatic: Boolean,
     result: MutableList<KtLightField>
 ) {
+    if (declaration.name.isSpecial) return
     if (!hasBackingField(declaration)) return
 
     val isDelegated = (declaration as? KtKotlinPropertySymbol)?.isDelegatedProperty == true
@@ -383,9 +418,7 @@ internal fun SymbolLightClassBase.createField(
             fieldName = fieldName,
             containingClass = this,
             lightMemberOrigin = null,
-            isTopLevel = isTopLevel,
-            forceStatic = forceStatic,
-            takePropertyVisibility = takePropertyVisibility,
+            isStatic = isStatic,
         )
     )
 }
@@ -403,7 +436,8 @@ private fun hasBackingField(property: KtPropertySymbol): Boolean {
     }
 
     val fieldUseSite = AnnotationUseSiteTarget.FIELD
-    if (property.modality == Modality.ABSTRACT ||
+    if (property.isExpect ||
+        property.modality == Modality.ABSTRACT ||
         property.isHiddenOrSynthetic(fieldUseSite, fieldUseSite.toOptionalFilter())
     ) return false
 
@@ -449,7 +483,8 @@ internal fun SymbolLightClassForClassLike<*>.createInheritanceList(
                 // We don't have Enum among enums supertype in sources neither we do for decompiled class-files and light-classes
                 if (isEnum && this.classId == StandardClassIds.Enum) return false
 
-                val classKind = (classSymbol as? KtClassOrObjectSymbol)?.classKind
+                // NB: need to expand type alias, e.g., kotlin.Comparator<T> -> java.util.Comparator<T>
+                val classKind = expandedClassSymbol?.classKind
                 val isJvmInterface = classKind == KtClassKind.INTERFACE || classKind == KtClassKind.ANNOTATION_CLASS
 
                 forExtendsList == !isJvmInterface
@@ -516,7 +551,7 @@ internal fun KtSymbolWithMembers.createInnerClasses(
     }
 
     val jvmDefaultMode = classOrObject
-        ?.getKtModuleOfTypeSafe<KtSourceModule>()
+        ?.let { getModule(it) as? KtSourceModule }
         ?.languageVersionSettings
         ?.getFlag(JvmAnalysisFlags.jvmDefaultMode)
         ?: JvmDefaultMode.DEFAULT
@@ -531,7 +566,7 @@ internal fun KtSymbolWithMembers.createInnerClasses(
     if (containingClass is SymbolLightClassForAnnotationClass &&
         this is KtNamedClassOrObjectSymbol &&
         hasAnnotation(StandardClassIds.Annotations.Repeatable) &&
-        !hasAnnotation(StandardClassIds.Annotations.Java.Repeatable)
+        !hasAnnotation(JvmStandardClassIds.Annotations.Java.Repeatable)
     ) {
         result.add(SymbolLightClassForRepeatableAnnotationContainer(containingClass))
     }
@@ -585,6 +620,7 @@ context(KtAnalysisSession)
 internal fun SymbolLightClassBase.addPropertyBackingFields(
     result: MutableList<KtLightField>,
     symbolWithMembers: KtSymbolWithMembers,
+    forceIsStaticTo: Boolean? = null,
 ) {
     val propertySymbols = symbolWithMembers.getDeclaredMemberScope().getCallableSymbols()
         .filterIsInstance<KtPropertySymbol>()
@@ -592,35 +628,27 @@ internal fun SymbolLightClassBase.addPropertyBackingFields(
             // All fields for companion object of classes are generated to the containing class
             // For interfaces, only @JvmField-annotated properties are generated to the containing class
             // Probably, the same should work for const vals but it doesn't at the moment (see KT-28294)
-            filter { containingClass?.isInterface == true && !it.hasJvmFieldAnnotation() }
+            filter { containingClass?.isInterface == true && !it.isJvmField }
         }
 
-    val propertyGroups = propertySymbols.groupBy { it.isFromPrimaryConstructor }
+    val (ctorProperties, memberProperties) = propertySymbols.partition { it.isFromPrimaryConstructor }
 
     val nameGenerator = SymbolLightField.FieldNameGenerator()
 
-    val forceStatic = symbolWithMembers is KtClassOrObjectSymbol && symbolWithMembers.classKind.isObject
+    val isStatic = forceIsStaticTo ?: (symbolWithMembers is KtClassOrObjectSymbol && symbolWithMembers.classKind.isObject)
     fun addPropertyBackingField(propertySymbol: KtPropertySymbol) {
-        val isJvmField = propertySymbol.hasJvmFieldAnnotation()
-        val isLateInit = propertySymbol.isLateInit
-        val isConst = propertySymbol.isConst
-
-        val takePropertyVisibility = isLateInit || isJvmField || isConst
-
         createField(
             declaration = propertySymbol,
             nameGenerator = nameGenerator,
-            isTopLevel = false,
-            forceStatic = forceStatic,
-            takePropertyVisibility = takePropertyVisibility,
+            isStatic = isStatic,
             result = result
         )
     }
 
     // First, properties from parameters
-    propertyGroups[true]?.forEach(::addPropertyBackingField)
+    ctorProperties.forEach(::addPropertyBackingField)
     // Then, regular member properties
-    propertyGroups[false]?.forEach(::addPropertyBackingField)
+    memberProperties.forEach(::addPropertyBackingField)
 }
 
 context(KtAnalysisSession)

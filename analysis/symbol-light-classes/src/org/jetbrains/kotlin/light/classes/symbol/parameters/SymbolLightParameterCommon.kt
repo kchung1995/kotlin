@@ -11,9 +11,9 @@ import org.jetbrains.kotlin.analysis.api.symbols.KtValueParameterSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.pointers.KtSymbolPointer
 import org.jetbrains.kotlin.analysis.api.symbols.psiSafe
 import org.jetbrains.kotlin.analysis.api.symbols.sourcePsiSafe
-import org.jetbrains.kotlin.analysis.api.types.KtTypeMappingMode
 import org.jetbrains.kotlin.asJava.classes.lazyPub
 import org.jetbrains.kotlin.asJava.elements.KtLightIdentifier
+import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.light.classes.symbol.*
 import org.jetbrains.kotlin.light.classes.symbol.annotations.annotateByKtType
 import org.jetbrains.kotlin.light.classes.symbol.methods.SymbolLightMethodBase
@@ -48,11 +48,23 @@ internal abstract class SymbolLightParameterCommon(
 
     abstract override fun getModifierList(): PsiModifierList
 
+    protected open fun isDeclaredAsVararg(): Boolean =
+        parameterSymbolPointer.withSymbol(ktModule) { it.isVararg }
+
+    override fun isVarArgs() =
+        // true only if this is "last" `vararg`
+        containingMethod.parameterList.parameters.lastOrNull() == this && isDeclaredAsVararg()
+
     protected open fun nullabilityType(): NullabilityType {
-        if (isVarArgs) return NullabilityType.NotNull
+        if (isDeclaredAsVararg()) return NullabilityType.NotNull
 
         val nullabilityApplicable = !containingMethod.hasModifierProperty(PsiModifier.PRIVATE) &&
-                !containingMethod.containingClass.let { it.isAnnotationType || it.isEnum }
+                !containingMethod.containingClass.isAnnotationType &&
+                // `enum` synthetic members (e.g., values or valueOf) are not applicable for nullability.
+                // In other words, `enum` non-synthetic members are applicable for nullability.
+                // Technically, we should retrieve the symbol for the containing method and see if its origin is not synthetic.
+                // But, only `enum#valueOf` has a value parameter we want to filter out, so this is cheap yet feasible.
+                (!containingMethod.containingClass.isEnum || containingMethod.name != StandardNames.ENUM_VALUE_OF.identifier)
 
         return if (nullabilityApplicable) {
             parameterSymbolPointer.withSymbol(ktModule) { getTypeNullability(it.returnType) }
@@ -67,24 +79,24 @@ internal abstract class SymbolLightParameterCommon(
         parameterSymbolPointer.withSymbol(ktModule) { parameterSymbol ->
             val convertedType = run {
                 val ktType = parameterSymbol.returnType
-                val typeMappingMode = when {
-                    ktType.isSuspendFunctionType -> KtTypeMappingMode.DEFAULT
-                    // TODO: extract type mapping mode from annotation?
-                    // TODO: methods with declaration site wildcards?
-                    else -> KtTypeMappingMode.VALUE_PARAMETER
-                }
 
                 ktType.asPsiTypeElement(
                     this@SymbolLightParameterCommon,
                     allowErrorTypes = true,
-                    typeMappingMode
+                    ktType.typeMappingMode()
                 )?.let {
                     annotateByKtType(it.type, ktType, it, modifierList)
                 }
             } ?: nonExistentType()
 
-            if (parameterSymbol.isVararg) {
-                PsiEllipsisType(convertedType, convertedType.annotationProvider)
+            if (isDeclaredAsVararg()) {
+                if (isVarArgs) {
+                    // last vararg
+                    PsiEllipsisType(convertedType, convertedType.annotationProvider)
+                } else {
+                    // non-last vararg
+                    PsiArrayType(convertedType, convertedType.annotationProvider)
+                }
             } else {
                 convertedType
             }

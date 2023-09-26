@@ -52,7 +52,6 @@ object FirJsMultipleInheritanceChecker : FirClassChecker() {
 
         for (function in overridesWithSameName) {
             val overridden = function.overriddenFunctions(symbol, context)
-
             if (
                 overridden.size > 1 &&
                 overridden.any { it.callableId.classId == supertype.classId }

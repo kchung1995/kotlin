@@ -174,17 +174,20 @@ open class BoxingInterpreter(
         when {
             v == StrictBasicValue.UNINITIALIZED_VALUE || w == StrictBasicValue.UNINITIALIZED_VALUE ->
                 StrictBasicValue.UNINITIALIZED_VALUE
-            v is BoxedBasicValue && w is BoxedBasicValue -> {
-                onMergeSuccess(v, w)
-                when {
-                    v is TaintedBoxedValue -> v
-                    w is TaintedBoxedValue -> w
-                    v.type != w.type -> mergeBoxedHazardous(v, w, isLocalVariable)
-                    else -> v // two clean boxed values with the same type are equal
+            v is BoxedBasicValue -> {
+                if (w is BoxedBasicValue) {
+                    onMergeSuccess(v, w)
+                    when {
+                        v is TaintedBoxedValue -> v
+                        w is TaintedBoxedValue -> w
+                        v.type != w.type -> mergeBoxedHazardous(v, w, isLocalVariable)
+                        else -> v // two clean boxed values with the same type are equal
+                    }
+                } else {
+                    mergeBoxedHazardous(v, w, isLocalVariable)
                 }
             }
-            v is BoxedBasicValue ->
-                mergeBoxedHazardous(v, w, isLocalVariable)
+
             w is BoxedBasicValue ->
                 mergeBoxedHazardous(w, v, isLocalVariable)
             else ->
@@ -246,11 +249,7 @@ private fun isWrapperClassNameOrNumber(internalClassName: String) =
     isWrapperClassName(internalClassName) || internalClassName == Type.getInternalName(Number::class.java)
 
 private fun isWrapperClassName(internalClassName: String) =
-    JvmPrimitiveType.isWrapperClassName(buildFqNameByInternal(internalClassName))
-
-
-private fun buildFqNameByInternal(internalClassName: String) =
-    FqName(Type.getObjectType(internalClassName).className)
+    JvmPrimitiveType.isWrapperClassInternalName(internalClassName)
 
 private fun isUnboxingMethodName(name: String) =
     UNBOXING_METHOD_NAMES.contains(name)
@@ -275,10 +274,8 @@ fun AbstractInsnNode.isCoroutinePrimitiveBoxing(): Boolean {
     }
 }
 
-private fun MethodInsnNode.isBoxingMethodDescriptor(): Boolean {
-    val ownerType = Type.getObjectType(owner)
-    return desc == Type.getMethodDescriptor(ownerType, AsmUtil.unboxType(ownerType))
-}
+private fun MethodInsnNode.isBoxingMethodDescriptor() =
+    JvmPrimitiveType.isBoxingMethodDescriptor(owner, desc)
 
 fun AbstractInsnNode.isJavaLangClassBoxing() =
     isMethodInsnWith(Opcodes.INVOKESTATIC) {
@@ -303,7 +300,7 @@ private fun AbstractInsnNode.isInlineClassUnboxing(state: GenerationState) =
     }
 
 private fun AbstractInsnNode.isMultiFieldValueClassUnboxing(state: GenerationState) =
-    isMethodInsnWith(Opcodes.INVOKEVIRTUAL) {
+    state.config.supportMultiFieldValueClasses && isMethodInsnWith(Opcodes.INVOKEVIRTUAL) {
         isMultiFieldValueClassUnboxingMethodDescriptor(state)
     }
 

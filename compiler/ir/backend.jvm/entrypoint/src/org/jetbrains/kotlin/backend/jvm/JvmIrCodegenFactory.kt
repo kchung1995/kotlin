@@ -5,16 +5,16 @@
 
 package org.jetbrains.kotlin.backend.jvm
 
-import org.jetbrains.kotlin.analyzer.hasJdkCapability
 import org.jetbrains.kotlin.backend.common.extensions.FirIncompatiblePluginAPI
 import org.jetbrains.kotlin.backend.common.extensions.IrGenerationExtension
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContextImpl
+import org.jetbrains.kotlin.backend.common.linkage.issues.checkNoUnboundSymbols
 import org.jetbrains.kotlin.backend.common.phaser.CompilerPhase
 import org.jetbrains.kotlin.backend.common.phaser.PhaseConfig
 import org.jetbrains.kotlin.backend.common.phaser.invokeToplevel
 import org.jetbrains.kotlin.backend.common.serialization.DescriptorByIdSignatureFinderImpl
-import org.jetbrains.kotlin.backend.common.serialization.linkerissues.checkNoUnboundSymbols
+import org.jetbrains.kotlin.backend.jvm.codegen.EnumEntriesIntrinsicMappingsCacheImpl
 import org.jetbrains.kotlin.backend.jvm.codegen.JvmIrIntrinsicExtension
 import org.jetbrains.kotlin.backend.jvm.intrinsics.IrIntrinsicMethods
 import org.jetbrains.kotlin.backend.jvm.ir.getIoFile
@@ -98,12 +98,15 @@ open class JvmIrCodegenFactory(
 
     /**
      * @param shouldStubOrphanedExpectSymbols See [stubOrphanedExpectSymbols].
+     * @param shouldReferenceUndiscoveredExpectSymbols See [referenceUndiscoveredExpectSymbols].
      * @param shouldDeduplicateBuiltInSymbols See [SymbolTableWithBuiltInsDeduplication].
      */
     data class IdeCodegenSettings(
         val shouldStubAndNotLinkUnboundSymbols: Boolean = false,
         val shouldStubOrphanedExpectSymbols: Boolean = false,
+        val shouldReferenceUndiscoveredExpectSymbols: Boolean = false,
         val shouldDeduplicateBuiltInSymbols: Boolean = false,
+        val doNotLoadDependencyModuleHeaders: Boolean = false,
     )
 
     data class JvmIrBackendInput(
@@ -228,20 +231,13 @@ open class JvmIrCodegenFactory(
             }
         }
 
-        val dependencies = psi2irContext.moduleDescriptor.collectAllDependencyModulesTransitively().map {
-            val kotlinLibrary = (it.getCapability(KlibModuleOrigin.CAPABILITY) as? DeserializedKlibModuleOrigin)?.library
-            if (it.hasJdkCapability) {
-                // For IDE environment only, i.e. when compiling for debugger
-                // Deserializer for built-ins module should exist because built-in types returned from SDK belong to that module,
-                // but JDK's built-ins module might not be in current module's dependencies
-                // We have to ensure that deserializer for built-ins module is created
-                irLinker.deserializeIrModuleHeader(
-                    it.builtIns.builtInsModule,
-                    null,
-                    _moduleName = it.builtIns.builtInsModule.name.asString()
-                )
+        val dependencies = if (ideCodegenSettings.doNotLoadDependencyModuleHeaders) {
+            emptyList()
+        } else {
+            psi2irContext.moduleDescriptor.collectAllDependencyModulesTransitively().map {
+                val kotlinLibrary = (it.getCapability(KlibModuleOrigin.CAPABILITY) as? DeserializedKlibModuleOrigin)?.library
+                irLinker.deserializeIrModuleHeader(it, kotlinLibrary, _moduleName = it.name.asString())
             }
-            irLinker.deserializeIrModuleHeader(it, kotlinLibrary, _moduleName = it.name.asString())
         }
 
         val irProviders = if (ideCodegenSettings.shouldStubAndNotLinkUnboundSymbols) {
@@ -251,17 +247,21 @@ open class JvmIrCodegenFactory(
             listOf(irLinker, stubGeneratorForMissingClasses)
         }
 
+        if (ideCodegenSettings.shouldReferenceUndiscoveredExpectSymbols) {
+            symbolTable.referenceUndiscoveredExpectSymbols(input.files, input.bindingContext)
+        }
+
         val irModuleFragment =
             psi2ir.generateModuleFragment(
                 psi2irContext,
                 input.files,
                 irProviders,
                 pluginExtensions,
-                expectDescriptorToSymbol = null,
                 fragmentInfo = evaluatorFragmentInfoForPsi2Ir
             )
 
-        irLinker.postProcess()
+        irLinker.postProcess(inOrAfterLinkageStep = true)
+        irLinker.clear()
 
         stubGenerator.unboundSymbolGeneration = true
 
@@ -324,7 +324,8 @@ open class JvmIrCodegenFactory(
         val phases = if (evaluatorFragmentInfoForPsi2Ir != null) jvmFragmentLoweringPhases else jvmLoweringPhases
         val phaseConfig = customPhaseConfig ?: PhaseConfig(phases)
         val context = JvmBackendContext(
-            state, irModuleFragment.irBuiltins, symbolTable, phaseConfig, extensions, backendExtension, irSerializer, irPluginContext
+            state, irModuleFragment.irBuiltins, symbolTable, phaseConfig, extensions,
+            backendExtension, irSerializer, JvmIrDeserializerImpl(), irProviders, irPluginContext
         )
         if (evaluatorFragmentInfoForPsi2Ir != null) {
             context.localDeclarationsLoweringData = mutableMapOf()
@@ -335,6 +336,9 @@ open class JvmIrCodegenFactory(
         context.getIntrinsic = { symbol: IrFunctionSymbol ->
             intrinsics.getIntrinsic(symbol) ?: generationExtensions.firstNotNullOfOrNull { it.getIntrinsic(symbol) }
         }
+
+        context.enumEntriesIntrinsicMappingsCache = EnumEntriesIntrinsicMappingsCacheImpl(context)
+
         /* JvmBackendContext creates new unbound symbols, have to resolve them. */
         ExternalDependenciesGenerator(symbolTable, irProviders).generateUnboundSymbolsAsDependencies()
 

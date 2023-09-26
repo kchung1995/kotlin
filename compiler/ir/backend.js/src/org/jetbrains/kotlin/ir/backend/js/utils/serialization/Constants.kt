@@ -29,6 +29,20 @@ object StatementIds {
     const val EMPTY = 17
     const val SINGLE_LINE_COMMENT = 18
     const val MULTI_LINE_COMMENT = 19
+    const val IMPORT = 20
+    const val EXPORT = 21
+}
+
+object ImportType {
+    const val ALL = 0
+    const val ITEMS = 1
+    const val DEFAULT = 2
+    const val EFFECT = 3
+}
+
+object ExportType {
+    const val ALL = 0
+    const val ITEMS = 1
 }
 
 object ExpressionIds {

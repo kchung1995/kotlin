@@ -177,7 +177,7 @@ class PatternMatchingTypingVisitor internal constructor(facade: ExpressionTyping
     ): KotlinTypeInfo {
         val trace = contextWithExpectedType.trace
         WhenChecker.checkDeprecatedWhenSyntax(trace, expression)
-        WhenChecker.checkReservedPrefix(trace, expression)
+        WhenChecker.checkSealedWhenIsReserved(trace, expression.whenKeyword)
 
         components.dataFlowAnalyzer.recordExpectedType(trace, expression, contextWithExpectedType.expectedType)
 
@@ -678,7 +678,7 @@ class PatternMatchingTypingVisitor internal constructor(facade: ExpressionTyping
                 .takeIf { it.isNotEmpty() }
                 ?: possibleTypes
 
-            if (nonTrivialTypes.none { CastDiagnosticsUtil.isCastPossible(it, targetType, components.platformToKotlinClassMapper) }) {
+            if (nonTrivialTypes.none { CastDiagnosticsUtil.isCastPossible(it, targetType, components.platformToKotlinClassMapper, components.platformSpecificCastChecker) }) {
                 context.trace.report(USELESS_IS_CHECK.on(isCheck, negated))
             }
         }

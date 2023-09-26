@@ -5,8 +5,11 @@
 
 package org.jetbrains.kotlin.fir.session
 
-import org.jetbrains.kotlin.config.*
-import org.jetbrains.kotlin.fir.*
+import org.jetbrains.kotlin.config.LanguageVersionSettings
+import org.jetbrains.kotlin.config.LanguageVersionSettingsImpl
+import org.jetbrains.kotlin.fir.FirModuleData
+import org.jetbrains.kotlin.fir.FirSession
+import org.jetbrains.kotlin.fir.SessionConfiguration
 import org.jetbrains.kotlin.fir.checkers.registerJvmCheckers
 import org.jetbrains.kotlin.fir.declarations.FirDeclarationOrigin
 import org.jetbrains.kotlin.fir.deserialization.ModuleDataProvider
@@ -16,12 +19,15 @@ import org.jetbrains.kotlin.fir.java.FirProjectSessionProvider
 import org.jetbrains.kotlin.fir.java.JavaSymbolProvider
 import org.jetbrains.kotlin.fir.java.deserialization.JvmClassFileBasedSymbolProvider
 import org.jetbrains.kotlin.fir.java.deserialization.OptionalAnnotationClassesProvider
-import org.jetbrains.kotlin.fir.resolve.providers.impl.*
+import org.jetbrains.kotlin.fir.resolve.providers.impl.FirBuiltinSymbolProvider
+import org.jetbrains.kotlin.fir.resolve.providers.impl.FirCloneableSymbolProvider
 import org.jetbrains.kotlin.fir.resolve.scopes.wrapScopeWithJvmMapped
 import org.jetbrains.kotlin.fir.scopes.FirKotlinScopeProvider
+import org.jetbrains.kotlin.fir.session.FirSessionFactoryHelper.registerDefaultComponents
 import org.jetbrains.kotlin.fir.session.environment.AbstractProjectEnvironment
 import org.jetbrains.kotlin.fir.session.environment.AbstractProjectFileSearchScope
 import org.jetbrains.kotlin.incremental.components.EnumWhenTracker
+import org.jetbrains.kotlin.incremental.components.ImportTracker
 import org.jetbrains.kotlin.incremental.components.LookupTracker
 import org.jetbrains.kotlin.load.kotlin.PackagePartProvider
 import org.jetbrains.kotlin.name.Name
@@ -32,9 +38,11 @@ object FirJvmSessionFactory : FirAbstractSessionFactory() {
         sessionProvider: FirProjectSessionProvider,
         moduleDataProvider: ModuleDataProvider,
         projectEnvironment: AbstractProjectEnvironment,
+        extensionRegistrars: List<FirExtensionRegistrar>,
         scope: AbstractProjectFileSearchScope,
         packagePartProvider: PackagePartProvider,
         languageVersionSettings: LanguageVersionSettings,
+        predefinedJavaComponents: FirSharableJavaComponents? = null,
         registerExtraComponents: ((FirSession) -> Unit),
     ): FirSession {
         return createLibrarySession(
@@ -42,13 +50,15 @@ object FirJvmSessionFactory : FirAbstractSessionFactory() {
             sessionProvider,
             moduleDataProvider,
             languageVersionSettings,
+            extensionRegistrars,
             registerExtraComponents = {
-                it.registerCommonJavaComponents(projectEnvironment.getJavaModuleResolver())
+                it.registerDefaultComponents()
+                it.registerJavaComponents(projectEnvironment.getJavaModuleResolver(), predefinedJavaComponents)
                 registerExtraComponents(it)
             },
             createKotlinScopeProvider = { FirKotlinScopeProvider(::wrapScopeWithJvmMapped) },
-            createProviders = { session, builtinsModuleData, kotlinScopeProvider ->
-                listOf(
+            createProviders = { session, builtinsModuleData, kotlinScopeProvider, syntheticFunctionInterfaceProvider ->
+                listOfNotNull(
                     JvmClassFileBasedSymbolProvider(
                         session,
                         moduleDataProvider,
@@ -58,7 +68,7 @@ object FirJvmSessionFactory : FirAbstractSessionFactory() {
                         projectEnvironment.getFirJavaFacade(session, moduleDataProvider.allModuleData.last(), scope)
                     ),
                     FirBuiltinSymbolProvider(session, builtinsModuleData, kotlinScopeProvider),
-                    FirExtensionSyntheticFunctionInterfaceProvider(session, builtinsModuleData, kotlinScopeProvider),
+                    syntheticFunctionInterfaceProvider,
                     FirCloneableSymbolProvider(session, builtinsModuleData, kotlinScopeProvider),
                     OptionalAnnotationClassesProvider(
                         session,
@@ -82,6 +92,8 @@ object FirJvmSessionFactory : FirAbstractSessionFactory() {
         languageVersionSettings: LanguageVersionSettings = LanguageVersionSettingsImpl.DEFAULT,
         lookupTracker: LookupTracker? = null,
         enumWhenTracker: EnumWhenTracker? = null,
+        importTracker: ImportTracker? = null,
+        predefinedJavaComponents: FirSharableJavaComponents? = null,
         needRegisterJavaElementFinder: Boolean,
         registerExtraComponents: ((FirSession) -> Unit) = {},
         init: FirSessionConfigurator.() -> Unit = {}
@@ -93,15 +105,16 @@ object FirJvmSessionFactory : FirAbstractSessionFactory() {
             languageVersionSettings,
             lookupTracker,
             enumWhenTracker,
+            importTracker,
             init,
             registerExtraComponents = {
-                it.registerCommonJavaComponents(projectEnvironment.getJavaModuleResolver())
-                it.registerJavaSpecificResolveComponents()
+                it.registerDefaultComponents()
+                it.registerJavaComponents(projectEnvironment.getJavaModuleResolver(), predefinedJavaComponents)
                 registerExtraComponents(it)
             },
             registerExtraCheckers = { it.registerJvmCheckers() },
             createKotlinScopeProvider = { FirKotlinScopeProvider(::wrapScopeWithJvmMapped) },
-            createProviders = { session, kotlinScopeProvider, symbolProvider, generatedSymbolsProvider, syntheticFunctionInterfaceProvider, dependencies ->
+            createProviders = { session, kotlinScopeProvider, symbolProvider, generatedSymbolsProvider, dependencies ->
                 var symbolProviderForBinariesFromIncrementalCompilation: JvmClassFileBasedSymbolProvider? = null
                 var optionalAnnotationClassesProviderForBinariesFromIncrementalCompilation: OptionalAnnotationClassesProvider? = null
                 incrementalCompilationContext?.let {
@@ -138,7 +151,6 @@ object FirJvmSessionFactory : FirAbstractSessionFactory() {
                     symbolProviderForBinariesFromIncrementalCompilation,
                     generatedSymbolsProvider,
                     javaSymbolProvider,
-                    syntheticFunctionInterfaceProvider,
                     *dependencies.toTypedArray(),
                     optionalAnnotationClassesProviderForBinariesFromIncrementalCompilation,
                 )

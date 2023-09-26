@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2022 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -11,23 +11,23 @@ import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
 import org.jetbrains.kotlin.analysis.api.KtInitializerValue
 import org.jetbrains.kotlin.analysis.api.base.KtContextReceiver
 import org.jetbrains.kotlin.analysis.api.fir.KtFirAnalysisSession
-import org.jetbrains.kotlin.analysis.api.fir.KtSymbolByFirBuilder
 import org.jetbrains.kotlin.analysis.api.fir.annotations.KtFirAnnotationListForDeclaration
 import org.jetbrains.kotlin.analysis.api.fir.findPsi
 import org.jetbrains.kotlin.analysis.api.fir.symbols.pointers.*
 import org.jetbrains.kotlin.analysis.api.fir.utils.cached
-import org.jetbrains.kotlin.analysis.api.lifetime.KtLifetimeToken
 import org.jetbrains.kotlin.analysis.api.lifetime.withValidityAssertion
 import org.jetbrains.kotlin.analysis.api.symbols.*
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KtSymbolKind
 import org.jetbrains.kotlin.analysis.api.symbols.pointers.KtPsiBasedSymbolPointer
 import org.jetbrains.kotlin.analysis.api.symbols.pointers.KtSymbolPointer
 import org.jetbrains.kotlin.analysis.api.symbols.pointers.UnsupportedSymbolKind
+import org.jetbrains.kotlin.analysis.api.symbols.pointers.symbolPointerOfType
 import org.jetbrains.kotlin.analysis.api.types.KtType
-import org.jetbrains.kotlin.analysis.low.level.api.fir.api.LLFirResolveSession
+import org.jetbrains.kotlin.analysis.low.level.api.fir.util.errorWithFirSpecificEntries
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.descriptors.Visibility
 import org.jetbrains.kotlin.fir.containingClassLookupTag
+import org.jetbrains.kotlin.fir.declarations.FirDeclarationOrigin
 import org.jetbrains.kotlin.fir.declarations.FirResolvePhase
 import org.jetbrains.kotlin.fir.declarations.synthetic.FirSyntheticProperty
 import org.jetbrains.kotlin.fir.declarations.utils.*
@@ -37,6 +37,7 @@ import org.jetbrains.kotlin.fir.symbols.impl.isExtension
 import org.jetbrains.kotlin.fir.symbols.lazyResolveToPhase
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.psi.KtFile
 
 internal class KtFirKotlinPropertySymbol(
     override val firSymbol: FirPropertySymbol,
@@ -72,7 +73,7 @@ internal class KtFirKotlinPropertySymbol(
             }
         }
 
-    override val modality: Modality get() = withValidityAssertion { firSymbol.modalityOrFinal }
+    override val modality: Modality get() = withValidityAssertion { firSymbol.modality }
     override val visibility: Visibility get() = withValidityAssertion { firSymbol.visibility }
 
     override val annotationsList by cached {
@@ -97,6 +98,10 @@ internal class KtFirKotlinPropertySymbol(
         get() = withValidityAssertion {
             firSymbol.setterSymbol?.let { builder.callableBuilder.buildPropertyAccessorSymbol(it) } as? KtPropertySetterSymbol
         }
+    override val backingFieldSymbol: KtBackingFieldSymbol?
+        get() = withValidityAssertion {
+            firSymbol.backingFieldSymbol?.let { builder.callableBuilder.buildBackingFieldSymbol(it) }
+        }
 
     // NB: `field` in accessors indicates the property should have a backing field. To see that, though, we need BODY_RESOLVE.
     override val hasBackingField: Boolean
@@ -116,6 +121,8 @@ internal class KtFirKotlinPropertySymbol(
     override val isOverride: Boolean get() = withValidityAssertion { firSymbol.isOverride }
     override val isConst: Boolean get() = withValidityAssertion { firSymbol.isConst }
     override val isStatic: Boolean get() = withValidityAssertion { firSymbol.isStatic }
+    override val isActual: Boolean get() = withValidityAssertion { firSymbol.isActual }
+    override val isExpect: Boolean get() = withValidityAssertion { firSymbol.isExpect }
 
     override val hasGetter: Boolean get() = withValidityAssertion { firSymbol.getterSymbol != null }
     override val hasSetter: Boolean get() = withValidityAssertion { firSymbol.setterSymbol != null }
@@ -127,10 +134,25 @@ internal class KtFirKotlinPropertySymbol(
         }
 
         return when (val kind = symbolKind) {
-            KtSymbolKind.TOP_LEVEL -> KtFirTopLevelPropertySymbolPointer(
-                firSymbol.callableId,
-                FirCallableSignature.createSignature(firSymbol),
-            )
+            KtSymbolKind.TOP_LEVEL -> {
+                if (firSymbol.fir.origin is FirDeclarationOrigin.ScriptCustomization.ResultProperty) {
+                    val file = psi?.containingFile as? KtFile
+                    if (file == null) {
+                        errorWithFirSpecificEntries(
+                            "ResultProperty restoring supported only for psi-based symbols yet",
+                            fir = firSymbol.fir,
+                            psi = psi,
+                        )
+                    }
+
+                    KtFirResultPropertySymbolPointer(file.symbolPointerOfType<KtFirFileSymbol>())
+                } else {
+                    KtFirTopLevelPropertySymbolPointer(
+                        firSymbol.callableId,
+                        FirCallableSignature.createSignature(firSymbol),
+                    )
+                }
+            }
 
             KtSymbolKind.CLASS_MEMBER ->
                 KtFirMemberPropertySymbolPointer(

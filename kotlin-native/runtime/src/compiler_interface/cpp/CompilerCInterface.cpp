@@ -9,6 +9,7 @@
 #include "Runtime.h"
 #include "Exceptions.h"
 #include "MemorySharedRefs.hpp"
+#include "Natives.h"
 
 #define touchType(type) void touch##type(type*) {}
 #define touchFunction(function) void* touch##function() { return reinterpret_cast<void*>(&::function); }
@@ -53,8 +54,8 @@ touchFunction(FreezeSubgraph)
 touchFunction(CheckGlobalsAccessible)
 
 touchFunction(LookupInterfaceTableRecord)
-touchFunction(IsInstance)
-touchFunction(IsInstanceOfClassFast)
+touchFunction(IsSubtype)
+touchFunction(IsSubclassFast)
 
 touchFunction(ThrowException)
 touchFunction(Kotlin_getExceptionObject)
@@ -82,6 +83,10 @@ touchFunction(Kotlin_processObjectInMark)
 touchFunction(Kotlin_processArrayInMark)
 touchFunction(Kotlin_processFieldInMark)
 touchFunction(Kotlin_processEmptyObjectInMark)
+
+touchFunction(Kotlin_arrayGetElementAddress)
+touchFunction(Kotlin_intArrayGetElementAddress)
+touchFunction(Kotlin_longArrayGetElementAddress)
 
 #ifdef __cplusplus
 } // extern "C"

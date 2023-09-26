@@ -12,11 +12,7 @@ import org.jetbrains.kotlin.gradle.plugin.PropertiesProvider.Companion.kotlinPro
 import org.jetbrains.kotlin.gradle.plugin.mpp.*
 import org.jetbrains.kotlin.gradle.scripting.internal.ScriptingGradleSubplugin
 import org.jetbrains.kotlin.gradle.tasks.*
-
-const val PLUGIN_CLASSPATH_CONFIGURATION_NAME = "kotlinCompilerPluginClasspath"
-const val NATIVE_COMPILER_PLUGIN_CLASSPATH_CONFIGURATION_NAME = "kotlinNativeCompilerPluginClasspath"
-internal const val COMPILER_CLASSPATH_CONFIGURATION_NAME = "kotlinCompilerClasspath"
-internal const val KLIB_COMMONIZER_CLASSPATH_CONFIGURATION_NAME = "kotlinKlibCommonizerClasspath"
+import org.jetbrains.kotlin.gradle.utils.configureExperimentalTryK2
 
 const val KOTLIN_DSL_NAME = "kotlin"
 
@@ -33,22 +29,18 @@ internal open class KotlinJvmPlugin(
 
         internal fun Project.configureCompilerOptionsForTarget(
             extensionCompilerOptions: KotlinJvmCompilerOptions,
-            @Suppress("DEPRECATION") compilationsContainer: NamedDomainObjectContainer<out AbstractKotlinCompilation<KotlinJvmOptions>>
+            targetCompilerOptions: KotlinJvmCompilerOptions
         ) {
             extensionCompilerOptions.verbose.convention(logger.isDebugEnabled)
-            compilationsContainer.configureEach {
-                val jvmCompilerOptions = it.compilerOptions.options as KotlinJvmCompilerOptions
-                KotlinJvmCompilerOptionsHelper.syncOptionsAsConvention(
-                    from = extensionCompilerOptions,
-                    into = jvmCompilerOptions
-                )
-                jvmCompilerOptions.moduleName.convention(
-                    extensionCompilerOptions.moduleName.orElse(
-                        @Suppress("DEPRECATION")
-                        project.providers.provider { it.moduleName }
-                    )
-                )
-            }
+            extensionCompilerOptions.moduleName.convention(baseModuleName())
+            DefaultKotlinJavaToolchain.wireJvmTargetToToolchain(
+                extensionCompilerOptions,
+                project
+            )
+            KotlinJvmCompilerOptionsHelper.syncOptionsAsConvention(
+                from = extensionCompilerOptions,
+                into = targetCompilerOptions
+            )
         }
     }
 
@@ -65,7 +57,9 @@ internal open class KotlinJvmPlugin(
             {
                 object : HasCompilerOptions<KotlinJvmCompilerOptions> {
                     override val options: KotlinJvmCompilerOptions =
-                        project.objects.newInstance(KotlinJvmCompilerOptionsDefault::class.java)
+                        project.objects
+                            .newInstance(KotlinJvmCompilerOptionsDefault::class.java)
+                            .configureExperimentalTryK2(project)
                 }
             },
             { compilerOptions: KotlinJvmCompilerOptions ->
@@ -77,15 +71,15 @@ internal open class KotlinJvmPlugin(
             .apply {
                 disambiguationClassifier = null // don't add anything to the task names
             }
-
         val kotlinExtension = project.kotlinExtension as KotlinJvmProjectExtension
         kotlinExtension.target = target
-        project.configureCompilerOptionsForTarget(
-            kotlinExtension.compilerOptions,
-            target.compilations
-        )
 
         super.apply(project)
+
+        project.configureCompilerOptionsForTarget(
+            kotlinExtension.compilerOptions,
+            target.compilerOptions
+        )
 
         project.pluginManager.apply(ScriptingGradleSubplugin::class.java)
     }

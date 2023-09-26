@@ -7,10 +7,7 @@ package org.jetbrains.kotlin.fir.types
 
 import org.jetbrains.kotlin.builtins.PrimitiveType
 import org.jetbrains.kotlin.builtins.StandardNames
-import org.jetbrains.kotlin.descriptors.ClassKind
-import org.jetbrains.kotlin.descriptors.Modality
-import org.jetbrains.kotlin.descriptors.ValueClassKind
-import org.jetbrains.kotlin.descriptors.valueClassLoweringKind
+import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.declarations.*
 import org.jetbrains.kotlin.fir.declarations.utils.expandedConeType
@@ -24,15 +21,20 @@ import org.jetbrains.kotlin.fir.resolve.substitution.ConeSubstitutor
 import org.jetbrains.kotlin.fir.resolve.substitution.substitutorByMap
 import org.jetbrains.kotlin.fir.resolve.toSymbol
 import org.jetbrains.kotlin.fir.symbols.ConeClassLikeLookupTag
+import org.jetbrains.kotlin.fir.symbols.ConeClassifierLookupTag
 import org.jetbrains.kotlin.fir.symbols.ConeTypeParameterLookupTag
 import org.jetbrains.kotlin.fir.symbols.impl.*
 import org.jetbrains.kotlin.fir.symbols.lazyResolveToPhase
+import org.jetbrains.kotlin.fir.utils.exceptions.withConeTypeEntry
+import org.jetbrains.kotlin.fir.utils.exceptions.withFirLookupTagEntry
 import org.jetbrains.kotlin.name.*
 import org.jetbrains.kotlin.types.TypeCheckerState
 import org.jetbrains.kotlin.types.TypeCheckerState.SupertypesPolicy.DoCustomTransform
 import org.jetbrains.kotlin.types.TypeCheckerState.SupertypesPolicy.LowerIfFlexible
 import org.jetbrains.kotlin.types.TypeSystemCommonBackendContext
 import org.jetbrains.kotlin.types.model.*
+import org.jetbrains.kotlin.utils.exceptions.errorWithAttachment
+import org.jetbrains.kotlin.utils.exceptions.withPsiEntry
 
 class ErrorTypeConstructor(val reason: String) : TypeConstructorMarker {
     override fun toString(): String = reason
@@ -88,7 +90,9 @@ interface ConeTypeContext : TypeSystemContext, TypeSystemOptimizationContext, Ty
             is ConeClassLikeType -> fullyExpandedType(session)
             is ConeSimpleKotlinType -> this
             is ConeFlexibleType -> null
-            else -> error("Unknown simpleType: $this")
+            else -> errorWithAttachment("Unknown simpleType: ${this::class}") {
+                withConeTypeEntry("type", this@asSimpleType as? ConeKotlinType)
+            }
         }
     }
 
@@ -139,12 +143,12 @@ interface ConeTypeContext : TypeSystemContext, TypeSystemOptimizationContext, Ty
 
     override fun SimpleTypeMarker.isMarkedNullable(): Boolean {
         require(this is ConeKotlinType)
-        return this.nullability.isNullable
+        return fullyExpandedType(session).nullability.isNullable
     }
 
     override fun SimpleTypeMarker.withNullability(nullable: Boolean): SimpleTypeMarker {
         require(this is ConeKotlinType)
-        return withNullability(ConeNullability.create(nullable), session.typeContext)
+        return fullyExpandedType(session).withNullability(ConeNullability.create(nullable), session.typeContext) as SimpleTypeMarker
     }
 
     override fun SimpleTypeMarker.typeConstructor(): TypeConstructorMarker {
@@ -157,7 +161,9 @@ interface ConeTypeContext : TypeSystemContext, TypeSystemOptimizationContext, Ty
             is ConeStubType -> constructor
             is ConeDefinitelyNotNullType -> original.typeConstructor()
             is ConeIntegerLiteralType -> this
-            else -> error("?: $this")
+            else -> errorWithAttachment("Unknown simpleType: ${this::class.java}") {
+                withConeTypeEntry("type", this@typeConstructor as? ConeKotlinType)
+            }
         }
     }
 
@@ -264,7 +270,9 @@ interface ConeTypeContext : TypeSystemContext, TypeSystemOptimizationContext, Ty
             is FirAnonymousObjectSymbol -> symbol.fir.typeParameters[index].symbol.toLookupTag()
             is FirRegularClassSymbol -> symbol.fir.typeParameters[index].symbol.toLookupTag()
             is FirTypeAliasSymbol -> symbol.fir.typeParameters[index].symbol.toLookupTag()
-            else -> error("Unexpected FirClassLikeSymbol $symbol for ${this::class}, with classId ${(this as? ConeClassLikeLookupTag)?.classId}")
+            else -> errorWithAttachment("Unexpected FirClassLikeSymbol $symbol for ${this::class}") {
+                withFirLookupTagEntry("lookupTag", this@getParameter as? ConeClassLikeLookupTag)
+            }
         }
     }
 
@@ -480,13 +488,12 @@ interface ConeTypeContext : TypeSystemContext, TypeSystemOptimizationContext, Ty
         return when (this) {
             is ConeFlexibleType -> this.upperBound.isNullableType()
             is ConeTypeParameterType -> lookupTag.symbol.allBoundsAreNullableOrUnresolved()
-            is ConeTypeVariableType -> {
-                val symbol = lookupTag.toSymbol(session) ?: return false
-                when (symbol) {
-                    is FirClassSymbol -> false
-                    is FirTypeAliasSymbol -> symbol.fir.expandedConeType?.isNullableType() ?: false
-                    is FirTypeParameterSymbol -> symbol.allBoundsAreNullableOrUnresolved()
-                }
+            // NB: There's no branch for ConeTypeVariableType, i.e. it always returns false for them
+            // And while it seems reasonable to have similar semantics as for stub types, it would make some diagnostic test failing
+            // Thus, we leave the same semantics only for stubs (similar to TypeUtils.isNullableType)
+            is ConeStubType -> {
+                val symbol = (this.constructor.variable.defaultType.lookupTag.originalTypeParameter as? ConeTypeParameterLookupTag)?.symbol
+                symbol == null || symbol.allBoundsAreNullableOrUnresolved()
             }
             is ConeIntersectionType -> intersectedTypes.all { it.isNullableType() }
             is ConeClassLikeType -> directExpansionType(session)?.isNullableType() ?: false
@@ -522,9 +529,16 @@ interface ConeTypeContext : TypeSystemContext, TypeSystemOptimizationContext, Ty
     override fun TypeConstructorMarker.isFinalClassOrEnumEntryOrAnnotationClassConstructor(): Boolean {
         val firRegularClass = toFirRegularClass() ?: return false
 
-        return firRegularClass.modality == Modality.FINAL ||
-                firRegularClass.classKind == ClassKind.ENUM_ENTRY ||
-                firRegularClass.classKind == ClassKind.ANNOTATION_CLASS
+        // NB: This API is used to determine if a given type [isMostPreciseCovariantArgument] (at `typeMappingUtil.kt`),
+        // affecting the upper bound wildcard when mapping the enclosing type to [PsiType]. See KT-57578 for more details.
+        // The counterpart in K1, [ClassicTypeSystemContext], uses [ClassDescriptor.isFinalClass] in `ModalityUtils.kt`,
+        // which filters out `enum` class. It seems [ClassDescriptor.isFinalOrEnum] is for truly `final` class.
+        // That is, the overall API name---isFinalClassOr...---is misleading.
+        val classKind = firRegularClass.classKind
+        return classKind.isEnumEntry ||
+                classKind.isAnnotationClass ||
+                classKind.isObject ||
+                classKind.isClass && firRegularClass.symbol.modality == Modality.FINAL
     }
 
     override fun KotlinTypeMarker.hasAnnotation(fqName: FqName): Boolean {
@@ -535,7 +549,7 @@ interface ConeTypeContext : TypeSystemContext, TypeSystemOptimizationContext, Ty
         }
         val customAnnotations = attributes.customAnnotations
         return customAnnotations.any {
-            it.typeRef.coneTypeSafe<ConeKotlinType>()?.fullyExpandedType(session)?.classId?.asSingleFqName() == fqName
+            it.resolvedType.fullyExpandedType(session).classId?.asSingleFqName() == fqName
         }
     }
 
@@ -544,11 +558,11 @@ interface ConeTypeContext : TypeSystemContext, TypeSystemOptimizationContext, Ty
         // We don't check for compiler attributes because all of them doesn't have parameters
         val customAnnotations = attributes.customAnnotations
         val annotationCall = customAnnotations.firstOrNull {
-            it.typeRef.coneTypeSafe<ConeKotlinType>()?.fullyExpandedType(session)?.classId?.asSingleFqName() == fqName
+            it.resolvedType.fullyExpandedType(session).classId?.asSingleFqName() == fqName
         } ?: return null
         val argument = when (val argument = annotationCall.argumentMapping.mapping.values.firstOrNull() ?: return null) {
             is FirVarargArgumentsExpression -> argument.arguments.firstOrNull()
-            is FirArrayOfCall -> argument.arguments.firstOrNull()
+            is FirArrayLiteral -> argument.arguments.firstOrNull()
             is FirNamedArgumentExpression -> argument.expression
             else -> argument
         } ?: return null
@@ -629,7 +643,10 @@ interface ConeTypeContext : TypeSystemContext, TypeSystemOptimizationContext, Ty
     }
 
     private fun TypeConstructorMarker.unknownConstructorError(): Nothing {
-        error("Unknown type constructor: ${this::class}")
+        errorWithAttachment("Unknown type constructor: ${this::class.java}") {
+            withEntry("constructor", this@unknownConstructorError) { it.toString() }
+            withFirLookupTagEntry("constructorAsLookupTag", this@unknownConstructorError as? ConeClassifierLookupTag)
+        }
     }
 
     override fun substitutionSupertypePolicy(type: SimpleTypeMarker): TypeCheckerState.SupertypesPolicy {

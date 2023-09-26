@@ -3,7 +3,7 @@
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
-@file:Suppress("DuplicatedCode")
+@file:Suppress("DuplicatedCode", "unused")
 
 package org.jetbrains.kotlin.fir.expressions.impl
 
@@ -33,7 +33,7 @@ class FirLazyDelegatedConstructorCall @FirImplementationDetail constructor(
     override val annotations: List<FirAnnotation> get() = error("FirLazyDelegatedConstructorCall should be calculated before accessing")
     override val argumentList: FirArgumentList get() = error("FirLazyDelegatedConstructorCall should be calculated before accessing")
     override val contextReceiverArguments: List<FirExpression> get() = error("FirLazyDelegatedConstructorCall should be calculated before accessing")
-    override val dispatchReceiver: FirExpression get() = error("FirLazyDelegatedConstructorCall should be calculated before accessing")
+    override val dispatchReceiver: FirExpression? get() = error("FirLazyDelegatedConstructorCall should be calculated before accessing")
     override val isSuper: Boolean get() = !isThis
 
     override fun <R, D> acceptChildren(visitor: FirVisitor<R, D>, data: D) {
@@ -70,7 +70,7 @@ class FirLazyDelegatedConstructorCall @FirImplementationDetail constructor(
         constructedTypeRef = newConstructedTypeRef
     }
 
-    override fun replaceDispatchReceiver(newDispatchReceiver: FirExpression) {}
+    override fun replaceDispatchReceiver(newDispatchReceiver: FirExpression?) {}
 
     override fun replaceCalleeReference(newCalleeReference: FirReference) {
         calleeReference = newCalleeReference

@@ -21,7 +21,7 @@ dependencies {
     api(project(":compiler:fir:java"))
     api(project(":compiler:fir:entrypoint"))
     api(project(":compiler:fir:fir2ir"))
-    api(project(":compiler:fir:fir2ir:jvm-backend"))
+    implementation(project(":compiler:fir:fir2ir:jvm-backend"))
     api(project(":compiler:fir:checkers"))
     api(project(":compiler:fir:checkers:checkers.jvm"))
     api(project(":compiler:fir:checkers:checkers.js"))
@@ -32,11 +32,12 @@ dependencies {
     compileOnly(toolsJarApi())
     compileOnly(intellijCore())
     compileOnly(commonDependency("org.jetbrains.intellij.deps:trove4j"))
+    compileOnly(commonDependency("org.jetbrains.kotlin:kotlin-reflect")) { isTransitive = false }
 
     testApi(project(":compiler:backend"))
     testApi(project(":compiler:cli"))
     testApi(projectTests(":compiler:tests-common"))
-    testApi(commonDependency("junit:junit"))
+    testImplementation(libs.junit4)
 }
 
 sourceSets {
@@ -49,16 +50,6 @@ sourceSets {
 
 allprojects {
     optInToExperimentalCompilerApi()
-}
-
-tasks.withType<org.jetbrains.kotlin.gradle.dsl.KotlinCompile<*>> {
-    kotlinOptions {
-        languageVersion = "1.4"
-        apiVersion = "1.4"
-        freeCompilerArgs = freeCompilerArgs - "-progressive" + listOf(
-            "-Xskip-prerelease-check", "-Xsuppress-version-warnings", "-Xuse-mixed-named-arguments"
-        )
-    }
 }
 
 testsJar {}

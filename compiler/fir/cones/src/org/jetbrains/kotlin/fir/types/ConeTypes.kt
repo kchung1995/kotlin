@@ -6,6 +6,7 @@
 package org.jetbrains.kotlin.fir.types
 
 import org.jetbrains.kotlin.fir.diagnostics.ConeDiagnostic
+import org.jetbrains.kotlin.fir.diagnostics.ConeDiagnosticWithNullability
 import org.jetbrains.kotlin.fir.symbols.ConeClassLikeLookupTag
 import org.jetbrains.kotlin.fir.symbols.ConeClassifierLookupTag
 import org.jetbrains.kotlin.fir.types.impl.ConeClassLikeTypeImpl
@@ -50,7 +51,9 @@ class ConeErrorType(
         get() = ConeClassLikeErrorLookupTag(ClassId.fromString("<error>"))
 
     override val nullability: ConeNullability
-        get() = ConeNullability.UNKNOWN
+        get() = if (diagnostic is ConeDiagnosticWithNullability) {
+            if (diagnostic.isNullable) ConeNullability.NULLABLE else ConeNullability.NOT_NULL
+        } else ConeNullability.UNKNOWN
 
     override fun equals(other: Any?) = this === other
     override fun hashCode(): Int = System.identityHashCode(this)
@@ -141,7 +144,7 @@ data class ConeCapturedType(
     )
 
     override val typeArguments: Array<out ConeTypeProjection>
-        get() = emptyArray()
+        get() = EMPTY_ARRAY
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -208,18 +211,16 @@ class ConeRawType private constructor(
     }
 }
 
-/*
- * Contract of the intersection type: it is flat. It means that
- *   intersection type can not contains another intersection types
- *   inside it. To keep this contract construct new intersection types
- *   only via ConeTypeIntersector
+/**
+ * Contract of the intersection type: it is flat. It means that an intersection type can not contain another intersection type inside it.
+ * To comply with this contract, construct new intersection types only via [org.jetbrains.kotlin.fir.types.ConeTypeIntersector].
  */
 class ConeIntersectionType(
     val intersectedTypes: Collection<ConeKotlinType>,
     val alternativeType: ConeKotlinType? = null,
 ) : ConeSimpleKotlinType(), IntersectionTypeConstructorMarker {
     override val typeArguments: Array<out ConeTypeProjection>
-        get() = emptyArray()
+        get() = EMPTY_ARRAY
 
     override val nullability: ConeNullability
         get() = ConeNullability.NOT_NULL

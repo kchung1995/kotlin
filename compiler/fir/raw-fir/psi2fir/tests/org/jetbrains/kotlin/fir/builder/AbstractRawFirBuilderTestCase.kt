@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -21,8 +21,6 @@ import org.jetbrains.kotlin.fir.declarations.FirValueParameter
 import org.jetbrains.kotlin.fir.declarations.impl.FirResolvedDeclarationStatusImpl
 import org.jetbrains.kotlin.fir.expressions.*
 import org.jetbrains.kotlin.fir.expressions.impl.FirContractCallBlock
-import org.jetbrains.kotlin.fir.expressions.impl.FirNoReceiverExpression
-import org.jetbrains.kotlin.fir.expressions.impl.FirStubStatement
 import org.jetbrains.kotlin.fir.references.impl.FirStubReference
 import org.jetbrains.kotlin.fir.render
 import org.jetbrains.kotlin.fir.renderer.FirRenderer
@@ -67,7 +65,7 @@ abstract class AbstractRawFirBuilderTestCase : KtParsingTestCase(
         val file = createKtFile(filePath)
         val firFile = file.toFirFile(BodyBuildingMode.NORMAL)
         val firFileDump = FirRenderer.withDeclarationAttributes().renderElementAsString(firFile)
-        val expectedPath = filePath.replace(".kt", ".txt")
+        val expectedPath = filePath.replace(".${myFileExt}", ".txt")
         KotlinTestUtils.assertEqualsToFile(File(expectedPath), firFileDump)
     }
 
@@ -80,7 +78,7 @@ abstract class AbstractRawFirBuilderTestCase : KtParsingTestCase(
 
     protected fun KtFile.toFirFile(bodyBuildingMode: BodyBuildingMode = BodyBuildingMode.NORMAL): FirFile {
         val session = FirSessionFactoryHelper.createEmptySession()
-        return RawFirBuilder(
+        return PsiRawFirBuilder(
             session,
             StubFirScopeProvider,
             bodyBuildingMode = bodyBuildingMode
@@ -95,7 +93,6 @@ abstract class AbstractRawFirBuilderTestCase : KtParsingTestCase(
             if (hasNoAcceptAndTransform(this::class.simpleName, property.name)) continue
 
             when (val childElement = property.getter.apply { isAccessible = true }.call(this)) {
-                is FirNoReceiverExpression -> continue
                 is FirElement -> childElement.traverseChildren(result)
                 is List<*> -> childElement.filterIsInstance<FirElement>().forEach { it.traverseChildren(result) }
                 else -> continue
@@ -185,11 +182,11 @@ abstract class AbstractRawFirBuilderTestCase : KtParsingTestCase(
 }
 
 private fun throwTwiceVisitingError(element: FirElement, parent: FirElement?) {
-    if (element is FirTypeRef || element is FirNoReceiverExpression || element is FirTypeParameter ||
+    if (element is FirTypeRef || element is FirTypeParameter ||
         element is FirTypeProjection || element is FirValueParameter || element is FirAnnotation || element is FirFunctionTypeParameter ||
         element is FirEmptyContractDescription ||
         element is FirStubReference || element.isExtensionFunctionAnnotation || element is FirEmptyArgumentList ||
-        element is FirStubStatement || element === FirResolvedDeclarationStatusImpl.DEFAULT_STATUS_FOR_STATUSLESS_DECLARATIONS ||
+        element === FirResolvedDeclarationStatusImpl.DEFAULT_STATUS_FOR_STATUSLESS_DECLARATIONS ||
         ((parent is FirContractCallBlock || parent is FirContractDescription) && element is FirFunctionCall)
     ) {
         return

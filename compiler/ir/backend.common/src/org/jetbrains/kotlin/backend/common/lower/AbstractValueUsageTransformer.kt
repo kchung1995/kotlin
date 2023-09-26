@@ -5,7 +5,7 @@
 
 package org.jetbrains.kotlin.backend.common.lower
 
-import org.jetbrains.kotlin.backend.common.ir.innerInlinedBlockOrThis
+import org.jetbrains.kotlin.ir.util.innerInlinedBlockOrThis
 import org.jetbrains.kotlin.ir.IrBuiltIns
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.declarations.*
@@ -72,7 +72,6 @@ abstract class AbstractValueUsageTransformer(
             is IrSimpleFunctionSymbol -> this.useAs(returnTarget.owner.returnType)
             is IrConstructorSymbol -> this.useAs(irBuiltIns.unitType)
             is IrReturnableBlockSymbol -> this.useAs(returnTarget.owner.type)
-            else -> error(returnTarget)
         }
 
     protected open fun IrExpression.useAsResult(enclosing: IrExpression): IrExpression =

@@ -5,18 +5,21 @@
 
 package org.jetbrains.kotlin.ir.util
 
+import org.jetbrains.kotlin.builtins.PrimitiveType
+import org.jetbrains.kotlin.builtins.StandardNames
+import org.jetbrains.kotlin.builtins.UnsignedType
 import org.jetbrains.kotlin.descriptors.*
+import org.jetbrains.kotlin.descriptors.annotations.KotlinRetention
 import org.jetbrains.kotlin.ir.*
-import org.jetbrains.kotlin.ir.builders.declarations.addConstructor
-import org.jetbrains.kotlin.ir.builders.declarations.buildClass
-import org.jetbrains.kotlin.ir.builders.declarations.buildReceiverParameter
-import org.jetbrains.kotlin.ir.builders.declarations.buildTypeParameter
+import org.jetbrains.kotlin.ir.builders.IrBuilderWithScope
+import org.jetbrains.kotlin.ir.builders.declarations.*
+import org.jetbrains.kotlin.ir.builders.irImplicitCast
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.expressions.impl.*
+import org.jetbrains.kotlin.ir.overrides.IrUnimplementedOverridesStrategy
 import org.jetbrains.kotlin.ir.overrides.FakeOverrideBuilderStrategy
-import org.jetbrains.kotlin.ir.overrides.IrOverridingUtil
-import org.jetbrains.kotlin.ir.overrides.IrUnimplementedOverridesStrategy.ProcessAsFakeOverrides
+import org.jetbrains.kotlin.ir.overrides.IrFakeOverrideBuilder
 import org.jetbrains.kotlin.ir.symbols.*
 import org.jetbrains.kotlin.ir.symbols.impl.IrPropertySymbolImpl
 import org.jetbrains.kotlin.ir.symbols.impl.IrSimpleFunctionSymbolImpl
@@ -25,12 +28,13 @@ import org.jetbrains.kotlin.ir.types.*
 import org.jetbrains.kotlin.ir.types.impl.IrSimpleTypeImpl
 import org.jetbrains.kotlin.ir.types.impl.makeTypeProjection
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitor
+import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.SpecialNames
+import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.util.OperatorNameConventions
-import org.jetbrains.kotlin.utils.DFS
-import org.jetbrains.kotlin.utils.addIfNotNull
+import org.jetbrains.kotlin.utils.*
 import java.io.StringWriter
 
 /**
@@ -82,7 +86,7 @@ fun IrFunctionAccessExpression.getArgumentsWithSymbols(): List<Pair<IrValueParam
     }
 
     irFunction.valueParameters.forEach {
-        val arg = getValueArgument(it.descriptor as ValueParameterDescriptor)
+        val arg = getValueArgument((it.descriptor as ValueParameterDescriptor).index)
         if (arg != null) {
             res += (it.symbol to arg)
         }
@@ -168,10 +172,8 @@ fun IrMemberAccessExpression<*>.addArguments(args: Map<ParameterDescriptor, IrEx
     }
 }
 
-@ObsoleteDescriptorBasedAPI
-@Suppress("unused") // Used in kotlin-native
-fun IrMemberAccessExpression<*>.addArguments(args: List<Pair<ParameterDescriptor, IrExpression>>) =
-    this.addArguments(args.toMap())
+val IrField.hasNonConstInitializer: Boolean
+    get() = initializer?.expression.let { it != null && it !is IrConst<*> && it !is IrConstantValue }
 
 fun IrExpression.isNullConst() = this is IrConst<*> && this.kind == IrConstKind.Null
 
@@ -318,12 +320,28 @@ val IrClass.isClass get() = kind == ClassKind.CLASS
 val IrClass.isObject get() = kind == ClassKind.OBJECT
 val IrClass.isAnonymousObject get() = isClass && name == SpecialNames.NO_NAME_PROVIDED
 val IrClass.isNonCompanionObject: Boolean get() = isObject && !isCompanion
+
 val IrDeclarationWithName.fqNameWhenAvailable: FqName?
-    get() = when (val parent = parent) {
-        is IrDeclarationWithName -> parent.fqNameWhenAvailable?.child(name)
-        is IrPackageFragment -> parent.fqName.child(name)
-        else -> null
+    get() {
+        val sb = StringBuilder()
+        return if (computeFqNameString(this, sb)) FqName(sb.toString()) else null
     }
+
+private fun computeFqNameString(declaration: IrDeclarationWithName, result: StringBuilder): Boolean {
+    when (val parent = declaration.parent) {
+        is IrDeclarationWithName -> {
+            if (!computeFqNameString(parent, result)) return false
+        }
+        is IrPackageFragment -> {
+            val packageFqName = parent.packageFqName
+            if (!packageFqName.isRoot) result.append(packageFqName)
+        }
+        else -> return false
+    }
+    if (result.isNotEmpty()) result.append('.')
+    result.append(declaration.name.asString())
+    return true
+}
 
 val IrDeclaration.parentAsClass: IrClass
     get() = parent as? IrClass
@@ -348,10 +366,60 @@ fun IrAnnotationContainer.hasAnnotation(name: FqName) =
         it.symbol.owner.parentAsClass.hasEqualFqName(name)
     }
 
+fun IrAnnotationContainer.hasAnnotation(classId: ClassId) =
+    annotations.any { it.symbol.owner.parentAsClass.classId == classId }
+
 fun IrAnnotationContainer.hasAnnotation(symbol: IrClassSymbol) =
     annotations.any {
         it.symbol.owner.parentAsClass.symbol == symbol
     }
+
+fun IrConstructorCall.getAnnotationStringValue() = (getValueArgument(0) as? IrConst<*>)?.value as String?
+
+fun IrConstructorCall.getAnnotationStringValue(name: String): String {
+    val parameter = symbol.owner.valueParameters.single { it.name.asString() == name }
+    return (getValueArgument(parameter.index) as IrConst<*>).value as String
+}
+
+inline fun <reified T> IrConstructorCall.getAnnotationValueOrNull(name: String): T? =
+    getAnnotationValueOrNullImpl(name) as T?
+
+@PublishedApi
+internal fun IrConstructorCall.getAnnotationValueOrNullImpl(name: String): Any? {
+    val parameter = symbol.owner.valueParameters.atMostOne { it.name.asString() == name }
+    val argument = parameter?.let { getValueArgument(it.index) }
+    return (argument as IrConst<*>?)?.value
+}
+
+inline fun <reified T> IrDeclaration.getAnnotationArgumentValue(fqName: FqName, argumentName: String): T? =
+    getAnnotationArgumentValueImpl(fqName, argumentName) as T?
+
+@PublishedApi
+internal fun IrDeclaration.getAnnotationArgumentValueImpl(fqName: FqName, argumentName: String): Any? {
+    val annotation = this.annotations.findAnnotation(fqName) ?: return null
+    for (index in 0 until annotation.valueArgumentsCount) {
+        val parameter = annotation.symbol.owner.valueParameters[index]
+        if (parameter.name.asString() == argumentName) {
+            val actual = annotation.getValueArgument(index) as? IrConst<*>
+            return actual?.value
+        }
+    }
+    return null
+}
+
+fun IrClass.getAnnotationRetention(): KotlinRetention? {
+    val retentionArgument =
+        getAnnotation(StandardNames.FqNames.retention)?.getValueArgument(StandardClassIds.Annotations.ParameterNames.retentionValue)
+                as? IrGetEnumValue ?: return null
+    val retentionArgumentValue = retentionArgument.symbol.owner
+    return KotlinRetention.valueOf(retentionArgumentValue.name.asString())
+}
+
+// To be generalized to IrMemberAccessExpression as soon as properties get symbols.
+fun IrConstructorCall.getValueArgument(name: Name): IrExpression? {
+    val index = symbol.owner.valueParameters.find { it.name == name }?.index ?: return null
+    return getValueArgument(index)
+}
 
 
 val IrConstructor.constructedClassType get() = (parent as IrClass).thisReceiver?.type!!
@@ -397,11 +465,11 @@ fun IrValueParameter.hasDefaultValue(): Boolean = DFS.ifAny(
 fun ReferenceSymbolTable.referenceClassifier(classifier: ClassifierDescriptor): IrClassifierSymbol =
     when (classifier) {
         is TypeParameterDescriptor ->
-            referenceTypeParameter(classifier)
+            descriptorExtension.referenceTypeParameter(classifier)
         is ScriptDescriptor ->
-            referenceScript(classifier)
+            descriptorExtension.referenceScript(classifier)
         is ClassDescriptor ->
-            referenceClass(classifier)
+            descriptorExtension.referenceClass(classifier)
         else ->
             throw IllegalArgumentException("Unexpected classifier descriptor: $classifier")
     }
@@ -410,9 +478,9 @@ fun ReferenceSymbolTable.referenceClassifier(classifier: ClassifierDescriptor): 
 fun ReferenceSymbolTable.referenceFunction(callable: CallableDescriptor): IrFunctionSymbol =
     when (callable) {
         is ClassConstructorDescriptor ->
-            referenceConstructor(callable)
+            descriptorExtension.referenceConstructor(callable)
         is FunctionDescriptor ->
-            referenceSimpleFunction(callable)
+            descriptorExtension.referenceSimpleFunction(callable)
         else ->
             throw IllegalArgumentException("Unexpected callable descriptor: $callable")
     }
@@ -558,6 +626,9 @@ val IrDeclaration.parentClassOrNull: IrClass?
             else -> null
         }
     }
+
+val IrDeclaration.parentDeclarationsWithSelf: Sequence<IrDeclaration>
+    get() = generateSequence(this) { it.parent as? IrDeclaration }
 
 val IrFunction.allTypeParameters: List<IrTypeParameter>
     get() = if (this is IrConstructor)
@@ -731,7 +802,7 @@ fun IrClass.addSimpleDelegatingConstructor(
         this.visibility = superConstructor.visibility
         this.isPrimary = isPrimary
     }.also { constructor ->
-        constructor.valueParameters = superConstructor.valueParameters.mapIndexed { index, parameter ->
+        constructor.valueParameters = superConstructor.valueParameters.memoryOptimizedMapIndexed { index, parameter ->
             parameter.copyTo(constructor, index = index)
         }
 
@@ -794,16 +865,27 @@ fun IrValueParameter.copyTo(
 ): IrValueParameter {
     val symbol = IrValueParameterSymbolImpl()
     val defaultValueCopy = defaultValue?.let { originalDefault ->
-        factory.createExpressionBody(originalDefault.startOffset, originalDefault.endOffset) {
-            expression = originalDefault.expression.deepCopyWithVariables().also {
-                it.patchDeclarationParents(irFunction)
-            }
+        factory.createExpressionBody(
+            startOffset = originalDefault.startOffset,
+            endOffset = originalDefault.endOffset,
+            expression = originalDefault.expression.deepCopyWithVariables(),
+        ).apply {
+            expression.patchDeclarationParents(irFunction)
         }
     }
     return factory.createValueParameter(
-        startOffset, endOffset, origin, symbol,
-        name, index, type, varargElementType, isCrossinline = isCrossinline,
-        isNoinline = isNoinline, isHidden = false, isAssignable = isAssignable
+        startOffset = startOffset,
+        endOffset = endOffset,
+        origin = origin,
+        name = name,
+        type = type,
+        isAssignable = isAssignable,
+        symbol = symbol,
+        index = index,
+        varargElementType = varargElementType,
+        isCrossinline = isCrossinline,
+        isNoinline = isNoinline,
+        isHidden = false,
     ).also {
         it.parent = irFunction
         it.defaultValue = defaultValueCopy
@@ -825,13 +907,18 @@ fun IrTypeParameter.copyToWithoutSuperTypes(
 fun IrFunction.copyReceiverParametersFrom(from: IrFunction, substitutionMap: Map<IrTypeParameterSymbol, IrType>) {
     dispatchReceiverParameter = from.dispatchReceiverParameter?.run {
         factory.createValueParameter(
-            startOffset, endOffset, origin,
-            IrValueParameterSymbolImpl(),
-            name, index,
-            type.substitute(substitutionMap),
-            varargElementType?.substitute(substitutionMap),
-            isCrossinline, isNoinline,
-            isHidden, isAssignable
+            startOffset = startOffset,
+            endOffset = endOffset,
+            origin = origin,
+            name = name,
+            type = type.substitute(substitutionMap),
+            isAssignable = isAssignable,
+            symbol = IrValueParameterSymbolImpl(),
+            index = index,
+            varargElementType = varargElementType?.substitute(substitutionMap),
+            isCrossinline = isCrossinline,
+            isNoinline = isNoinline,
+            isHidden = isHidden,
         ).also { parameter ->
             parameter.parent = this@copyReceiverParametersFrom
         }
@@ -842,7 +929,7 @@ fun IrFunction.copyReceiverParametersFrom(from: IrFunction, substitutionMap: Map
 fun IrFunction.copyValueParametersFrom(from: IrFunction, substitutionMap: Map<IrTypeParameterSymbol, IrType>) {
     copyReceiverParametersFrom(from, substitutionMap)
     val shift = valueParameters.size
-    valueParameters += from.valueParameters.map {
+    valueParameters = valueParameters memoryOptimizedPlus from.valueParameters.map {
         it.copyTo(this, index = it.index + shift, type = it.type.substitute(substitutionMap))
     }
 }
@@ -866,12 +953,12 @@ fun IrTypeParametersContainer.copyTypeParameters(
     val oldToNewParameterMap = parameterMap.orEmpty().toMutableMap()
     // Any type parameter can figure in a boundary type for any other parameter.
     // Therefore, we first copy the parameters themselves, then set up their supertypes.
-    val newTypeParameters = srcTypeParameters.mapIndexed { i, sourceParameter ->
+    val newTypeParameters = srcTypeParameters.memoryOptimizedMapIndexed { i, sourceParameter ->
         sourceParameter.copyToWithoutSuperTypes(this, index = i + shift, origin = origin ?: sourceParameter.origin).also {
             oldToNewParameterMap[sourceParameter] = it
         }
     }
-    typeParameters += newTypeParameters
+    typeParameters = typeParameters memoryOptimizedPlus newTypeParameters
     srcTypeParameters.zip(newTypeParameters).forEach { (srcParameter, dstParameter) ->
         dstParameter.copySuperTypesFrom(srcParameter, oldToNewParameterMap)
     }
@@ -888,13 +975,13 @@ private fun IrTypeParameter.copySuperTypesFrom(source: IrTypeParameter, srcToDst
     val target = this
     val sourceParent = source.parent as IrTypeParametersContainer
     val targetParent = target.parent as IrTypeParametersContainer
-    target.superTypes = source.superTypes.map {
+    target.superTypes = source.superTypes.memoryOptimizedMap {
         it.remapTypeParameters(sourceParent, targetParent, srcToDstParameterMap)
     }
 }
 
 fun IrAnnotationContainer.copyAnnotations(): List<IrConstructorCall> {
-    return annotations.map { it.deepCopyWithSymbols(this as? IrDeclarationParent) }
+    return annotations.memoryOptimizedMap { it.deepCopyWithSymbols(this as? IrDeclarationParent) }
 }
 
 fun IrAnnotationContainer.copyAnnotationsWhen(filter: IrConstructorCall.() -> Boolean): List<IrConstructorCall> {
@@ -902,7 +989,7 @@ fun IrAnnotationContainer.copyAnnotationsWhen(filter: IrConstructorCall.() -> Bo
 }
 
 fun IrMutableAnnotationContainer.copyAnnotationsFrom(source: IrAnnotationContainer) {
-    annotations += source.copyAnnotations()
+    annotations = annotations memoryOptimizedPlus source.copyAnnotations()
 }
 
 fun makeTypeParameterSubstitutionMap(
@@ -929,13 +1016,15 @@ fun IrFunction.copyValueParametersToStatic(
 
     var shift = 0
     source.dispatchReceiverParameter?.let { originalDispatchReceiver ->
-        assert(dispatchReceiverType!!.isSubtypeOfClass(originalDispatchReceiver.type.classOrNull!!))
+        assert(dispatchReceiverType!!.isSubtypeOfClass(originalDispatchReceiver.type.classOrNull!!)) {
+            "Dispatch receiver type ${dispatchReceiverType.render()} is not a subtype of ${originalDispatchReceiver.type.render()}"
+        }
         val type = dispatchReceiverType.remapTypeParameters(
             (originalDispatchReceiver.parent as IrTypeParametersContainer).classIfConstructor,
             target.classIfConstructor
         )
 
-        target.valueParameters += originalDispatchReceiver.copyTo(
+        target.valueParameters = target.valueParameters memoryOptimizedPlus originalDispatchReceiver.copyTo(
             target,
             origin = originalDispatchReceiver.origin,
             index = shift++,
@@ -944,7 +1033,7 @@ fun IrFunction.copyValueParametersToStatic(
         )
     }
     source.extensionReceiverParameter?.let { originalExtensionReceiver ->
-        target.valueParameters += originalExtensionReceiver.copyTo(
+        target.valueParameters = target.valueParameters memoryOptimizedPlus originalExtensionReceiver.copyTo(
             target,
             origin = originalExtensionReceiver.origin,
             index = shift++,
@@ -954,7 +1043,7 @@ fun IrFunction.copyValueParametersToStatic(
 
     for (oldValueParameter in source.valueParameters) {
         if (oldValueParameter.index >= numValueParametersToCopy) break
-        target.valueParameters += oldValueParameter.copyTo(
+        target.valueParameters = target.valueParameters memoryOptimizedPlus oldValueParameter.copyTo(
             target,
             origin = origin,
             index = oldValueParameter.index + shift
@@ -1002,7 +1091,7 @@ fun IrType.remapTypeParameters(
                     IrSimpleTypeImpl(
                         classifier.symbol,
                         nullability,
-                        arguments.map {
+                        arguments.memoryOptimizedMap {
                             when (it) {
                                 is IrTypeProjection -> makeTypeProjection(
                                     it.type.remapTypeParameters(source, target, srcToDstParameterMap),
@@ -1020,10 +1109,13 @@ fun IrType.remapTypeParameters(
         else -> this
     }
 
-/* Copied from K/N */
 fun IrDeclarationContainer.addChild(declaration: IrDeclaration) {
     this.declarations += declaration
     declaration.setDeclarationsParent(this)
+}
+
+fun IrDeclarationContainer.addChildren(declarations: List<IrDeclaration>) {
+    declarations.forEach { this.addChild(it) }
 }
 
 fun <T : IrElement> T.setDeclarationsParent(parent: IrDeclarationParent): T {
@@ -1100,17 +1192,18 @@ fun IrFunction.createDispatchReceiverParameter(origin: IrDeclarationOrigin? = nu
     assert(dispatchReceiverParameter == null)
 
     dispatchReceiverParameter = factory.createValueParameter(
-        startOffset, endOffset,
-        origin ?: parentAsClass.origin,
-        IrValueParameterSymbolImpl(),
-        SpecialNames.THIS,
-        -1,
-        parentAsClass.defaultType,
-        null,
+        startOffset = startOffset,
+        endOffset = endOffset,
+        origin = origin ?: parentAsClass.origin,
+        name = SpecialNames.THIS,
+        type = parentAsClass.defaultType,
+        isAssignable = false,
+        symbol = IrValueParameterSymbolImpl(),
+        index = UNDEFINED_PARAMETER_INDEX,
+        varargElementType = null,
         isCrossinline = false,
         isNoinline = false,
         isHidden = false,
-        isAssignable = false
     ).apply {
         parent = this@createDispatchReceiverParameter
     }
@@ -1132,33 +1225,32 @@ val IrFunction.allParameters: List<IrValueParameter>
 val IrFunction.allParametersCount: Int
     get() = if (this is IrConstructor) explicitParametersCount + 1 else explicitParametersCount
 
-// This is essentially the same as FakeOverrideBuilder,
-// but it bypasses SymbolTable.
-// TODO: merge it with FakeOverrideBuilder.
-private class FakeOverrideBuilderForLowerings : FakeOverrideBuilderStrategy(
-    friendModules = emptyMap(),
-    unimplementedOverridesStrategy = ProcessAsFakeOverrides
+private object BindToNewEmptySymbols : FakeOverrideBuilderStrategy(
+    friendModules = emptyMap(), // TODO: this is probably not correct. Should be fixed by KT-61384. But it's not important for current usages
+    unimplementedOverridesStrategy = IrUnimplementedOverridesStrategy.ProcessAsFakeOverrides
 ) {
-    override fun linkFunctionFakeOverride(declaration: IrFunctionWithLateBinding, compatibilityMode: Boolean) {
-        declaration.acquireSymbol(IrSimpleFunctionSymbolImpl())
+    override fun linkFunctionFakeOverride(function: IrFunctionWithLateBinding, manglerCompatibleMode: Boolean) {
+        function.acquireSymbol(IrSimpleFunctionSymbolImpl())
     }
 
-    override fun linkPropertyFakeOverride(declaration: IrPropertyWithLateBinding, compatibilityMode: Boolean) {
+    override fun linkPropertyFakeOverride(property: IrPropertyWithLateBinding, manglerCompatibleMode: Boolean) {
         val propertySymbol = IrPropertySymbolImpl()
-        declaration.getter?.let { it.correspondingPropertySymbol = propertySymbol }
-        declaration.setter?.let { it.correspondingPropertySymbol = propertySymbol }
+        property.getter?.let { it.correspondingPropertySymbol = propertySymbol }
+        property.setter?.let { it.correspondingPropertySymbol = propertySymbol }
 
-        declaration.acquireSymbol(propertySymbol)
+        property.acquireSymbol(propertySymbol)
 
-        declaration.getter?.let {
-            it.correspondingPropertySymbol = declaration.symbol
-            linkFunctionFakeOverride(it as? IrFunctionWithLateBinding ?: error("Unexpected fake override getter: $it"), compatibilityMode)
+        property.getter?.let {
+            it.correspondingPropertySymbol = property.symbol
+            linkFunctionFakeOverride(it as? IrFunctionWithLateBinding ?: error("Unexpected fake override getter: $it"), manglerCompatibleMode)
         }
-        declaration.setter?.let {
-            it.correspondingPropertySymbol = declaration.symbol
-            linkFunctionFakeOverride(it as? IrFunctionWithLateBinding ?: error("Unexpected fake override setter: $it"), compatibilityMode)
+        property.setter?.let {
+            it.correspondingPropertySymbol = property.symbol
+            linkFunctionFakeOverride(it as? IrFunctionWithLateBinding ?: error("Unexpected fake override setter: $it"), manglerCompatibleMode)
         }
     }
+
+    override fun inFile(file: IrFile?, block: () -> Unit) { block() }
 }
 
 fun IrClass.addFakeOverrides(
@@ -1166,7 +1258,7 @@ fun IrClass.addFakeOverrides(
     implementedMembers: List<IrOverridableMember> = emptyList(),
     ignoredParentSymbols: List<IrSymbol> = emptyList()
 ) {
-    IrOverridingUtil(typeSystem, FakeOverrideBuilderForLowerings())
+    IrFakeOverrideBuilder(typeSystem, BindToNewEmptySymbols, emptyList())
         .buildFakeOverridesForClassUsingOverriddenSymbols(this,
                                                           implementedMembers = implementedMembers,
                                                           compatibilityMode = false,
@@ -1184,25 +1276,27 @@ fun IrFactory.createStaticFunctionWithReceivers(
     visibility: DescriptorVisibility = oldFunction.visibility,
     isFakeOverride: Boolean = oldFunction.isFakeOverride,
     copyMetadata: Boolean = true,
-    typeParametersFromContext: List<IrTypeParameter> = listOf()
+    typeParametersFromContext: List<IrTypeParameter> = listOf(),
+    remapMultiFieldValueClassStructure: (IrFunction, IrFunction, Map<IrValueParameter, IrValueParameter>?) -> Unit
 ): IrSimpleFunction {
-    return createFunction(
-        oldFunction.startOffset, oldFunction.endOffset,
-        origin,
-        IrSimpleFunctionSymbolImpl(),
-        name,
-        visibility,
-        modality,
-        oldFunction.returnType,
+    return createSimpleFunction(
+        startOffset = oldFunction.startOffset,
+        endOffset = oldFunction.endOffset,
+        origin = origin,
+        name = name,
+        visibility = visibility,
         isInline = oldFunction.isInline,
-        isExternal = false,
+        isExpect = oldFunction.isExpect,
+        returnType = oldFunction.returnType,
+        modality = modality,
+        symbol = IrSimpleFunctionSymbolImpl(),
         isTailrec = false,
         isSuspend = oldFunction.isSuspend,
-        isExpect = oldFunction.isExpect,
-        isFakeOverride = isFakeOverride,
         isOperator = oldFunction is IrSimpleFunction && oldFunction.isOperator,
         isInfix = oldFunction is IrSimpleFunction && oldFunction.isInfix,
+        isExternal = false,
         containerSource = oldFunction.containerSource,
+        isFakeOverride = isFakeOverride,
     ).apply {
         parent = irParent
 
@@ -1218,7 +1312,7 @@ fun IrFactory.createStaticFunctionWithReceivers(
         fun remap(type: IrType): IrType =
             type.remapTypeParameters(oldFunction, this, typeParameterMap)
 
-        typeParameters.forEach { it.superTypes = it.superTypes.map(::remap) }
+        typeParameters.forEach { it.superTypes = it.superTypes.memoryOptimizedMap(::remap) }
 
         annotations = oldFunction.annotations
 
@@ -1272,11 +1366,18 @@ fun IrFactory.createStaticFunctionWithReceivers(
             )
         }
 
+        remapMultiFieldValueClassStructure(oldFunction, this, null)
+
         if (copyMetadata) metadata = oldFunction.metadata
 
         copyAttributes(oldFunction as? IrAttributeContainer)
     }
 }
+
+fun IrBuilderWithScope.irCastIfNeeded(expression: IrExpression, to: IrType): IrExpression =
+    if (expression.type == to || to.isAny() || to.isNullableAny()) expression else irImplicitCast(expression, to)
+
+fun IrContainerExpression.unwrapBlock(): IrExpression = statements.singleOrNull() as? IrExpression ?: this
 
 /**
  * Appends the parameters in [contextParameters] to the type parameters of
@@ -1321,7 +1422,7 @@ private fun IrSimpleFunction.copyAndRenameConflictingTypeParametersFrom(
         newParameter.copySuperTypesFrom(oldParameter, parameterMap)
     }
 
-    typeParameters = typeParameters + newParameters
+    typeParameters = typeParameters memoryOptimizedPlus newParameters
 
     return newParameters
 }
@@ -1329,8 +1430,8 @@ private fun IrSimpleFunction.copyAndRenameConflictingTypeParametersFrom(
 val IrSymbol.isSuspend: Boolean
     get() = this is IrSimpleFunctionSymbol && owner.isSuspend
 
-fun IrSimpleFunction.allOverridden(includeSelf: Boolean = false): List<IrSimpleFunction> {
-    val result = mutableListOf<IrSimpleFunction>()
+fun <T : IrOverridableDeclaration<*>> T.allOverridden(includeSelf: Boolean = false): List<T> {
+    val result = mutableListOf<T>()
     if (includeSelf) {
         result.add(this)
     }
@@ -1341,7 +1442,8 @@ fun IrSimpleFunction.allOverridden(includeSelf: Boolean = false): List<IrSimpleF
         when (overridden.size) {
             0 -> return result
             1 -> {
-                current = overridden[0].owner
+                @Suppress("UNCHECKED_CAST")
+                current = overridden[0].owner as T
                 result.add(current)
             }
             else -> {
@@ -1353,9 +1455,9 @@ fun IrSimpleFunction.allOverridden(includeSelf: Boolean = false): List<IrSimpleF
     }
 }
 
-private fun computeAllOverridden(function: IrSimpleFunction, result: MutableSet<IrSimpleFunction>) {
-    for (overriddenSymbol in function.overriddenSymbols) {
-        val override = overriddenSymbol.owner
+private fun <T : IrOverridableDeclaration<*>> computeAllOverridden(overridable: T, result: MutableSet<T>) {
+    for (overriddenSymbol in overridable.overriddenSymbols) {
+        @Suppress("UNCHECKED_CAST") val override = overriddenSymbol.owner as T
         if (result.add(override)) {
             computeAllOverridden(override, result)
         }
@@ -1393,14 +1495,15 @@ val IrFunction.isValueClassTypedEquals: Boolean
 
 /**
  * The method is used to calculate the previous offset from the current one to prevent situations when it can calculate
- * [UNDEFINED_OFFSET] from 0 offset and -2 offset from the [UNDEFINED OFFSET]
+ * [UNDEFINED_OFFSET] from 0 offset and [SYNTHETIC_OFFSET] offset from the [UNDEFINED OFFSET]
  */
 val Int.previousOffset
     get(): Int =
-        when (compareTo(0)) {
+        when (this) {
             0 -> 0
-            -1 -> UNDEFINED_OFFSET
-            else -> minus(1)
+            UNDEFINED_OFFSET -> UNDEFINED_OFFSET
+            SYNTHETIC_OFFSET -> SYNTHETIC_OFFSET
+            else -> if (this > 0) minus(1) else error("Invalid offset appear")
         }
 
 fun IrAttributeContainer.extractRelatedDeclaration(): IrDeclaration? {
@@ -1411,3 +1514,37 @@ fun IrAttributeContainer.extractRelatedDeclaration(): IrDeclaration? {
         else -> null
     }
 }
+
+inline fun <reified Symbol : IrSymbol> IrSymbol.unexpectedSymbolKind(): Nothing {
+    throw IllegalArgumentException("Unexpected kind of ${Symbol::class.java.typeName}: $this")
+}
+
+private fun Any?.toIrConstOrNull(irType: IrType, startOffset: Int = SYNTHETIC_OFFSET, endOffset: Int = SYNTHETIC_OFFSET): IrConst<*>? {
+    if (this == null) return IrConstImpl.constNull(startOffset, endOffset, irType)
+
+    val constType = irType.makeNotNull().removeAnnotations()
+    return when (irType.getPrimitiveType()) {
+        PrimitiveType.BOOLEAN -> IrConstImpl.boolean(startOffset, endOffset, constType, this as Boolean)
+        PrimitiveType.CHAR -> IrConstImpl.char(startOffset, endOffset, constType, this as Char)
+        PrimitiveType.BYTE -> IrConstImpl.byte(startOffset, endOffset, constType, (this as Number).toByte())
+        PrimitiveType.SHORT -> IrConstImpl.short(startOffset, endOffset, constType, (this as Number).toShort())
+        PrimitiveType.INT -> IrConstImpl.int(startOffset, endOffset, constType, (this as Number).toInt())
+        PrimitiveType.FLOAT -> IrConstImpl.float(startOffset, endOffset, constType, (this as Number).toFloat())
+        PrimitiveType.LONG -> IrConstImpl.long(startOffset, endOffset, constType, (this as Number).toLong())
+        PrimitiveType.DOUBLE -> IrConstImpl.double(startOffset, endOffset, constType, (this as Number).toDouble())
+        null -> when (constType.getUnsignedType()) {
+            UnsignedType.UBYTE -> IrConstImpl.byte(startOffset, endOffset, constType, (this as Number).toByte())
+            UnsignedType.USHORT -> IrConstImpl.short(startOffset, endOffset, constType, (this as Number).toShort())
+            UnsignedType.UINT -> IrConstImpl.int(startOffset, endOffset, constType, (this as Number).toInt())
+            UnsignedType.ULONG -> IrConstImpl.long(startOffset, endOffset, constType, (this as Number).toLong())
+            null -> when {
+                constType.isString() -> IrConstImpl.string(startOffset, endOffset, constType, this as String)
+                else -> null
+            }
+        }
+    }
+}
+
+fun Any?.toIrConst(irType: IrType, startOffset: Int = SYNTHETIC_OFFSET, endOffset: Int = SYNTHETIC_OFFSET): IrConst<*> =
+    toIrConstOrNull(irType, startOffset, endOffset)
+        ?: throw UnsupportedOperationException("Unsupported const element type ${irType.makeNotNull().render()}")

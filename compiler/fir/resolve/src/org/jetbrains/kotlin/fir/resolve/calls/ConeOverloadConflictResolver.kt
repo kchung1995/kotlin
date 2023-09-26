@@ -8,14 +8,23 @@ package org.jetbrains.kotlin.fir.resolve.calls
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.declarations.FirMemberDeclaration
+import org.jetbrains.kotlin.fir.declarations.getSingleCompatibleOrWeaklyIncompatibleExpectForActualOrNull
+import org.jetbrains.kotlin.fir.declarations.utils.isActual
+import org.jetbrains.kotlin.fir.declarations.utils.isExpect
 import org.jetbrains.kotlin.fir.declarations.utils.modality
-import org.jetbrains.kotlin.fir.render
 import org.jetbrains.kotlin.fir.resolve.BodyResolveComponents
 import org.jetbrains.kotlin.fir.resolve.inference.ConeTypeParameterBasedTypeVariable
 import org.jetbrains.kotlin.fir.resolve.inference.InferenceComponents
 import org.jetbrains.kotlin.fir.resolve.substitution.substitutorByMap
+import org.jetbrains.kotlin.fir.scopes.*
+import org.jetbrains.kotlin.fir.scopes.impl.overrides
 import org.jetbrains.kotlin.fir.symbols.ConeTypeParameterLookupTag
+import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.types.coneType
+import org.jetbrains.kotlin.fir.unwrapSubstitutionOverrides
+import org.jetbrains.kotlin.fir.utils.exceptions.withFirEntry
 import org.jetbrains.kotlin.resolve.calls.inference.model.NewConstraintSystemImpl
 import org.jetbrains.kotlin.resolve.calls.inference.model.SimpleConstraintSystemConstraintPosition
 import org.jetbrains.kotlin.resolve.calls.results.FlatSignature
@@ -25,20 +34,30 @@ import org.jetbrains.kotlin.types.model.KotlinTypeMarker
 import org.jetbrains.kotlin.types.model.TypeParameterMarker
 import org.jetbrains.kotlin.types.model.TypeSubstitutorMarker
 import org.jetbrains.kotlin.types.model.TypeSystemInferenceExtensionContext
+import org.jetbrains.kotlin.utils.addToStdlib.runIf
+import org.jetbrains.kotlin.utils.exceptions.errorWithAttachment
 
 typealias CandidateSignature = FlatSignature<Candidate>
 
 class ConeOverloadConflictResolver(
     specificityComparator: TypeSpecificityComparator,
     inferenceComponents: InferenceComponents,
-    transformerComponents: BodyResolveComponents
-) : AbstractConeCallConflictResolver(specificityComparator, inferenceComponents, transformerComponents) {
+    transformerComponents: BodyResolveComponents,
+) : AbstractConeCallConflictResolver(
+    specificityComparator,
+    inferenceComponents,
+    transformerComponents,
+    considerMissingArgumentsInSignatures = false,
+) {
 
     override fun chooseMaximallySpecificCandidates(
         candidates: Set<Candidate>,
-        discriminateAbstracts: Boolean
+        discriminateAbstracts: Boolean,
     ): Set<Candidate> = chooseMaximallySpecificCandidates(candidates, discriminateAbstracts, discriminateGenerics = true)
 
+    /**
+     * Partial mirror of [org.jetbrains.kotlin.resolve.calls.results.OverloadingConflictResolver.chooseMaximallySpecificCandidates]
+     */
     private fun chooseMaximallySpecificCandidates(
         candidates: Set<Candidate>,
         discriminateAbstracts: Boolean,
@@ -52,14 +71,67 @@ class ConeOverloadConflictResolver(
             else
                 candidates
 
+        // The same logic as at
+        val noOverrides = filterOverrides(fixedCandidates)
+
         return chooseMaximallySpecificCandidates(
-            fixedCandidates,
+            noOverrides,
             discriminateGenerics,
             discriminateAbstracts,
             discriminateSAMs = true,
             discriminateSuspendConversions = true,
             discriminateByUnwrappedSmartCastOrigin = true,
         )
+    }
+
+    /**
+     * See K1 version at OverridingUtil.filterOverrides
+     */
+    private fun filterOverrides(
+        candidateSet: Set<Candidate>,
+    ): Set<Candidate> {
+        if (candidateSet.size <= 1) return candidateSet
+
+        val result = mutableSetOf<Candidate>()
+
+        // Assuming `overrides` is a partial order, this loop leaves minimal elements of `candidateSet` in `result`.
+        // Namely, it leaves in `result` only candidates, for any pair of them (x, y): !x.overrides(y) && !y.overrides(x)
+        // And for any pair original candidates (x, y) if x.overrides(y) && !y.overrides(x) then `x` belongs `result`
+        outerLoop@ for (me in candidateSet) {
+            val iterator = result.iterator()
+            while (iterator.hasNext()) {
+                val other = iterator.next()
+                if (me.overrides(other)) {
+                    iterator.remove()
+                } else if (other.overrides(me)) {
+                    continue@outerLoop
+                }
+            }
+
+            result.add(me)
+        }
+
+        require(result.isNotEmpty()) { "All candidates filtered out from $candidateSet" }
+        return result
+    }
+
+    private fun Candidate.overrides(other: Candidate): Boolean {
+        val symbol = symbol
+        if (symbol !is FirCallableSymbol || other.symbol !is FirCallableSymbol) return false
+
+        val otherOriginal = (other.symbol as FirCallableSymbol).unwrapSubstitutionOverrides()
+        if (symbol.unwrapSubstitutionOverrides<FirCallableSymbol<*>>() == otherOriginal) return true
+
+        val scope = originScope as? FirTypeScope ?: return false
+
+        @Suppress("UNCHECKED_CAST")
+        val overriddenProducer = when (symbol) {
+            is FirNamedFunctionSymbol -> FirTypeScope::processOverriddenFunctions as ProcessAllOverridden<FirCallableSymbol<*>>
+            is FirPropertySymbol -> FirTypeScope::processOverriddenProperties as ProcessAllOverridden<FirCallableSymbol<*>>
+            else -> return false
+        }
+
+        return overrides(MemberWithBaseScope(symbol, scope), otherOriginal, overriddenProducer)
     }
 
     private fun chooseCandidatesWithMostSpecificInvokeReceiver(candidates: Set<Candidate>): Set<Candidate> {
@@ -199,7 +271,9 @@ class ConeOverloadConflictResolver(
     ): Candidate? {
         if (candidates.size <= 1) return candidates.singleOrNull()
 
-        val candidateSignatures = candidates.map { candidateCall ->
+        val candidatesWithoutActualizedExpects = filterOutActualizedExpectCandidates(candidates)
+
+        val candidateSignatures = candidatesWithoutActualizedExpects.map { candidateCall ->
             createFlatSignature(candidateCall)
         }
 
@@ -210,6 +284,23 @@ class ConeOverloadConflictResolver(
         }
 
         return bestCandidatesByParameterTypes.exactMaxWith()?.origin
+    }
+
+    private fun filterOutActualizedExpectCandidates(candidates: Set<Candidate>): Set<Candidate> {
+        val expectForActualSymbols = candidates
+            .mapNotNullTo(mutableSetOf()) {
+                val callableSymbol = it.symbol as? FirCallableSymbol<*> ?: return@mapNotNullTo null
+                runIf(callableSymbol.isActual) { callableSymbol.getSingleCompatibleOrWeaklyIncompatibleExpectForActualOrNull() }
+            }
+
+        return if (expectForActualSymbols.isEmpty()) {
+            candidates // Optimization: in most cases, there are no expectForActualSymbols that's why filtering and allocation are not performed
+        } else {
+            candidates.filterTo(mutableSetOf()) { candidate ->
+                val symbol = candidate.symbol
+                symbol is FirCallableSymbol<*> && (!symbol.isExpect || symbol !in expectForActualSymbols)
+            }
+        }
     }
 
     /**
@@ -227,21 +318,23 @@ class ConeOverloadConflictResolver(
     private fun List<CandidateSignature>.exactMaxWith(): CandidateSignature? {
         var result: CandidateSignature? = null
         for (candidate in this) {
-            if (result == null || isOfNotLessSpecificShape(candidate, result)) {
+            if (result == null || checkExpectAndNotLessSpecificShape(candidate, result)) {
                 result = candidate
             }
         }
         if (result == null) return null
-        if (any { it != result && isOfNotLessSpecificShape(it, result) }) {
+        if (any { it != result && checkExpectAndNotLessSpecificShape(it, result) }) {
             return null
         }
         return result
     }
 
-    private fun isOfNotLessSpecificShape(
+    private fun checkExpectAndNotLessSpecificShape(
         call1: FlatSignature<Candidate>,
         call2: FlatSignature<Candidate>
     ): Boolean {
+        if (!call1.isExpect && call2.isExpect) return true
+        if (call1.isExpect && !call2.isExpect) return false
         val hasVarargs1 = call1.hasVarargs
         val hasVarargs2 = call2.hasVarargs
         if (hasVarargs1 && !hasVarargs2) return false
@@ -271,7 +364,9 @@ class ConeSimpleConstraintSystemImpl(val system: NewConstraintSystemImpl, val se
             for (upperBound in typeParameter.symbol.resolvedBounds) {
                 addSubtypeConstraint(
                     substitutionMap[typeParameter.typeParameterSymbol]
-                        ?: error("No ${typeParameter.symbol.fir.render()} in substitution map"),
+                        ?: errorWithAttachment("No ${typeParameter.symbol.fir::class.java} in substitution map") {
+                            withFirEntry("typeParameter", typeParameter.symbol.fir)
+                        },
                     substitutor.substituteOrSelf(upperBound.coneType)
                 )
             }

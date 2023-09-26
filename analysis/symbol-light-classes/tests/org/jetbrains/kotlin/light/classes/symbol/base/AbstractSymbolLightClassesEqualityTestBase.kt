@@ -6,13 +6,11 @@
 package org.jetbrains.kotlin.light.classes.symbol.base
 
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.SimpleModificationTracker
 import com.intellij.psi.JavaElementVisitor
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiElementVisitor
 import com.intellij.psi.PsiEnumConstant
-import org.jetbrains.kotlin.analysis.providers.createAllLibrariesModificationTracker
-import org.jetbrains.kotlin.analysis.providers.createProjectWideOutOfBlockModificationTracker
+import org.jetbrains.kotlin.analysis.providers.KotlinGlobalModificationService
 import org.jetbrains.kotlin.analysis.test.framework.test.configurators.AnalysisApiTestConfigurator
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.test.model.TestModule
@@ -33,33 +31,36 @@ abstract class AbstractSymbolLightClassesEqualityTestBase(
     final override fun doTestByFileStructure(ktFiles: List<KtFile>, module: TestModule, testServices: TestServices) {
         val lightClasses = lightClassesToCheck(ktFiles, module, testServices)
         if (lightClasses.isEmpty()) return
-        val project = lightClasses.first().project
-        val modificationTracker = if (isTestAgainstCompiledCode) {
-            project.createAllLibrariesModificationTracker()
-        } else {
-            project.createProjectWideOutOfBlockModificationTracker()
-        } as SimpleModificationTracker
 
-        val testVisitor = createTestVisitor(modificationTracker, testServices.assertions)
+        val testVisitor = createTestVisitor(lightClasses.first().project, testServices.assertions)
         for (lightClass in lightClasses) {
             lightClass.accept(testVisitor)
         }
     }
 
+    private fun invalidateCaches(project: Project) {
+        val globalModificationService = KotlinGlobalModificationService.getInstance(project)
+        if (isTestAgainstCompiledCode) {
+            globalModificationService.publishGlobalModuleStateModification()
+        } else {
+            globalModificationService.publishGlobalSourceOutOfBlockModification()
+        }
+    }
+
     private fun createTestVisitor(
-        modificationTracker: SimpleModificationTracker,
+        project: Project,
         assertions: AssertionsService,
     ): PsiElementVisitor = object : JavaElementVisitor() {
         override fun visitClass(aClass: PsiClass) {
-            compareArrayElementsWithInvalidation(aClass, PsiClass::methods)
-            compareArrayElementsWithInvalidation(aClass, PsiClass::fields)
-            compareArrayElementsWithInvalidation(aClass, PsiClass::innerClasses)
+            compareArrayElementsWithInvalidation(aClass, PsiClass::getMethods)
+            compareArrayElementsWithInvalidation(aClass, PsiClass::getFields)
+            compareArrayElementsWithInvalidation(aClass, PsiClass::getInnerClasses)
 
             super.visitClass(aClass)
         }
 
         override fun visitEnumConstant(enumConstant: PsiEnumConstant) {
-            compareElementsWithInvalidation(enumConstant, PsiEnumConstant::initializingClass)
+            compareElementsWithInvalidation(enumConstant, PsiEnumConstant::getInitializingClass)
 
             super.visitEnumConstant(enumConstant)
         }
@@ -70,7 +71,7 @@ abstract class AbstractSymbolLightClassesEqualityTestBase(
             comparator: (before: R, after: R) -> Unit = ::assertElementEquals,
         ) {
             val before = element.accessor()
-            modificationTracker.incModificationCount()
+            invalidateCaches(project)
 
             val after = element.accessor()
             comparator(before, after)

@@ -7,8 +7,9 @@ package org.jetbrains.kotlin.fir.tree.generator.printer
 
 import org.jetbrains.kotlin.fir.tree.generator.declarationAttributesType
 import org.jetbrains.kotlin.fir.tree.generator.model.*
-import org.jetbrains.kotlin.util.SmartPrinter
-import org.jetbrains.kotlin.util.withIndent
+import org.jetbrains.kotlin.generators.tree.typeWithArguments
+import org.jetbrains.kotlin.utils.SmartPrinter
+import org.jetbrains.kotlin.utils.withIndent
 import java.io.File
 
 fun Builder.generateCode(generationPath: File): GeneratedFile {
@@ -17,7 +18,7 @@ fun Builder.generateCode(generationPath: File): GeneratedFile {
     val stringBuilder = StringBuilder()
     SmartPrinter(stringBuilder).apply {
         printCopyright()
-        println("@file:Suppress(\"DuplicatedCode\")")
+        println("@file:Suppress(\"DuplicatedCode\", \"unused\")")
         println()
         println("package $packageName")
         println()
@@ -82,6 +83,7 @@ private fun SmartPrinter.printBuilder(builder: Builder) {
                 println("return ${builder.implementation.type}(")
                 withIndent {
                     for (field in builder.allFields) {
+                        if (field.invisibleField) continue
                         val name = field.name
                         print(name)
                         if (field.isMutableOrEmpty) print(".toMutableOrEmpty()")
@@ -127,19 +129,20 @@ private fun SmartPrinter.printBuilder(builder: Builder) {
     }
 }
 
+internal val Field.invisibleField: Boolean get() = customInitializationCall != null
 
-private val String.nullable: String get() = if (endsWith("?")) this else "$this?"
-private fun FieldWithDefault.needBackingField(fieldIsUseless: Boolean) = (!nullable || notNull) && origin !is FieldList && if (fieldIsUseless) {
-    defaultValueInImplementation == null
-} else {
-    defaultValueInBuilder == null
-}
+private fun FieldWithDefault.needBackingField(fieldIsUseless: Boolean) =
+    (!nullable || notNull) && origin !is FieldList && if (fieldIsUseless) {
+        defaultValueInImplementation == null
+    } else {
+        defaultValueInBuilder == null
+    }
 
 private fun FieldWithDefault.needNotNullDelegate(fieldIsUseless: Boolean) = needBackingField(fieldIsUseless) && (type == "Boolean" || type == "Int")
 
 
 private fun SmartPrinter.printFieldInBuilder(field: FieldWithDefault, builder: Builder, fieldIsUseless: Boolean): Pair<Boolean, Boolean> {
-    if (field.withGetter && !fieldIsUseless) return false to false
+    if (field.withGetter && !fieldIsUseless || field.invisibleField) return false to false
     if (field.origin is FieldList) {
         printFieldListInBuilder(field.origin, builder, fieldIsUseless)
         return true to false
@@ -278,9 +281,11 @@ private fun SmartPrinter.printDslBuildFunction(
 
 private fun SmartPrinter.printDslBuildCopyFunction(
     builder: LeafBuilder,
-    hasRequiredFields: Boolean
+    hasRequiredFields: Boolean,
 ) {
-    println("@OptIn(ExperimentalContracts::class)")
+    val optIns =
+        builder.allFields.filter { !it.invisibleField }.mapNotNullTo(mutableSetOf("ExperimentalContracts")) { it.optInAnnotation?.type }
+    println("@OptIn(${optIns.joinToString { "$it::class" }})")
     print("inline ")
     print("fun ")
     builder.implementation.element.typeArguments.takeIf { it.isNotEmpty() }?.let {
@@ -303,6 +308,7 @@ private fun SmartPrinter.printDslBuildCopyFunction(
         println("val copyBuilder = $builderType()")
         for (field in builder.allFields) {
             when {
+                field.invisibleField -> {}
                 field.origin is FieldList -> println("copyBuilder.${field.name}.addAll(original.${field.name})")
                 field.type == declarationAttributesType.type -> println("copyBuilder.${field.name} = original.${field.name}.copy()")
                 field.notNull -> println("original.${field.name}?.let { copyBuilder.${field.name} = it }")

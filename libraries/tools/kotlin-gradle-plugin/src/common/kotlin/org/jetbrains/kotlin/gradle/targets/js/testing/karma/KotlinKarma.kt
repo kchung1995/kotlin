@@ -21,7 +21,6 @@ import org.jetbrains.kotlin.gradle.internal.testing.TCServiceMessagesClientSetti
 import org.jetbrains.kotlin.gradle.internal.testing.TCServiceMessagesTestExecutionSpec
 import org.jetbrains.kotlin.gradle.internal.testing.TCServiceMessagesTestExecutor
 import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
-import org.jetbrains.kotlin.gradle.plugin.PropertiesProvider
 import org.jetbrains.kotlin.gradle.plugin.PropertiesProvider.Companion.kotlinPropertiesProvider
 import org.jetbrains.kotlin.gradle.plugin.internal.MppTestReportHelper
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinJsCompilation
@@ -31,28 +30,29 @@ import org.jetbrains.kotlin.gradle.targets.js.appendConfigsFromDir
 import org.jetbrains.kotlin.gradle.targets.js.dsl.WebpackRulesDsl.Companion.webpackRulesContainer
 import org.jetbrains.kotlin.gradle.targets.js.internal.parseNodeJsStackTraceAsJvm
 import org.jetbrains.kotlin.gradle.targets.js.jsQuoted
-import org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsRootPlugin
 import org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsRootPlugin.Companion.kotlinNodeJsExtension
 import org.jetbrains.kotlin.gradle.targets.js.npm.npmProject
 import org.jetbrains.kotlin.gradle.targets.js.testing.*
 import org.jetbrains.kotlin.gradle.targets.js.webpack.KotlinWebpackConfig
 import org.jetbrains.kotlin.gradle.tasks.KotlinTest
-import org.jetbrains.kotlin.gradle.testing.internal.reportsDir
 import org.jetbrains.kotlin.gradle.utils.appendLine
-import org.jetbrains.kotlin.gradle.utils.isParentOf
+import org.jetbrains.kotlin.gradle.utils.getValue
 import org.jetbrains.kotlin.gradle.utils.property
 import org.jetbrains.kotlin.util.capitalizeDecapitalize.toLowerCaseAsciiOnly
 import org.slf4j.Logger
 import java.io.File
+import java.nio.file.Path
 
 class KotlinKarma(
     @Transient override val compilation: KotlinJsCompilation,
     private val services: () -> ServiceRegistry,
-    private val basePath: String
+    private val basePath: String,
 ) : KotlinJsTestFramework {
     @Transient
     private val project: Project = compilation.target.project
     private val npmProject = compilation.npmProject
+
+    private val platformType = compilation.platformType
 
     @Transient
     private val nodeJs = project.rootProject.kotlinNodeJsExtension
@@ -72,8 +72,13 @@ class KotlinKarma(
     }
     private val isTeamCity = project.providers.gradleProperty(TCServiceMessagesTestExecutor.TC_PROJECT_PROPERTY)
 
+    private val npmProjectDir by project.provider { npmProject.dir }
+
     override val requiredNpmDependencies: Set<RequiredKotlinJsDependency>
         get() = requiredDependencies + webpackConfig.getRequiredDependencies(versions)
+
+    override val workingDir: Path
+        get() = npmProjectDir.toPath()
 
     override fun getPath() = "$basePath:kotlinKarma"
 
@@ -83,7 +88,7 @@ class KotlinKarma(
     val webpackConfig = KotlinWebpackConfig(
         configDirectory = project.projectDir.resolve("webpack.config.d"),
         optimization = KotlinWebpackConfig.Optimization(
-            runtimeChunk = false,
+            runtimeChunk = null,
             splitChunks = false
         ),
         sourceMaps = true,
@@ -266,7 +271,6 @@ class KotlinKarma(
         requiredDependencies.add(
             versions.webpackCli
         )
-        requiredDependencies.add(versions.formatUtil)
         requiredDependencies.add(
             versions.sourceMapLoader
         )
@@ -306,44 +310,6 @@ class KotlinKarma(
         }
     }
 
-    fun useCoverage(
-        html: Boolean = true,
-        lcov: Boolean = true,
-        cobertura: Boolean = false,
-        teamcity: Boolean = true,
-        text: Boolean = false,
-        textSummary: Boolean = false,
-        json: Boolean = false,
-        jsonSummary: Boolean = false
-    ) {
-        if (listOf(
-                html, lcov, cobertura,
-                teamcity, text, textSummary,
-                json, jsonSummary
-            ).all { !it }
-        ) return
-
-        requiredDependencies.add(versions.karmaCoverage)
-        config.reporters.add("coverage")
-        addPreprocessor("coverage") { !it.endsWith("_test.js") }
-
-        configurators.add {
-            val reportDir = project.reportsDir.resolve("coverage/${it.name}")
-            reportDir.mkdirs()
-
-            config.coverageReporter = CoverageReporter(reportDir.canonicalPath).also { coverage ->
-                if (html) coverage.reporters.add(Reporter("html"))
-                if (lcov) coverage.reporters.add(Reporter("lcovonly"))
-                if (cobertura) coverage.reporters.add(Reporter("cobertura"))
-                if (teamcity) coverage.reporters.add(Reporter("teamcity"))
-                if (text) coverage.reporters.add(Reporter("text"))
-                if (textSummary) coverage.reporters.add(Reporter("text-summary"))
-                if (json) coverage.reporters.add(Reporter("json"))
-                if (jsonSummary) coverage.reporters.add(Reporter("json-summary"))
-            }
-        }
-    }
-
     fun useSourceMapSupport() {
         requiredDependencies.add(versions.karmaSourcemapLoader)
         sourceMaps = true
@@ -366,14 +332,14 @@ class KotlinKarma(
         task: KotlinJsTest,
         forkOptions: ProcessForkOptions,
         nodeJsArgs: MutableList<String>,
-        debug: Boolean
+        debug: Boolean,
     ): TCServiceMessagesTestExecutionSpec {
         val file = task.inputFileProperty.get().asFile
         val fileString = file.toString()
 
         config.files.add(npmProject.require("kotlin-test-js-runner/kotlin-test-karma-runner.js"))
         if (!debug) {
-            if (compilation.platformType == KotlinPlatformType.wasm) {
+            if (platformType == KotlinPlatformType.wasm) {
                 val wasmFile = file.parentFile.resolve("${file.nameWithoutExtension}.wasm")
                 val wasmFileString = wasmFile.normalize().absolutePath
                 config.files.add(
@@ -385,7 +351,7 @@ class KotlinKarma(
                     )
                 )
                 config.files.add(
-                    createLoadWasm(file).normalize().absolutePath
+                    createLoadWasm(npmProject.dir, file).normalize().absolutePath
                 )
 
                 config.proxies["/${wasmFile.name}"] = wasmFileString
@@ -629,27 +595,6 @@ class KotlinKarma(
         return adapterJs
     }
 
-    private fun createLoadWasm(file: File): File {
-        val static = npmProject.dir.resolve("static").also {
-            it.mkdirs()
-        }
-        val loadJs = static.resolve("load.js")
-        loadJs.printWriter().use { writer ->
-            val relativePath = file.toRelativeString(static)
-            writer.println(
-                """
-                import exports from "$relativePath";
-
-                exports.startUnitTests();
-
-                window.__karma__.loaded();
-                """.trimIndent()
-            )
-        }
-
-        return loadJs
-    }
-
     private fun Appendable.appendFromConfigDir() {
         if (!configDirectory.isDirectory) {
             return
@@ -659,6 +604,29 @@ class KotlinKarma(
         appendConfigsFromDir(configDirectory)
         appendLine()
     }
+}
+
+internal fun createLoadWasm(npmProjectDir: File, file: File): File {
+    val static = npmProjectDir.resolve("static").also {
+        it.mkdirs()
+    }
+    val loadJs = static.resolve("load.mjs")
+    loadJs.printWriter().use { writer ->
+        val relativePath = file.relativeTo(static).invariantSeparatorsPath
+        writer.println(
+            """
+                import( /* webpackMode: "eager" */ "$relativePath")
+                    .then((exports) => {
+                        exports.default.startUnitTests();
+                        window.__karma__.loaded();
+                    }, (reason) => {
+                        window.__karma__.error("Problem with loading", void 0, void 0, void 0, reason)
+                    })
+            """.trimIndent()
+        )
+    }
+
+    return loadJs
 }
 
 private val KARMA_MESSAGE = "^.*\\d{2} \\d{2} \\d{4,} \\d{2}:\\d{2}:\\d{2}.\\d{3}:(ERROR|WARN|INFO|DEBUG|LOG) \\[.*]: ([\\w\\W]*)\$"

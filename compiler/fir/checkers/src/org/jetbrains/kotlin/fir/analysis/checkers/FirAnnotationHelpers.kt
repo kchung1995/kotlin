@@ -5,46 +5,32 @@
 
 package org.jetbrains.kotlin.fir.analysis.checkers
 
-import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget
 import org.jetbrains.kotlin.descriptors.annotations.KotlinTarget
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.diagnostics.reportOn
-import org.jetbrains.kotlin.fir.*
+import org.jetbrains.kotlin.fir.FirAnnotationContainer
+import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.context.findClosest
 import org.jetbrains.kotlin.fir.analysis.diagnostics.FirErrors
 import org.jetbrains.kotlin.fir.declarations.*
+import org.jetbrains.kotlin.fir.declarations.annotationPlatformSupport
 import org.jetbrains.kotlin.fir.declarations.impl.FirPrimaryConstructor
 import org.jetbrains.kotlin.fir.expressions.*
+import org.jetbrains.kotlin.fir.references.FirFromMissingDependenciesNamedReference
+import org.jetbrains.kotlin.fir.references.resolved
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.providers.symbolProvider
 import org.jetbrains.kotlin.fir.resolve.toSymbol
-import org.jetbrains.kotlin.fir.references.resolved
-import org.jetbrains.kotlin.fir.references.toResolvedEnumEntrySymbol
-import org.jetbrains.kotlin.fir.symbols.lazyResolveToPhase
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
+import org.jetbrains.kotlin.fir.symbols.lazyResolveToPhase
 import org.jetbrains.kotlin.fir.types.*
 import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.name.StandardClassIds.Annotations.ParameterNames
 import org.jetbrains.kotlin.resolve.UseSiteTargetsList
 import org.jetbrains.kotlin.resolve.checkers.OptInNames
-
-fun FirRegularClass.getRetention(session: FirSession): AnnotationRetention {
-    return getRetentionAnnotation(session)?.getRetention() ?: AnnotationRetention.RUNTIME
-}
-
-private fun FirAnnotation.getRetention(): AnnotationRetention? {
-    val propertyAccess = findArgumentByName(ParameterNames.retentionValue) as? FirQualifiedAccessExpression
-    val callableId = propertyAccess?.calleeReference?.toResolvedEnumEntrySymbol()?.callableId ?: return null
-
-    if (callableId.classId != StandardClassIds.AnnotationRetention) {
-        return null
-    }
-
-    return AnnotationRetention.values().firstOrNull { it.name == callableId.callableName.asString() }
-}
 
 private val defaultAnnotationTargets = KotlinTarget.DEFAULT_TARGET_SET
 
@@ -76,13 +62,16 @@ fun FirClassLikeSymbol<*>.getAllowedAnnotationTargets(session: FirSession): Set<
 
     return arguments.mapNotNullTo(mutableSetOf()) { argument ->
         val targetExpression = argument as? FirQualifiedAccessExpression
-        val targetName = targetExpression?.calleeReference?.resolved?.name?.asString() ?: return@mapNotNullTo null
+        val calleeReference = targetExpression?.calleeReference
+        val targetName =
+            calleeReference?.resolved?.name?.asString()
+            //for java annotations mappings: if java annotation is found in sdk and no kotlin dependency there is provided
+            //works fine with `FirBuiltinSymbolProvider`, because it also returns classes from stdlib even if library is not accessible
+            //but `JvmStubBasedFirDeserializedSymbolProvider` which works in IDE over stubs, misses classes   
+                ?: (calleeReference as? FirFromMissingDependenciesNamedReference)?.name?.asString()
+                ?: return@mapNotNullTo null
         KotlinTarget.values().firstOrNull { target -> target.name == targetName }
     }
-}
-
-fun FirDeclaration.getRetentionAnnotation(session: FirSession): FirAnnotation? {
-    return getAnnotationByClassId(StandardClassIds.Annotations.Retention, session)
 }
 
 fun FirDeclaration.getTargetAnnotation(session: FirSession): FirAnnotation? {
@@ -130,26 +119,7 @@ fun FirAnnotation.isRepeatable(session: FirSession): Boolean {
     if (annotationClassId.isLocal) return false
     val annotationClass = session.symbolProvider.getClassLikeSymbolByClassId(annotationClassId) ?: return false
 
-    return annotationClass.containsRepeatableAnnotation(session)
-}
-
-fun FirClassLikeSymbol<*>.containsRepeatableAnnotation(session: FirSession): Boolean {
-    if (getAnnotationByClassId(StandardClassIds.Annotations.Repeatable, session) != null) return true
-    if (getAnnotationByClassId(StandardClassIds.Annotations.Java.Repeatable, session) != null ||
-        getAnnotationByClassId(StandardClassIds.Annotations.JvmRepeatable, session) != null
-    ) {
-        return session.languageVersionSettings.supportsFeature(LanguageFeature.RepeatableAnnotations) ||
-                getAnnotationRetention(session) == AnnotationRetention.SOURCE && origin is FirDeclarationOrigin.Java
-    }
-    return false
-}
-
-fun FirClassLikeSymbol<*>.getExplicitAnnotationRetention(session: FirSession): AnnotationRetention? {
-    return getAnnotationByClassId(StandardClassIds.Annotations.Retention, session)?.getRetention()
-}
-
-fun FirClassLikeSymbol<*>.getAnnotationRetention(session: FirSession): AnnotationRetention {
-    return getExplicitAnnotationRetention(session) ?: AnnotationRetention.RUNTIME
+    return session.annotationPlatformSupport.symbolContainsRepeatableAnnotation(annotationClass, session)
 }
 
 fun FirAnnotationContainer.getDefaultUseSiteTarget(

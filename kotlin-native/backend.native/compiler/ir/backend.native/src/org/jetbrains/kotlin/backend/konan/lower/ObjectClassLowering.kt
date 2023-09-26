@@ -16,12 +16,12 @@ import org.jetbrains.kotlin.backend.konan.descriptors.synthesizedName
 import org.jetbrains.kotlin.backend.konan.ir.buildSimpleAnnotation
 import org.jetbrains.kotlin.backend.konan.ir.isAny
 import org.jetbrains.kotlin.backend.konan.ir.isUnit
-import org.jetbrains.kotlin.backend.konan.isObjCClass
 import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
 import org.jetbrains.kotlin.ir.builders.*
 import org.jetbrains.kotlin.ir.builders.declarations.*
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.expressions.*
+import org.jetbrains.kotlin.ir.objcinterop.*
 import org.jetbrains.kotlin.ir.util.*
 import org.jetbrains.kotlin.ir.util.irCall
 
@@ -98,8 +98,8 @@ internal class ObjectClassLowering(val generationState: NativeGenerationState) :
 
     fun IrBuilderWithScope.irGetObjCClassCompanion(declaration: IrClass): IrExpression {
         require(declaration.isCompanion && (declaration.parent as IrClass).isObjCClass())
-        return irCall(symbols.interopInterpretObjCPointer, listOf(declaration.defaultType)).apply {
-            putValueArgument(0, irCall(symbols.interopGetObjCClass, listOf((declaration.parent as IrClass).defaultType)))
+        return irCallWithSubstitutedType(symbols.interopInterpretObjCPointer, listOf(declaration.defaultType)).apply {
+            putValueArgument(0, irCallWithSubstitutedType(symbols.interopGetObjCClass, listOf((declaration.parent as IrClass).defaultType)))
         }
     }
 
@@ -131,7 +131,8 @@ internal class ObjectClassLowering(val generationState: NativeGenerationState) :
                 } else {
                     builder.irBlock {
                         // we need to make object available for rereading from the same thread while initializing
-                        +irSetField(null, field, irCall(symbols.createUninitializedInstance, listOf(declaration.defaultType)), origin = IrStatementOriginFieldPreInit)
+                        val uninitializedInstanceCall = irCallWithSubstitutedType(symbols.createUninitializedInstance, listOf(declaration.defaultType))
+                        +irSetField(null, field, uninitializedInstanceCall, origin = IrStatementOriginFieldPreInit)
                         +irCall(symbols.initInstance).apply {
                             putValueArgument(0, irGetField(null, field))
                             putValueArgument(1, irCallConstructor(primaryConstructor.symbol, emptyList()))

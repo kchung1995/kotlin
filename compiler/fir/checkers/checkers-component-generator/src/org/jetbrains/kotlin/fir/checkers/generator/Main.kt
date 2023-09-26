@@ -5,17 +5,17 @@
 
 package org.jetbrains.kotlin.fir.checkers.generator
 
+import org.jetbrains.kotlin.fir.builder.SYNTAX_DIAGNOSTIC_LIST
 import org.jetbrains.kotlin.fir.checkers.generator.diagnostics.DIAGNOSTICS_LIST
 import org.jetbrains.kotlin.fir.checkers.generator.diagnostics.JS_DIAGNOSTICS_LIST
 import org.jetbrains.kotlin.fir.checkers.generator.diagnostics.JVM_DIAGNOSTICS_LIST
+import org.jetbrains.kotlin.fir.checkers.generator.diagnostics.NATIVE_DIAGNOSTICS_LIST
+import org.jetbrains.kotlin.fir.checkers.generator.diagnostics.model.ErrorListDiagnosticListRenderer
 import org.jetbrains.kotlin.fir.checkers.generator.diagnostics.model.generateDiagnostics
 import org.jetbrains.kotlin.fir.declarations.*
 import org.jetbrains.kotlin.fir.expressions.*
 import org.jetbrains.kotlin.fir.types.FirTypeRef
 import java.io.File
-import org.jetbrains.kotlin.fir.builder.SYNTAX_DIAGNOSTIC_LIST
-import org.jetbrains.kotlin.fir.checkers.generator.diagnostics.NATIVE_DIAGNOSTICS_LIST
-import org.jetbrains.kotlin.fir.checkers.generator.diagnostics.model.ErrorListDiagnosticListRenderer
 
 fun main(args: Array<String>) {
     val arguments = args.toList()
@@ -60,8 +60,9 @@ fun main(args: Array<String>) {
         alias<FirWhileLoop>("WhileLoopChecker")
         alias<FirThrowExpression>("ThrowExpressionChecker")
         alias<FirDoWhileLoop>("DoWhileLoopChecker")
-        alias<FirArrayOfCall>("ArrayOfCallChecker")
+        alias<FirArrayLiteral>("ArrayLiteralChecker")
         alias<FirClassReferenceExpression>("ClassReferenceExpressionChecker")
+        alias<FirInaccessibleReceiverExpression>("InaccessibleReceiverChecker")
     }
 
     val declarationPackage = "$basePackage.checkers.declaration"
@@ -102,11 +103,15 @@ fun main(args: Array<String>) {
     val nativeGenerationPath = File(arguments.getOrElse(3) { "compiler/fir/checkers/checkers.native/gen" })
     val rawFirGenerationPath = File("compiler/fir/raw-fir/raw-fir.common/gen")
 
-    generateDiagnostics(generationPath, "$basePackage.diagnostics", DIAGNOSTICS_LIST, starImportsToAdd = setOf(ErrorListDiagnosticListRenderer.BASE_PACKAGE, ErrorListDiagnosticListRenderer.DIAGNOSTICS_PACKAGE))
-    generateDiagnostics(jvmGenerationPath, "$basePackage.diagnostics.jvm", JVM_DIAGNOSTICS_LIST, starImportsToAdd = setOf(ErrorListDiagnosticListRenderer.BASE_PACKAGE, ErrorListDiagnosticListRenderer.DIAGNOSTICS_PACKAGE))
-    generateDiagnostics(jsGenerationPath, "$basePackage.diagnostics.js", JS_DIAGNOSTICS_LIST, starImportsToAdd = setOf(ErrorListDiagnosticListRenderer.BASE_PACKAGE, ErrorListDiagnosticListRenderer.DIAGNOSTICS_PACKAGE))
-    generateDiagnostics(nativeGenerationPath, "$basePackage.diagnostics.native", NATIVE_DIAGNOSTICS_LIST, starImportsToAdd = setOf(ErrorListDiagnosticListRenderer.BASE_PACKAGE, ErrorListDiagnosticListRenderer.DIAGNOSTICS_PACKAGE))
+    val packageName = "$basePackage.diagnostics"
+
+    generateDiagnostics(generationPath, packageName, DIAGNOSTICS_LIST, starImportsToAdd = setOf(ErrorListDiagnosticListRenderer.BASE_PACKAGE, ErrorListDiagnosticListRenderer.DIAGNOSTICS_PACKAGE))
+    generateDiagnostics(jvmGenerationPath, "$packageName.jvm", JVM_DIAGNOSTICS_LIST, starImportsToAdd = setOf(ErrorListDiagnosticListRenderer.BASE_PACKAGE, ErrorListDiagnosticListRenderer.DIAGNOSTICS_PACKAGE))
+    generateDiagnostics(jsGenerationPath, "$packageName.js", JS_DIAGNOSTICS_LIST, starImportsToAdd = setOf(ErrorListDiagnosticListRenderer.BASE_PACKAGE, ErrorListDiagnosticListRenderer.DIAGNOSTICS_PACKAGE))
+    generateDiagnostics(nativeGenerationPath, "$packageName.native", NATIVE_DIAGNOSTICS_LIST, starImportsToAdd = setOf(ErrorListDiagnosticListRenderer.BASE_PACKAGE, ErrorListDiagnosticListRenderer.DIAGNOSTICS_PACKAGE))
     generateDiagnostics(rawFirGenerationPath, "org.jetbrains.kotlin.fir.builder", SYNTAX_DIAGNOSTIC_LIST, starImportsToAdd = setOf(ErrorListDiagnosticListRenderer.DIAGNOSTICS_PACKAGE))
+
+    generateNonSuppressibleErrorNamesFile(generationPath, packageName)
 }
 
 /*

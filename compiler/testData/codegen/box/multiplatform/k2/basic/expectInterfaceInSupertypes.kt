@@ -1,4 +1,5 @@
-// TARGET_BACKEND: JVM
+// IGNORE_BACKEND_K1: JS, JS_IR, JS_IR_ES6, NATIVE, WASM
+// WITH_STDLIB
 // !LANGUAGE: +MultiPlatformProjects
 
 // MODULE: common
@@ -14,16 +15,19 @@ open class A : S1, S2
 
 class B : A()
 
-// MODULE: jvm()()(common)
-// TARGET_PLATFORM: JVM
-// FILE: main.kt
+// MODULE: platform()()(common)
+// FILE: platform.kt
 
+@OptIn(ExperimentalMultiplatform::class)
+@AllowDifferentMembersInActual
 actual interface S1 {
     fun o(): S = "O"
     val p: Boolean
         get() = true
 }
 
+@OptIn(ExperimentalMultiplatform::class)
+@AllowDifferentMembersInActual
 actual interface S2 {
     fun k() = "K"
 }

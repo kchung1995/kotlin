@@ -34,6 +34,9 @@ internal class GradleNodeModuleBuilder(
         srcFiles.forEach { srcFile ->
             when {
                 isKotlinJsRuntimeFile(srcFile) -> files.add(srcFile)
+                srcFile.name == NpmProject.PACKAGE_JSON -> {
+                    srcPackageJsonFile = srcFile
+                }
                 srcFile.isCompatibleArchive -> {
                     archiveOperations.zipTree(srcFile).forEach { innerFile ->
                         when {
@@ -71,6 +74,8 @@ internal class GradleNodeModuleBuilder(
             packageJson.name = name
             packageJson.main = "${name}.js"
         }
+
+        packageJson.devDependencies.clear()
 
         // yarn requires semver
         packageJson.version = fixSemver(packageJson.version)

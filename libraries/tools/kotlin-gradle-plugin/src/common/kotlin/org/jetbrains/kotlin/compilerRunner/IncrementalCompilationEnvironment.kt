@@ -5,16 +5,18 @@
 
 package org.jetbrains.kotlin.compilerRunner
 
+import org.jetbrains.kotlin.buildtools.api.SourcesChanges
 import org.jetbrains.kotlin.daemon.common.MultiModuleICSettings
-import org.jetbrains.kotlin.incremental.ChangedFiles
 import org.jetbrains.kotlin.incremental.ClasspathChanges
 import java.io.File
 import java.io.Serializable
 
 internal class IncrementalCompilationEnvironment(
-    val changedFiles: ChangedFiles,
+    val changedFiles: SourcesChanges,
     val classpathChanges: ClasspathChanges,
     val workingDir: File,
+    val rootProjectDir: File,
+    val buildDir: File,
     val usePreciseJavaTracking: Boolean = false,
     val disableMultiModuleIC: Boolean = false,
     val multiModuleICSettings: MultiModuleICSettings,

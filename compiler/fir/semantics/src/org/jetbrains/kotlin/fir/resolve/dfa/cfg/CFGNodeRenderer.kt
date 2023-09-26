@@ -5,7 +5,10 @@
 
 package org.jetbrains.kotlin.fir.resolve.dfa.cfg
 
-import org.jetbrains.kotlin.fir.expressions.*
+import org.jetbrains.kotlin.fir.expressions.FirDoWhileLoop
+import org.jetbrains.kotlin.fir.expressions.FirLoop
+import org.jetbrains.kotlin.fir.expressions.FirWhileLoop
+import org.jetbrains.kotlin.fir.expressions.calleeReference
 import org.jetbrains.kotlin.fir.expressions.impl.FirElseIfTrueCondition
 import org.jetbrains.kotlin.fir.render
 import org.jetbrains.kotlin.fir.renderer.FirCallNoArgumentsRenderer
@@ -66,8 +69,6 @@ fun CFGNode<*>.render(): String =
                 is CatchClauseExitNode -> "Catch exit"
                 is FinallyBlockEnterNode -> "Enter finally"
                 is FinallyBlockExitNode -> "Exit finally"
-                is FinallyProxyEnterNode -> TODO()
-                is FinallyProxyExitNode -> TODO()
                 is TryExpressionExitNode -> "Try expression exit"
 
                 is BinaryAndEnterNode -> "Enter &&"
@@ -97,6 +98,9 @@ fun CFGNode<*>.render(): String =
                 is MergePostponedLambdaExitsNode -> "Merge postponed lambda exits"
                 is AnonymousFunctionExpressionNode -> "Exit anonymous function expression"
 
+                is FileEnterNode -> "Enter file ${fir.name}"
+                is FileExitNode -> "Exit file ${fir.name}"
+
                 is ClassEnterNode -> "Enter class ${owner.name}"
                 is ClassExitNode -> "Exit class ${owner.name}"
                 is LocalClassExitNode -> "Local class declaration"
@@ -105,6 +109,9 @@ fun CFGNode<*>.render(): String =
 
                 is ScriptEnterNode -> "Enter class ${fir.name}"
                 is ScriptExitNode -> "Exit class ${fir.name}"
+
+                is CodeFragmentEnterNode -> "Enter code fragment"
+                is CodeFragmentExitNode -> "Exit code fragment"
 
                 is FakeExpressionEnterNode -> "Enter fake expression"
 

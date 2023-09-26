@@ -5,10 +5,14 @@
 
 package org.jetbrains.kotlin.fir.resolve.calls
 
+import org.jetbrains.kotlin.KtFakeSourceElementKind
+import org.jetbrains.kotlin.fakeElement
 import org.jetbrains.kotlin.fir.declarations.FirValueParameter
 import org.jetbrains.kotlin.fir.expressions.FirExpression
+import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
+import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
+import org.jetbrains.kotlin.fir.expressions.builder.buildThisReceiverExpressionCopy
 import org.jetbrains.kotlin.fir.expressions.impl.FirExpressionStub
-import org.jetbrains.kotlin.fir.expressions.impl.FirNoReceiverExpression
 import org.jetbrains.kotlin.fir.resolve.inference.InferenceComponents
 import org.jetbrains.kotlin.fir.resolve.inference.PostponedResolvedAtom
 import org.jetbrains.kotlin.fir.resolve.substitution.ConeSubstitutor
@@ -23,17 +27,18 @@ import org.jetbrains.kotlin.resolve.calls.inference.model.NewConstraintSystemImp
 import org.jetbrains.kotlin.resolve.calls.tasks.ExplicitReceiverKind
 import org.jetbrains.kotlin.resolve.calls.tower.CandidateApplicability
 import org.jetbrains.kotlin.resolve.calls.tower.isSuccess
+import org.jetbrains.kotlin.util.CodeFragmentAdjustment
 
 class Candidate(
-    override val symbol: FirBasedSymbol<*>,
+    symbol: FirBasedSymbol<*>,
     // Here we may have an ExpressionReceiverValue
     // - in case a use-site receiver is explicit
     // - in some cases with static entities, no matter is a use-site receiver explicit or not
     // OR we may have here a kind of ImplicitReceiverValue (non-statics only)
-    override var dispatchReceiverValue: ReceiverValue?,
+    override var dispatchReceiver: FirExpression?,
     // In most cases, it contains zero or single element
     // More than one, only in case of context receiver group
-    val givenExtensionReceiverOptions: List<ReceiverValue>,
+    val givenExtensionReceiverOptions: List<FirExpression>,
     override val explicitReceiverKind: ExplicitReceiverKind,
     private val constraintSystemFactory: InferenceComponents.ConstraintSystemFactory,
     private val baseSystem: ConstraintStorage,
@@ -44,10 +49,27 @@ class Candidate(
     val isFromOriginalTypeInPresenceOfSmartCast: Boolean = false,
 ) : AbstractCandidate() {
 
-    var systemInitialized: Boolean = false
+    override var symbol: FirBasedSymbol<*> = symbol
+        private set
+
+
+    /**
+     * Please avoid updating symbol in the candidate whenever it's possible.
+     * The only case when currently it seems to be unavoidable is at
+     * [org.jetbrains.kotlin.fir.resolve.transformers.FirCallCompletionResultsWriterTransformer.refineSubstitutedMemberIfReceiverContainsTypeVariable]
+     */
+    @RequiresOptIn
+    annotation class UpdatingSymbol
+
+    @UpdatingSymbol
+    fun updateSymbol(symbol: FirBasedSymbol<*>) {
+        this.symbol = symbol
+    }
+
+    private var systemInitialized: Boolean = false
     val system: NewConstraintSystemImpl by lazy(LazyThreadSafetyMode.NONE) {
         val system = constraintSystemFactory.createConstraintSystem()
-        system.addOtherSystem(baseSystem)
+        system.setBaseSystem(baseSystem)
         systemInitialized = true
         system
     }
@@ -55,6 +77,9 @@ class Candidate(
     override val errors: List<ConstraintSystemError>
         get() = system.errors
 
+    /**
+     * Substitutor from declared type parameters to type variables created for that candidate
+     */
     lateinit var substitutor: ConeSubstitutor
     lateinit var freshVariables: List<ConeTypeVariable>
     var resultingTypeForCallableReference: ConeKotlinType? = null
@@ -80,7 +105,7 @@ class Candidate(
     var currentApplicability = CandidateApplicability.RESOLVED
         private set
 
-    override var chosenExtensionReceiverValue: ReceiverValue? = givenExtensionReceiverOptions.singleOrNull()
+    override var chosenExtensionReceiver: FirExpression? = givenExtensionReceiverOptions.singleOrNull()
 
     var contextReceiverArguments: List<FirExpression>? = null
 
@@ -98,19 +123,57 @@ class Candidate(
         }
     }
 
+    @CodeFragmentAdjustment
+    internal fun resetToResolved() {
+        currentApplicability = CandidateApplicability.RESOLVED
+        _diagnostics.clear()
+    }
+
     val isSuccessful: Boolean
         get() = currentApplicability.isSuccess && (!systemInitialized || !system.hasContradiction)
 
     var passedStages: Int = 0
 
-    fun dispatchReceiverExpression(): FirExpression =
-        dispatchReceiverValue?.receiverExpression?.takeIf { it !is FirExpressionStub } ?: FirNoReceiverExpression
+    private var sourcesWereUpdated = false
 
-    fun chosenExtensionReceiverExpression(): FirExpression =
-        chosenExtensionReceiverValue?.receiverExpression?.takeIf { it !is FirExpressionStub } ?: FirNoReceiverExpression
+    // FirExpressionStub can be located here in case of callable reference resolution
+    fun dispatchReceiverExpression(): FirExpression? {
+        return dispatchReceiver?.takeIf { it !is FirExpressionStub }
+    }
 
-    fun contextReceiverArguments(): List<FirExpression> =
-        contextReceiverArguments ?: emptyList()
+    // FirExpressionStub can be located here in case of callable reference resolution
+    fun chosenExtensionReceiverExpression(): FirExpression? {
+        return chosenExtensionReceiver?.takeIf { it !is FirExpressionStub }
+    }
+
+    fun contextReceiverArguments(): List<FirExpression> {
+        return contextReceiverArguments ?: emptyList()
+    }
+
+    // In case of implicit receivers we want to update corresponding sources to generate correct offset. This method must be called only
+    // once when candidate was selected and confirmed to be correct one.
+    fun updateSourcesOfReceivers() {
+        require(!sourcesWereUpdated)
+        sourcesWereUpdated = true
+
+        dispatchReceiver = dispatchReceiver?.tryToSetSourceForImplicitReceiver()
+        chosenExtensionReceiver = chosenExtensionReceiver?.tryToSetSourceForImplicitReceiver()
+        contextReceiverArguments = contextReceiverArguments?.map { it.tryToSetSourceForImplicitReceiver() }
+    }
+
+    private fun FirExpression.tryToSetSourceForImplicitReceiver(): FirExpression {
+        return when {
+            this is FirSmartCastExpression -> {
+                this.apply { replaceOriginalExpression(this.originalExpression.tryToSetSourceForImplicitReceiver()) }
+            }
+            this is FirThisReceiverExpression && isImplicit -> {
+                buildThisReceiverExpressionCopy(this) {
+                    source = callInfo.callSite.source?.fakeElement(KtFakeSourceElementKind.ImplicitReceiver)
+                }
+            }
+            else -> this
+        }
+    }
 
     var hasVisibleBackingField = false
 

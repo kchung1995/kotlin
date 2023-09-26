@@ -110,17 +110,13 @@ internal fun Project.newFileProperty(initialize: (() -> File)? = null): RegularF
 
 internal fun Project.filesProvider(
     vararg buildDependencies: Any,
-    provider: () -> Any
+    provider: () -> Any?
 ): ConfigurableFileCollection {
     return project.files(provider).builtBy(*buildDependencies)
 }
 
 internal fun <T : Task> T.outputFilesProvider(provider: T.() -> Any): ConfigurableFileCollection {
     return project.filesProvider(this) { provider() }
-}
-
-internal fun <T : Task> T.outputFilesProvider(lazy: Lazy<Any>): ConfigurableFileCollection {
-    return project.filesProvider(this) { lazy.value }
 }
 
 internal inline fun <reified T> Project.listProperty(noinline itemsProvider: () -> Iterable<T>): ListProperty<T> =

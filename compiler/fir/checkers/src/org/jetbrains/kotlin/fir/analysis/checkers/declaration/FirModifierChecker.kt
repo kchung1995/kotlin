@@ -22,9 +22,7 @@ import org.jetbrains.kotlin.diagnostics.KtDiagnosticFactory2
 import org.jetbrains.kotlin.diagnostics.reportOn
 import org.jetbrains.kotlin.fir.declarations.*
 import org.jetbrains.kotlin.fir.declarations.impl.FirPrimaryConstructor
-import org.jetbrains.kotlin.fir.declarations.utils.isCompanion
-import org.jetbrains.kotlin.fir.declarations.utils.isInner
-import org.jetbrains.kotlin.fir.declarations.utils.isLocal
+import org.jetbrains.kotlin.fir.declarations.utils.*
 import org.jetbrains.kotlin.fir.languageVersionSettings
 import org.jetbrains.kotlin.lexer.KtModifierKeywordToken
 import org.jetbrains.kotlin.lexer.KtTokens
@@ -85,7 +83,7 @@ object FirModifierChecker : FirBasicDeclarationChecker() {
                 val modifier = secondModifier.token
                 when {
                     !checkTarget(modifierSource, modifier, actualTargets, parent, context, reporter) -> reportedNodes += secondModifier
-                    !checkParent(modifierSource, modifier, actualParents, context, reporter) -> reportedNodes += secondModifier
+                    !checkParent(modifierSource, modifier, actualParents, parent, context, reporter) -> reportedNodes += secondModifier
                 }
             }
         }
@@ -185,7 +183,6 @@ object FirModifierChecker : FirBasicDeclarationChecker() {
             val set = map[modifierToken] ?: emptySet()
             val checkResult = if (factory == FirErrors.WRONG_MODIFIER_TARGET) {
                 actualTargets.none { it in set } ||
-                        // TODO: Implement some generic feature-checking mechanism
                         (modifierToken == DATA_KEYWORD
                                 && actualTargets.contains(KotlinTarget.STANDALONE_OBJECT)
                                 && !context.languageVersionSettings.supportsFeature(LanguageFeature.DataObjects))
@@ -236,6 +233,7 @@ object FirModifierChecker : FirBasicDeclarationChecker() {
         modifierSource: KtSourceElement,
         modifierToken: KtModifierKeywordToken,
         actualParents: List<KotlinTarget>,
+        parent: FirDeclaration?,
         context: CheckerContext,
         reporter: DiagnosticReporter
     ): Boolean {
@@ -251,21 +249,38 @@ object FirModifierChecker : FirBasicDeclarationChecker() {
             return true
         }
 
+        if (modifierToken == KtTokens.PROTECTED_KEYWORD && isFinalExpectClass(parent)) {
+            reporter.reportOn(
+                modifierSource,
+                FirErrors.WRONG_MODIFIER_CONTAINING_DECLARATION,
+                modifierToken,
+                "final expect class",
+                context,
+            )
+        }
         val possibleParentPredicate = possibleParentTargetPredicateMap[modifierToken] ?: return true
         if (actualParents.any { possibleParentPredicate.isAllowed(it, context.session.languageVersionSettings) }) return true
 
-        reporter.reportOn(
-            modifierSource,
-            FirErrors.WRONG_MODIFIER_CONTAINING_DECLARATION,
-            modifierToken,
-            actualParents.firstOrThis(),
-            context
-        )
+        if (modifierToken == KtTokens.INNER_KEYWORD && parent is FirScript) {
+            reporter.reportOn(modifierSource, FirErrors.INNER_ON_TOP_LEVEL_SCRIPT_CLASS, context)
+        } else {
+            reporter.reportOn(
+                modifierSource,
+                FirErrors.WRONG_MODIFIER_CONTAINING_DECLARATION,
+                modifierToken,
+                actualParents.firstOrThis(),
+                context
+            )
+        }
 
         return false
     }
 
     private fun List<KotlinTarget>.firstOrThis(): String {
         return firstOrNull()?.description ?: "this"
+    }
+
+    private fun isFinalExpectClass(d: FirDeclaration?): Boolean {
+        return d is FirClass && d.isFinal && d.isExpect
     }
 }

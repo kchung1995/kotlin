@@ -22,18 +22,19 @@ dependencies {
 }
 
 jar {
-    manifestAttributes(manifest, project, 'Test', true)
+    LibrariesCommon.manifestAttributes(project, manifest, 'Test', true)
     if (includeJava9) {
         from sourceSets.java9.output
     }
 }
 
-configureSourcesJar()
-configureJavadocJar()
+RepoArtifacts.sourcesJar(project)
+RepoArtifacts.javadocJar(project)
 
 compileKotlin {
     kotlinOptions.freeCompilerArgs = [
         "-Xallow-kotlin-package",
+        "-Xexpect-actual-classes",
     ]
     kotlinOptions.moduleName = project.name
 }
@@ -44,7 +45,7 @@ compileTestKotlin {
     ]
 }
 
-configureFrontendIr(project)
+LibrariesCommon.configureFrontendIr(project)
 
 if (includeJava9) {
     LibrariesCommon.configureJava9Compilation(project, 'kotlin.test.testng')

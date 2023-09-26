@@ -14,7 +14,7 @@ func testDirectObjc2Kotlin() throws {
 
 func testVirtualObjc2Kotlin() throws {
     let trace = StacktraceBridgesKt.createBar().foo()
-    try assertTrue(trace[5].contains("objc2kotlin_virtual_kfun:Foo#foo(){}kotlin.collections.List<kotlin.String>"))
+    try assertTrue(trace[6].contains("objc2kotlin_virtual_kfun:Foo#foo(){}kotlin.collections.List<kotlin.String>"))
 }
 
 func testKotlin2Objc() throws {
@@ -23,8 +23,8 @@ func testKotlin2Objc() throws {
 }
 
 func testCompanionObject() throws {
-    let trace = Foo.companion.trace
-    try assertTrue(trace[8].contains("objc2kotlin_kclass:Foo#companion"))
+    let trace = WithCompanion.companion.trace
+    try assertTrue(trace[8].contains("objc2kotlin_kclass:WithCompanion#companion"))
 }
 
 func testStandaloneObject() throws {

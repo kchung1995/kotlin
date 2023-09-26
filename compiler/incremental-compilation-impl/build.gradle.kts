@@ -1,6 +1,3 @@
-import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
-
 plugins {
     kotlin("jvm")
     id("jps-compatible")
@@ -16,13 +13,16 @@ dependencies {
     api(project(":compiler:cli"))
     api(project(":compiler:cli-js"))
     api(project(":compiler:fir:entrypoint"))
+    api(project(":compiler:fir:fir2ir:jvm-backend"))
     api(project(":compiler:ir.serialization.jvm"))
     api(project(":compiler:backend.jvm.entrypoint"))
     api(project(":kotlin-build-common"))
     api(project(":daemon-common"))
+    api(project(":compiler:build-tools:kotlin-build-statistics"))
+    api(project(":compiler:build-tools:kotlin-build-tools-api"))
     compileOnly(intellijCore())
 
-    testApi(commonDependency("junit:junit"))
+    testImplementation(libs.junit4)
     testApi(project(":kotlin-test:kotlin-test-junit"))
     testApi(kotlinStdlib())
     testApi(projectTests(":kotlin-build-common"))
@@ -43,22 +43,17 @@ sourceSets {
 
 projectTest(parallel = true) {
     workingDir = rootDir
-    dependsOn(":kotlin-stdlib-js-ir:packFullRuntimeKLib")
+    useJsIrBoxTests(version = version, buildDir = "$buildDir/")
 }
 
 projectTest("testJvmICWithJdk11", parallel = true) {
     workingDir = rootDir
+    useJsIrBoxTests(version = version, buildDir = "$buildDir/")
     filter {
-        includeTestsMatching("org.jetbrains.kotlin.incremental.IncrementalJvmCompilerRunnerTestGenerated*")
+        includeTestsMatching("org.jetbrains.kotlin.incremental.IncrementalK1JvmCompilerRunnerTestGenerated*")
+        includeTestsMatching("org.jetbrains.kotlin.incremental.IncrementalK2JvmCompilerRunnerTestGenerated*")
     }
     javaLauncher.set(project.getToolchainLauncherFor(JdkMajorVersion.JDK_11_0))
 }
 
 testsJar()
-
-// 1.9 level breaks Kotlin Gradle plugins via changes in enums (KT-48872)
-// We limit api and LV until KGP will stop using Kotlin compiler directly (KT-56574)
-tasks.withType<KotlinCompilationTask<*>>().configureEach {
-    compilerOptions.apiVersion.value(KotlinVersion.KOTLIN_1_8).finalizeValueOnRead()
-    compilerOptions.languageVersion.value(KotlinVersion.KOTLIN_1_8).finalizeValueOnRead()
-}

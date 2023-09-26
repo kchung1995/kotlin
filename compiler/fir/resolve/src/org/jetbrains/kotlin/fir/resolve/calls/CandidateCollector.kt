@@ -34,7 +34,19 @@ open class CandidateCollector(
         val applicability = resolutionStageRunner.processCandidate(candidate, context)
 
         if (applicability > currentApplicability || (applicability == currentApplicability && group < bestGroup)) {
-            candidates.clear()
+            // Only throw away previous candidates if the new one is successful. If we don't find a successful candidate, we keep all
+            // unsuccessful ones so that we can run all stages and pick the one with the least bad applicability.
+            // See FirCallResolver.reduceCandidates.
+            if (applicability >= CandidateApplicability.RESOLVED_LOW_PRIORITY) {
+                candidates.clear()
+            }
+
+            if (currentApplicability == CandidateApplicability.RESOLVED_NEED_PRESERVE_COMPATIBILITY &&
+                applicability > currentApplicability
+            ) {
+                candidate.addDiagnostic(ResolutionResultOverridesOtherToPreserveCompatibility)
+            }
+
             currentApplicability = applicability
             bestGroup = group
         }
@@ -51,7 +63,7 @@ open class CandidateCollector(
     open fun shouldStopAtTheGroup(group: TowerGroup): Boolean =
         shouldStopResolve && bestGroup < group
 
-    private val shouldStopResolve: Boolean
+    val shouldStopResolve: Boolean
         get() = currentApplicability.shouldStopResolve
 
     val isSuccess: Boolean

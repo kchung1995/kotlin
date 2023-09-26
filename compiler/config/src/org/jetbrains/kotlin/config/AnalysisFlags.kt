@@ -10,13 +10,16 @@ object AnalysisFlags {
     val skipMetadataVersionCheck by AnalysisFlag.Delegates.Boolean
 
     @JvmStatic
+    val metadataCompilation by AnalysisFlag.Delegates.Boolean
+
+    @JvmStatic
     val skipPrereleaseCheck by AnalysisFlag.Delegates.Boolean
 
     @JvmStatic
     val multiPlatformDoNotCheckActual by AnalysisFlag.Delegates.Boolean
 
     @JvmStatic
-    val expectActualLinker by AnalysisFlag.Delegates.Boolean
+    val skipExpectedActualDeclarationChecker by AnalysisFlag.Delegates.Boolean
 
     @JvmStatic
     val optIn by AnalysisFlag.Delegates.ListOfStrings
@@ -52,8 +55,14 @@ object AnalysisFlags {
     val builtInsFromSources by AnalysisFlag.Delegates.Boolean
 
     @JvmStatic
+    val muteExpectActualClassesWarning by AnalysisFlag.Delegates.Boolean
+
+    @JvmStatic
     val allowFullyQualifiedNameInKClass by AnalysisFlag.Delegates.Boolean
 
     @JvmStatic
     val eagerResolveOfLightClasses by AnalysisFlag.Delegates.Boolean
+
+    @JvmStatic
+    val dontWarnOnErrorSuppression by AnalysisFlag.Delegates.Boolean
 }

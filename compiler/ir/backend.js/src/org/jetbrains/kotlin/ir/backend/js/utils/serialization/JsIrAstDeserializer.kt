@@ -8,18 +8,15 @@ package org.jetbrains.kotlin.ir.backend.js.utils.serialization
 import org.jetbrains.kotlin.ir.backend.js.export.TypeScriptFragment
 import org.jetbrains.kotlin.ir.backend.js.transformers.irToJs.JsIrIcClassModel
 import org.jetbrains.kotlin.ir.backend.js.transformers.irToJs.JsIrProgramFragment
+import org.jetbrains.kotlin.ir.backend.js.transformers.irToJs.JsIrProgramFragments
 import org.jetbrains.kotlin.ir.backend.js.utils.emptyScope
 import org.jetbrains.kotlin.js.backend.ast.*
-import org.jetbrains.kotlin.js.backend.ast.JsImportedModule
 import org.jetbrains.kotlin.js.backend.ast.metadata.*
-import org.jetbrains.kotlin.js.backend.ast.metadata.LocalAlias
-import org.jetbrains.kotlin.js.backend.ast.metadata.SpecialFunction
 import java.nio.ByteBuffer
 import java.util.*
-import java.util.ArrayDeque
 
-fun deserializeJsIrProgramFragment(input: ByteArray): JsIrProgramFragment {
-    return JsIrAstDeserializer(input).readFragment()
+fun deserializeJsIrProgramFragment(input: ByteArray): JsIrProgramFragments {
+    return JsIrAstDeserializer(input).readFragments()
 }
 
 private class JsIrAstDeserializer(private val source: ByteArray) {
@@ -80,8 +77,12 @@ private class JsIrAstDeserializer(private val source: ByteArray) {
         return if (readBoolean()) then() else null
     }
 
+    fun readFragments(): JsIrProgramFragments {
+        return JsIrProgramFragments(readFragment(), ifTrue { readFragment() })
+    }
+
     fun readFragment(): JsIrProgramFragment {
-        return JsIrProgramFragment(readString()).apply {
+        return JsIrProgramFragment(readString(), readString()).apply {
             readRepeated {
                 importedModules += JsImportedModule(
                     externalName = stringTable[readInt()],
@@ -90,10 +91,11 @@ private class JsIrAstDeserializer(private val source: ByteArray) {
                 )
             }
 
-            readRepeated { imports[stringTable[readInt()]] = readExpression() }
+            readRepeated { imports[stringTable[readInt()]] = readStatement() }
 
             readRepeated { declarations.statements += readStatement() }
             readRepeated { initializers.statements += readStatement() }
+            readRepeated { eagerInitializers.statements += readStatement() }
             readRepeated { exports.statements += readStatement() }
             readRepeated { polyfills.statements += readStatement() }
 
@@ -219,6 +221,39 @@ private class JsIrAstDeserializer(private val source: ByteArray) {
                                 ifTrue { readBlock() }
                             )
                         }
+                        EXPORT -> {
+                            JsExport(
+                                when (val type = readByte().toInt()) {
+                                    ExportType.ALL -> JsExport.Subject.All
+                                    ExportType.ITEMS -> JsExport.Subject.Elements(readList {
+                                        JsExport.Element(
+                                            nameTable[readInt()].makeRef(),
+                                            ifTrue { nameTable[readInt()] }
+                                        )
+                                    })
+                                    else -> error("Unknown JsExport type $type")
+                                },
+                                ifTrue { readString() }
+                            )
+                        }
+                        IMPORT -> {
+                            JsImport(
+                                readString(),
+                                when (val type = readByte().toInt()) {
+                                    ImportType.EFFECT -> JsImport.Target.Effect
+                                    ImportType.ALL -> JsImport.Target.All(nameTable[readInt()].makeRef())
+                                    ImportType.DEFAULT -> JsImport.Target.Default(nameTable[readInt()].makeRef())
+                                    ImportType.ITEMS -> JsImport.Target.Elements(readList {
+                                        JsImport.Element(
+                                            nameTable[readInt()],
+                                            ifTrue { nameTable[readInt()].makeRef() }
+                                        )
+
+                                    }.toMutableList())
+                                    else -> error("Unknown JsImport type $type")
+                                }
+                            )
+                        }
                         EMPTY -> {
                             JsEmpty
                         }
@@ -292,7 +327,7 @@ private class JsIrAstDeserializer(private val source: ByteArray) {
                         CLASS -> {
                             JsClass(
                                 ifTrue { nameTable[readInt()] },
-                                ifTrue { nameTable[readInt()].makeRef() },
+                                ifTrue { readExpression() },
                                 ifTrue { readFunction() },
                             ).apply {
                                 readRepeated { members += readFunction() }

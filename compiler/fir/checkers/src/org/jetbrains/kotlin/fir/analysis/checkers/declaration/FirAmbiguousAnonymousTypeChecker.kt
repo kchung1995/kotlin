@@ -6,10 +6,10 @@
 package org.jetbrains.kotlin.fir.analysis.checkers.declaration
 
 import org.jetbrains.kotlin.KtSourceElement
-import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
-import org.jetbrains.kotlin.fir.analysis.diagnostics.FirErrors
 import org.jetbrains.kotlin.diagnostics.reportOn
+import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
+import org.jetbrains.kotlin.fir.analysis.diagnostics.FirErrors
 import org.jetbrains.kotlin.fir.declarations.*
 import org.jetbrains.kotlin.fir.declarations.utils.isInline
 import org.jetbrains.kotlin.fir.expressions.FirBlock
@@ -40,13 +40,16 @@ object FirAmbiguousAnonymousTypeChecker : FirBasicDeclarationChecker() {
          * 2. `val x = ...`
          * 3. `val x get() = ...`
          */
-        val typeRef = when (declaration) {
-            is FirProperty -> declaration.initializer?.typeRef ?: declaration.getter?.body?.singleExpressionType
-            is FirFunction -> declaration.body?.singleExpressionType
+        val (type, source) = when (declaration) {
+            is FirProperty -> {
+                declaration.initializer?.resolvedType?.let { it to declaration.source }
+                    ?: (declaration.getter?.body?.singleExpressionType to declaration.getter?.source)
+            }
+            is FirFunction -> declaration.body?.singleExpressionType to declaration.source
             else -> error("Should not be there")
-        } ?: return
+        }
 
-        checkTypeAndArguments(typeRef.coneType, context, reporter, declaration.source)
+        type?.let { checkTypeAndArguments(it, context, reporter, source) }
     }
 
     private fun checkTypeAndArguments(
@@ -67,14 +70,8 @@ object FirAmbiguousAnonymousTypeChecker : FirBasicDeclarationChecker() {
                 context
             )
         }
-        for (typeArgument in type.typeArguments) {
-            checkTypeAndArguments(
-                typeArgument.type ?: continue,
-                context, reporter, reportOn
-            )
-        }
     }
 
     private val FirBlock.singleExpressionType
-        get() = ((this as? FirSingleExpressionBlock)?.statement as? FirReturnExpression)?.result?.typeRef
+        get() = ((this as? FirSingleExpressionBlock)?.statement as? FirReturnExpression)?.result?.resolvedType
 }

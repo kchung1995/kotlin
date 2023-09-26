@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2022 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -42,7 +42,7 @@ class FirSerializablePropertiesProvider(session: FirSession) : FirExtensionSessi
     private fun createSerializableProperties(classSymbol: FirClassSymbol<*>): FirSerializableProperties {
         val allPropertySymbols = buildList {
             classSymbol
-                .declaredMemberScope(session)
+                .declaredMemberScope(session, memberRequiredPhase = null)
                 .processAllProperties {
                     addIfNotNull(it as? FirPropertySymbol)
                 }
@@ -89,7 +89,7 @@ class FirSerializablePropertiesProvider(session: FirSession) : FirExtensionSessi
             .let { restoreCorrectOrderFromClassProtoExtension(classSymbol, it) }
 
         val isExternallySerializable = classSymbol.isEnumClass ||
-                primaryConstructorProperties.size == (classSymbol.primaryConstructorSymbol()?.valueParameterSymbols?.size ?: 0)
+                primaryConstructorProperties.size == (classSymbol.primaryConstructorSymbol(session)?.valueParameterSymbols?.size ?: 0)
 
         val (serializableConstructorProperties, serializableStandaloneProperties) = serializableProperties.partition { it.propertySymbol in primaryConstructorProperties }
         return FirSerializableProperties(

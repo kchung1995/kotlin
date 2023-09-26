@@ -23,6 +23,8 @@ import com.intellij.openapi.vfs.impl.jar.CoreJarFileSystem
 import org.jetbrains.kotlin.build.DEFAULT_KOTLIN_SOURCE_FILES_EXTENSIONS
 import org.jetbrains.kotlin.build.report.RemoteBuildReporter
 import org.jetbrains.kotlin.build.report.info
+import org.jetbrains.kotlin.build.report.metrics.GradleBuildPerformanceMetric
+import org.jetbrains.kotlin.build.report.metrics.GradleBuildTime
 import org.jetbrains.kotlin.build.report.metrics.endMeasureGc
 import org.jetbrains.kotlin.build.report.metrics.startMeasureGc
 import org.jetbrains.kotlin.cli.common.CLICompiler
@@ -53,10 +55,12 @@ import org.jetbrains.kotlin.incremental.components.InlineConstTracker
 import org.jetbrains.kotlin.incremental.components.LookupTracker
 import org.jetbrains.kotlin.incremental.js.IncrementalDataProvider
 import org.jetbrains.kotlin.incremental.js.IncrementalResultsConsumer
+import org.jetbrains.kotlin.incremental.multiproject.EmptyModulesApiHistory
 import org.jetbrains.kotlin.incremental.multiproject.ModulesApiHistoryAndroid
 import org.jetbrains.kotlin.incremental.multiproject.ModulesApiHistoryJs
 import org.jetbrains.kotlin.incremental.multiproject.ModulesApiHistoryJvm
 import org.jetbrains.kotlin.incremental.parsing.classesFqNames
+import org.jetbrains.kotlin.incremental.storage.FileLocations
 import org.jetbrains.kotlin.load.kotlin.incremental.components.IncrementalCompilationComponents
 import org.jetbrains.kotlin.progress.CompilationCanceledStatus
 import java.io.File
@@ -294,7 +298,7 @@ abstract class CompileServiceImplBase(
         createMessageCollector: (ServicesFacadeT, CompilationOptions) -> MessageCollector,
         createReporter: (ServicesFacadeT, CompilationOptions) -> DaemonMessageReporter,
         createServices: (JpsServicesFacadeT, EventManager, Profiler) -> Services,
-        getICReporter: (ServicesFacadeT, CompilationResultsT?, IncrementalCompilationOptions) -> RemoteBuildReporter
+        getICReporter: (ServicesFacadeT, CompilationResultsT?, IncrementalCompilationOptions) -> RemoteBuildReporter<GradleBuildTime, GradleBuildPerformanceMetric>
     ) = kotlin.run {
         val messageCollector = createMessageCollector(servicesFacade, compilationOptions)
         val daemonReporter = createReporter(servicesFacade, compilationOptions)
@@ -319,7 +323,7 @@ abstract class CompileServiceImplBase(
             CompilerMode.JPS_COMPILER -> {
                 @Suppress("UNCHECKED_CAST")
                 servicesFacade as JpsServicesFacadeT
-                withIC(k2PlatformArgs, enabled = servicesFacade.hasIncrementalCaches()) {
+                withIncrementalCompilation(k2PlatformArgs, enabled = servicesFacade.hasIncrementalCaches()) {
                     doCompile(sessionId, daemonReporter, tracer = null) { eventManger, profiler ->
                         val services = createServices(servicesFacade, eventManger, profiler)
                         compiler.exec(messageCollector, services, k2PlatformArgs)
@@ -346,7 +350,7 @@ abstract class CompileServiceImplBase(
                 val gradleIncrementalServicesFacade = servicesFacade
 
                 when (targetPlatform) {
-                    CompileService.TargetPlatform.JVM -> withIC(k2PlatformArgs) {
+                    CompileService.TargetPlatform.JVM -> withIncrementalCompilation(k2PlatformArgs) {
                         doCompile(sessionId, daemonReporter, tracer = null) { _, _ ->
                             execIncrementalCompiler(
                                 k2PlatformArgs as K2JVMCompilerArguments,
@@ -532,7 +536,7 @@ abstract class CompileServiceImplBase(
         args: K2JSCompilerArguments,
         incrementalCompilationOptions: IncrementalCompilationOptions,
         compilerMessageCollector: MessageCollector,
-        reporter: RemoteBuildReporter
+        reporter: RemoteBuildReporter<GradleBuildTime, GradleBuildPerformanceMetric>
     ): ExitCode {
         reporter.startMeasureGc()
         val allKotlinFiles = arrayListOf<File>()
@@ -553,12 +557,18 @@ abstract class CompileServiceImplBase(
         }
 
         val workingDir = incrementalCompilationOptions.workingDir
-        val modulesApiHistory = ModulesApiHistoryJs(incrementalCompilationOptions.modulesInfo)
+        val modulesApiHistory = incrementalCompilationOptions.multiModuleICSettings?.run {
+            val modulesInfo = incrementalCompilationOptions.modulesInfo
+                ?: error("The build is configured to use the history-file based IC approach, but doesn't provide the modulesInfo")
+            val rootProjectDir = incrementalCompilationOptions.rootProjectDir
+                ?: error("rootProjectDir is expected to be non null when the history-file based IC approach is used")
+            ModulesApiHistoryJs(rootProjectDir, modulesInfo)
+        } ?: EmptyModulesApiHistory
 
         val compiler = IncrementalJsCompilerRunner(
             workingDir = workingDir,
             reporter = reporter,
-            buildHistoryFile = incrementalCompilationOptions.multiModuleICSettings.buildHistoryFile,
+            buildHistoryFile = incrementalCompilationOptions.multiModuleICSettings?.buildHistoryFile,
             scopeExpansion = if (args.isIrBackendEnabled()) CompileScopeExpansionMode.ALWAYS else CompileScopeExpansionMode.NEVER,
             modulesApiHistory = modulesApiHistory,
             withAbiSnapshot = incrementalCompilationOptions.withAbiSnapshot,
@@ -577,7 +587,7 @@ abstract class CompileServiceImplBase(
         k2jvmArgs: K2JVMCompilerArguments,
         incrementalCompilationOptions: IncrementalCompilationOptions,
         compilerMessageCollector: MessageCollector,
-        reporter: RemoteBuildReporter
+        reporter: RemoteBuildReporter<GradleBuildTime, GradleBuildPerformanceMetric>
     ): ExitCode {
         reporter.startMeasureGc()
         val allKotlinExtensions = (DEFAULT_KOTLIN_SOURCE_FILES_EXTENSIONS +
@@ -603,26 +613,37 @@ abstract class CompileServiceImplBase(
 
         val workingDir = incrementalCompilationOptions.workingDir
 
-        val modulesApiHistory = incrementalCompilationOptions.run {
-            reporter.info { "Use module detection: ${multiModuleICSettings.useModuleDetection}" }
+        val rootProjectDir = incrementalCompilationOptions.rootProjectDir
+        val buildDir = incrementalCompilationOptions.buildDir
 
-            if (!multiModuleICSettings.useModuleDetection) {
-                ModulesApiHistoryJvm(modulesInfo)
-            } else {
-                ModulesApiHistoryAndroid(modulesInfo)
-            }
+        val modulesApiHistory = if (incrementalCompilationOptions.classpathChanges is ClasspathChanges.ClasspathSnapshotEnabled) {
+            EmptyModulesApiHistory
+        } else {
+            incrementalCompilationOptions.multiModuleICSettings?.run {
+                reporter.info { "Use module detection: $useModuleDetection" }
+                val modulesInfo = incrementalCompilationOptions.modulesInfo
+                    ?: error("The build is configured to use the history-file based IC approach, but doesn't provide the modulesInfo")
+                check(rootProjectDir != null) {
+                    "rootProjectDir is expected to be non null when the history-file based IC approach is used"
+                }
+
+                if (!useModuleDetection) {
+                    ModulesApiHistoryJvm(rootProjectDir, modulesInfo)
+                } else {
+                    ModulesApiHistoryAndroid(rootProjectDir, modulesInfo)
+                }
+            } ?: EmptyModulesApiHistory
         }
 
-        val projectRoot = incrementalCompilationOptions.modulesInfo.projectRoot
         val useK2 = k2jvmArgs.useK2 || LanguageVersion.fromVersionString(k2jvmArgs.languageVersion)?.usesK2 == true
         // TODO: This should be reverted after implementing of fir-based java tracker (KT-57147).
-        //  See org.jetbrains.kotlin.incremental.IncrementalJvmCompilerRunnerKt.makeIncrementally
+        //  See org.jetbrains.kotlin.incremental.CompilerRunnerUtilsKt.makeJvmIncrementally
         val usePreciseJavaTracking = if (useK2) false else incrementalCompilationOptions.usePreciseJavaTracking
 
         val compiler = IncrementalJvmCompilerRunner(
             workingDir,
             reporter,
-            buildHistoryFile = incrementalCompilationOptions.multiModuleICSettings.buildHistoryFile,
+            buildHistoryFile = incrementalCompilationOptions.multiModuleICSettings?.buildHistoryFile,
             outputDirs = incrementalCompilationOptions.outputFiles,
             usePreciseJavaTracking = usePreciseJavaTracking,
             modulesApiHistory = modulesApiHistory,
@@ -633,7 +654,12 @@ abstract class CompileServiceImplBase(
             keepIncrementalCompilationCachesInMemory = incrementalCompilationOptions.keepIncrementalCompilationCachesInMemory,
         )
         return try {
-            compiler.compile(allKotlinFiles, k2jvmArgs, compilerMessageCollector, changedFiles, projectRoot)
+            compiler.compile(
+                allKotlinFiles, k2jvmArgs, compilerMessageCollector, changedFiles,
+                fileLocations = if (rootProjectDir != null && buildDir != null) {
+                    FileLocations(rootProjectDir, buildDir)
+                } else null
+            )
         } finally {
             reporter.endMeasureGc()
             reporter.flush()

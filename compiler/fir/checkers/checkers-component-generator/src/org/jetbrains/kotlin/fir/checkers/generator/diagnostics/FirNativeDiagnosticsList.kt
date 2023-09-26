@@ -7,12 +7,12 @@ package org.jetbrains.kotlin.fir.checkers.generator.diagnostics
 
 import com.intellij.psi.PsiElement
 import org.jetbrains.kotlin.config.LanguageFeature
-import org.jetbrains.kotlin.fir.PrivateForInline
+import org.jetbrains.kotlin.util.PrivateForInline
 import org.jetbrains.kotlin.fir.checkers.generator.diagnostics.model.DiagnosticList
 import org.jetbrains.kotlin.fir.checkers.generator.diagnostics.model.PositioningStrategy
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
-import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
+import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtDeclaration
 import org.jetbrains.kotlin.psi.KtElement
@@ -46,7 +46,6 @@ object NATIVE_DIAGNOSTICS_LIST : DiagnosticList("FirNativeErrors") {
             parameter<FirBasedSymbol<*>>("declaration")
             parameter<Collection<FirRegularClassSymbol>>("containingClasses")
         }
-        val INVALID_OBJC_REFINEMENT_TARGETS by error<KtElement>()
         val INAPPLICABLE_OBJC_NAME by error<KtElement>()
         val INVALID_OBJC_NAME by error<KtElement>()
         val INVALID_OBJC_NAME_CHARS by error<KtElement> {
@@ -63,5 +62,22 @@ object NATIVE_DIAGNOSTICS_LIST : DiagnosticList("FirNativeErrors") {
         val INAPPLICABLE_EXACT_OBJC_NAME by error<KtElement>()
         val MISSING_EXACT_OBJC_NAME by error<KtElement>()
         val NON_LITERAL_OBJC_NAME_ARG by error<KtElement>()
+        val INVALID_OBJC_HIDES_TARGETS by error<KtElement>()
+        val INVALID_REFINES_IN_SWIFT_TARGETS by error<KtElement>()
+        val SUBTYPE_OF_HIDDEN_FROM_OBJC by error<KtElement>()
+
+        val CANNOT_CHECK_FOR_FORWARD_DECLARATION by error<KtElement>() {
+            parameter<ConeKotlinType>("type")
+        }
+        val UNCHECKED_CAST_TO_FORWARD_DECLARATION by warning<KtElement> {
+            parameter<ConeKotlinType>("sourceType")
+            parameter<ConeKotlinType>("destinationType")
+        }
+        val FORWARD_DECLARATION_AS_REIFIED_TYPE_ARGUMENT by error<KtElement> {
+            parameter<ConeKotlinType>("type")
+        }
+        val FORWARD_DECLARATION_AS_CLASS_LITERAL by error<KtElement> {
+            parameter<ConeKotlinType>("type")
+        }
     }
 }

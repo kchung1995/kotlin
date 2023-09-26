@@ -21,39 +21,50 @@ import org.gradle.jvm.tasks.Jar
 import org.jetbrains.kotlin.gradle.dsl.multiplatformExtension
 import org.jetbrains.kotlin.gradle.plugin.*
 import org.jetbrains.kotlin.gradle.plugin.KotlinCompilation.Companion.MAIN_COMPILATION_NAME
+import org.jetbrains.kotlin.gradle.plugin.KotlinPluginLifecycle.Stage.AfterFinaliseCompilations
+import org.jetbrains.kotlin.gradle.plugin.PropertiesProvider.Companion.kotlinPropertiesProvider
 import org.jetbrains.kotlin.gradle.utils.markResolvable
 import org.jetbrains.kotlin.gradle.targets.metadata.*
 import org.jetbrains.kotlin.gradle.targets.metadata.COMMON_MAIN_ELEMENTS_CONFIGURATION_NAME
 import org.jetbrains.kotlin.gradle.targets.metadata.isCompatibilityMetadataVariantEnabled
 import org.jetbrains.kotlin.gradle.targets.metadata.isKotlinGranularMetadataEnabled
+import org.jetbrains.kotlin.gradle.utils.Future
+import org.jetbrains.kotlin.gradle.utils.future
 import org.jetbrains.kotlin.gradle.utils.setProperty
 import org.jetbrains.kotlin.util.capitalizeDecapitalize.toLowerCaseAsciiOnly
 
 abstract class KotlinSoftwareComponent(
     private val project: Project,
     private val name: String,
-    protected val kotlinTargets: Iterable<KotlinTarget>
+    protected val kotlinTargets: Iterable<KotlinTarget>,
 ) : SoftwareComponentInternal, ComponentWithVariants {
 
     override fun getName(): String = name
 
-    private val metadataTarget get() = project.multiplatformExtension.metadata()
+    private val metadataTarget get() = project.multiplatformExtension.metadata() as KotlinMetadataTarget
 
-    override fun getVariants(): Set<SoftwareComponent> = kotlinTargets
-        .filter { target -> target !is KotlinMetadataTarget }
-        .flatMap { target ->
-            val targetPublishableComponentNames = target.internal.kotlinComponents
-                .filter { component -> component.publishable }
-                .map { component -> component.name }
-                .toSet()
+    private val _variants = project.future {
+        AfterFinaliseCompilations.await()
+        kotlinTargets
+            .filter { target -> target !is KotlinMetadataTarget }
+            .flatMap { target ->
+                val targetPublishableComponentNames = target.internal.kotlinComponents
+                    .filter { component -> component.publishable }
+                    .map { component -> component.name }
+                    .toSet()
 
-            target.components.filter { it.name in targetPublishableComponentNames }
-        }.toSet()
+                target.components.filter { it.name in targetPublishableComponentNames }
+            }.toSet()
+    }
 
-    private val _usages: Set<DefaultKotlinUsageContext> by lazy {
+    override fun getVariants(): Set<SoftwareComponent> = _variants.getOrThrow()
+
+    private val _usages: Future<Set<DefaultKotlinUsageContext>> = project.future {
+        metadataTarget.awaitMetadataCompilationsCreated()
+
         if (!project.isKotlinGranularMetadataEnabled) {
             val metadataCompilation = metadataTarget.compilations.getByName(MAIN_COMPILATION_NAME)
-            return@lazy metadataTarget.createUsageContexts(metadataCompilation)
+            return@future metadataTarget.createUsageContexts(metadataCompilation)
         }
 
         mutableSetOf<DefaultKotlinUsageContext>().apply {
@@ -68,7 +79,6 @@ abstract class KotlinSoftwareComponent(
                 dependencyConfigurationName = metadataTarget.apiElementsConfigurationName,
                 overrideConfigurationArtifacts = project.setProperty { listOf(allMetadataArtifact) }
             )
-
 
             if (project.isCompatibilityMetadataVariantEnabled) {
                 // Ensure that consumers who expect Kotlin 1.2.x metadata package can still get one:
@@ -96,11 +106,12 @@ abstract class KotlinSoftwareComponent(
         }
     }
 
+
     override fun getUsages(): Set<UsageContext> {
-        return _usages.publishableUsages()
+        return _usages.getOrThrow().publishableUsages()
     }
 
-    private fun allPublishableCommonSourceSets() = getCommonSourceSetsForMetadataCompilation(project) +
+    private suspend fun allPublishableCommonSourceSets() = getCommonSourceSetsForMetadataCompilation(project) +
             getHostSpecificMainSharedSourceSets(project)
 
     /**
@@ -108,12 +119,12 @@ abstract class KotlinSoftwareComponent(
      * user build scripts want to have access to sourcesJar task to configure it
      */
     private val sourcesJarTask: TaskProvider<Jar> = sourcesJarTaskNamed(
-            "sourcesJar",
-            name,
-            project,
-            lazy { allPublishableCommonSourceSets().associate { it.name to it.kotlin } },
-            name.toLowerCaseAsciiOnly()
-        )
+        "sourcesJar",
+        name,
+        project,
+        project.future { allPublishableCommonSourceSets().associate { it.name to it.kotlin } },
+        name.toLowerCaseAsciiOnly()
+    )
 
     private fun addSourcesJarArtifactToConfiguration(configurationName: String): PublishArtifact {
         return project.artifacts.add(configurationName, sourcesJarTask) { sourcesJarArtifact ->
@@ -210,6 +221,8 @@ class DefaultKotlinUsageContext(
 
     override fun getGlobalExcludes(): Set<ExcludeRule> = emptySet()
 
+    private val publishJvmEnvironmentAttribute get() = project.kotlinPropertiesProvider.publishJvmEnvironmentAttribute
+
     private fun filterOutNonPublishableAttributes(attributes: Set<Attribute<*>>): Set<Attribute<*>> =
         attributes.filterTo(mutableSetOf()) {
             it != ProjectLocalConfigurations.ATTRIBUTE &&
@@ -224,9 +237,17 @@ class DefaultKotlinUsageContext(
                      * 2. If this attribute is published, but not present on all the variants in a multiplatform library, and is also
                      * missing on the consumer side (like Gradle < 7.0, Kotlin 1.6.0), then there is a
                      * case when Gradle fails to choose a variant in a completely reasonable setup.
+                     *
+                     * UPD: 1.9.20:
+                     * We should now be ready to publish the 'jvm environment' attribute.
+                     * It will however be rolled out as 'opt-in' first (as safety measure).
+                     * We expect that the 'external Android target' will opt-into publishing this attribute,
+                     * as it will switch to KotlinPlatformType.jvm and requires this additional attribute to disambiguate
+                     * Android from the JVM
                      */
-                    it.name != "org.gradle.jvm.environment"
+                    (it.name != "org.gradle.jvm.environment" || publishJvmEnvironmentAttribute)
         }
+
 }
 
 internal fun Iterable<DefaultKotlinUsageContext>.publishableUsages() = this

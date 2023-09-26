@@ -13,13 +13,13 @@ import org.jetbrains.kotlin.diagnostics.reportOn
 import org.jetbrains.kotlin.fir.analysis.cfa.AbstractFirPropertyInitializationChecker
 import org.jetbrains.kotlin.fir.analysis.cfa.requiresInitialization
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
-import org.jetbrains.kotlin.fir.analysis.checkers.getChildren
 import org.jetbrains.kotlin.fir.analysis.diagnostics.FirErrors
 import org.jetbrains.kotlin.fir.analysis.cfa.util.PropertyInitializationInfoData
 import org.jetbrains.kotlin.fir.expressions.calleeReference
 import org.jetbrains.kotlin.fir.references.toResolvedPropertySymbol
 import org.jetbrains.kotlin.fir.resolve.dfa.cfg.*
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
+import org.jetbrains.kotlin.util.getChildren
 
 object CanBeValChecker : AbstractFirPropertyInitializationChecker() {
     override fun analyze(data: PropertyInitializationInfoData, reporter: DiagnosticReporter, context: CheckerContext) {
@@ -50,10 +50,11 @@ object CanBeValChecker : AbstractFirPropertyInitializationChecker() {
 
         override fun visitVariableAssignmentNode(node: VariableAssignmentNode) {
             val symbol = node.fir.calleeReference?.toResolvedPropertySymbol() ?: return
-            if (symbol.isVar && symbol.source?.kind !is KtFakeSourceElementKind && symbol in data.properties &&
-                (!symbol.requiresInitialization(isForClassInitialization = data.graph.kind == ControlFlowGraph.Kind.Class) || data.getValue(node).values.any { it[symbol]?.canBeRevisited() == true })
-            ) {
-                reassigned.add(symbol)
+            if (symbol.isVar && symbol.source?.kind !is KtFakeSourceElementKind && symbol in data.properties) {
+                val isForInitialization = data.graph.kind == ControlFlowGraph.Kind.Class || data.graph.kind == ControlFlowGraph.Kind.File
+                if (!symbol.requiresInitialization(isForInitialization) || data.getValue(node).values.any { it[symbol]?.canBeRevisited() == true }) {
+                    reassigned.add(symbol)
+                }
             }
         }
 

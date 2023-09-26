@@ -5,17 +5,17 @@
 
 package org.jetbrains.kotlin.ir.backend.js
 
+import org.jetbrains.kotlin.backend.common.linkage.issues.checkNoUnboundSymbols
 import org.jetbrains.kotlin.backend.common.phaser.PhaseConfig
 import org.jetbrains.kotlin.backend.common.phaser.invokeToplevel
-import org.jetbrains.kotlin.backend.common.serialization.linkerissues.checkNoUnboundSymbols
 import org.jetbrains.kotlin.config.CompilerConfiguration
 import org.jetbrains.kotlin.ir.IrBuiltIns
-import org.jetbrains.kotlin.ir.backend.js.codegen.JsGenerationGranularity
 import org.jetbrains.kotlin.ir.backend.js.lower.collectNativeImplementations
 import org.jetbrains.kotlin.ir.backend.js.lower.generateJsTests
 import org.jetbrains.kotlin.ir.backend.js.lower.moveBodilessDeclarationsToSeparatePlace
 import org.jetbrains.kotlin.ir.backend.js.lower.serialization.ir.JsIrLinker
 import org.jetbrains.kotlin.ir.backend.js.transformers.irToJs.CompilationOutputs
+import org.jetbrains.kotlin.ir.backend.js.transformers.irToJs.JsGenerationGranularity
 import org.jetbrains.kotlin.ir.backend.js.transformers.irToJs.TranslationMode
 import org.jetbrains.kotlin.ir.declarations.IrFactory
 import org.jetbrains.kotlin.ir.declarations.IrModuleFragment
@@ -43,7 +43,6 @@ fun compile(
     exportedDeclarations: Set<FqName> = emptySet(),
     keep: Set<String> = emptySet(),
     dceRuntimeDiagnostic: RuntimeDiagnostic? = null,
-    es6mode: Boolean = false,
     verifySignatures: Boolean = true,
     safeExternalBoolean: Boolean = false,
     safeExternalBooleanDiagnostic: RuntimeDiagnostic? = null,
@@ -67,7 +66,6 @@ fun compile(
         exportedDeclarations,
         keep,
         dceRuntimeDiagnostic,
-        es6mode,
         safeExternalBoolean,
         safeExternalBooleanDiagnostic,
         granularity,
@@ -87,7 +85,6 @@ fun compileIr(
     exportedDeclarations: Set<FqName>,
     keep: Set<String>,
     dceRuntimeDiagnostic: RuntimeDiagnostic?,
-    es6mode: Boolean,
     safeExternalBoolean: Boolean,
     safeExternalBooleanDiagnostic: RuntimeDiagnostic?,
     granularity: JsGenerationGranularity,
@@ -108,7 +105,6 @@ fun compileIr(
         exportedDeclarations,
         keep,
         configuration,
-        es6mode = es6mode,
         dceRuntimeDiagnostic = dceRuntimeDiagnostic,
         safeExternalBoolean = safeExternalBoolean,
         safeExternalBooleanDiagnostic = safeExternalBooleanDiagnostic,
@@ -120,8 +116,9 @@ fun compileIr(
     val irProviders = listOf(irLinker)
     ExternalDependenciesGenerator(symbolTable, irProviders).generateUnboundSymbolsAsDependencies()
 
-    irLinker.postProcess()
+    irLinker.postProcess(inOrAfterLinkageStep = true)
     irLinker.checkNoUnboundSymbols(symbolTable, "at the end of IR linkage process")
+    irLinker.clear()
 
     allModules.forEach { module ->
         if (shouldGeneratePolyfills) {

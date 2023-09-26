@@ -5,9 +5,9 @@
 
 package org.jetbrains.kotlin.backend.wasm
 
+import org.jetbrains.kotlin.backend.common.linkage.issues.checkNoUnboundSymbols
 import org.jetbrains.kotlin.backend.common.phaser.PhaseConfig
 import org.jetbrains.kotlin.backend.common.phaser.invokeToplevel
-import org.jetbrains.kotlin.backend.common.serialization.linkerissues.checkNoUnboundSymbols
 import org.jetbrains.kotlin.backend.wasm.ir2wasm.JsModuleAndQualifierReference
 import org.jetbrains.kotlin.backend.wasm.ir2wasm.WasmCompiledModuleFragment
 import org.jetbrains.kotlin.backend.wasm.ir2wasm.WasmModuleFragmentGenerator
@@ -22,19 +22,21 @@ import org.jetbrains.kotlin.ir.declarations.IrFactory
 import org.jetbrains.kotlin.ir.declarations.IrModuleFragment
 import org.jetbrains.kotlin.ir.util.ExternalDependenciesGenerator
 import org.jetbrains.kotlin.ir.util.patchDeclarationParents
+import org.jetbrains.kotlin.js.config.JSConfigurationKeys
+import org.jetbrains.kotlin.js.config.WasmTarget
 import org.jetbrains.kotlin.js.sourceMap.SourceFilePathResolver
 import org.jetbrains.kotlin.js.sourceMap.SourceMap3Builder
 import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.wasm.ir.source.location.SourceLocation
 import org.jetbrains.kotlin.wasm.ir.convertors.WasmIrToBinary
 import org.jetbrains.kotlin.wasm.ir.convertors.WasmIrToText
+import org.jetbrains.kotlin.wasm.ir.source.location.SourceLocation
 import org.jetbrains.kotlin.wasm.ir.source.location.SourceLocationMapping
 import java.io.ByteArrayOutputStream
 import java.io.File
 
 class WasmCompilerResult(
     val wat: String?,
-    val jsUninstantiatedWrapper: String,
+    val jsUninstantiatedWrapper: String?,
     val jsWrapper: String,
     val wasm: ByteArray,
     val sourceMap: String?
@@ -73,8 +75,9 @@ fun compileToLoweredIr(
     ExternalDependenciesGenerator(symbolTable, listOf(irLinker)).generateUnboundSymbolsAsDependencies()
     allModules.forEach { it.patchDeclarationParents() }
 
-    irLinker.postProcess()
+    irLinker.postProcess(inOrAfterLinkageStep = true)
     irLinker.checkNoUnboundSymbols(symbolTable, "at the end of IR linkage process")
+    irLinker.clear()
 
     for (module in allModules)
         for (file in module.files)
@@ -94,7 +97,10 @@ fun compileWasm(
     generateWat: Boolean = false,
     generateSourceMaps: Boolean = false,
 ): WasmCompilerResult {
-    val compiledWasmModule = WasmCompiledModuleFragment(backendContext.irBuiltIns)
+    val compiledWasmModule = WasmCompiledModuleFragment(
+        backendContext.irBuiltIns,
+        backendContext.configuration.getBoolean(JSConfigurationKeys.WASM_USE_TRAPS_INSTEAD_OF_EXCEPTIONS)
+    )
     val codeGenerator = WasmModuleFragmentGenerator(backendContext, compiledWasmModule, allowIncompleteImplementations = allowIncompleteImplementations)
     allModules.forEach { codeGenerator.collectInterfaceTables(it) }
     allModules.forEach { codeGenerator.generateModule(it) }
@@ -107,12 +113,6 @@ fun compileWasm(
     } else {
         null
     }
-
-    val jsUninstantiatedWrapper = compiledWasmModule.generateAsyncJsWrapper(
-        "./$baseFileName.wasm",
-        backendContext.jsModuleAndQualifierReferences
-    )
-    val jsWrapper = generateEsmExportsWrapper("./$baseFileName.uninstantiated.mjs")
 
     val os = ByteArrayOutputStream()
 
@@ -133,6 +133,18 @@ fun compileWasm(
     wasmIrToBinary.appendWasmModule()
 
     val byteArray = os.toByteArray()
+    val jsUninstantiatedWrapper: String?
+    val jsWrapper: String
+    if (backendContext.configuration.get(JSConfigurationKeys.WASM_TARGET, WasmTarget.JS) == WasmTarget.JS) {
+        jsUninstantiatedWrapper = compiledWasmModule.generateAsyncJsWrapper(
+            "./$baseFileName.wasm",
+            backendContext.jsModuleAndQualifierReferences
+        )
+        jsWrapper = generateEsmExportsWrapper("./$baseFileName.uninstantiated.mjs")
+    } else {
+        jsUninstantiatedWrapper = null
+        jsWrapper = compiledWasmModule.generateAsyncWasiWrapper("./$baseFileName.wasm")
+    }
 
     return WasmCompilerResult(
         wat = wat,
@@ -167,7 +179,7 @@ private fun generateSourceMap(
         prev = location
 
         location.apply {
-            // TODO resulting path goes too deep since temporary directory we compiled first is deeper than final destination.   
+            // TODO resulting path goes too deep since temporary directory we compiled first is deeper than final destination.
             val relativePath = pathResolver.getPathRelativeToSourceRoots(File(file)).substring(3)
             sourceMapBuilder.addMapping(relativePath, null, { null }, line, column, null, mapping.offset)
         }
@@ -175,6 +187,28 @@ private fun generateSourceMap(
 
     return sourceMapBuilder.build()
 }
+
+fun WasmCompiledModuleFragment.generateAsyncWasiWrapper(wasmFilePath: String): String = """
+import { WASI } from 'wasi';
+import { argv, env } from 'node:process';
+
+const wasi = new WASI({ version: 'preview1', args: argv, env, });
+
+const module = await import(/* webpackIgnore: true */'node:module');
+const require = module.default.createRequire(import.meta.url);
+const fs = require('fs');
+const path = require('path');
+const url = require('url');
+const filepath = url.fileURLToPath(import.meta.url);
+const dirpath = path.dirname(filepath);
+const wasmBuffer = fs.readFileSync(path.resolve(dirpath, '$wasmFilePath'));
+const wasmModule = new WebAssembly.Module(wasmBuffer);
+const wasmInstance = new WebAssembly.Instance(wasmModule, wasi.getImportObject());
+
+wasi.initialize(wasmInstance);
+
+export default wasmInstance.exports;
+"""
 
 fun WasmCompiledModuleFragment.generateAsyncJsWrapper(
     wasmFilePath: String,
@@ -192,7 +226,7 @@ fun WasmCompiledModuleFragment.generateAsyncJsWrapper(
         .sorted()
         .joinToString("") {
             val moduleSpecifier = it.toJsStringLiteral()
-            "        $moduleSpecifier: await _importModule($moduleSpecifier),\n"
+            "        $moduleSpecifier: imports[$moduleSpecifier] ?? await import($moduleSpecifier),\n"
         }
 
     val referencesToQualifiedAndImportedDeclarations = jsModuleAndQualifierReferences
@@ -204,7 +238,7 @@ fun WasmCompiledModuleFragment.generateAsyncJsWrapper(
                 append(it.jsVariableName)
                 append(" = ")
                 if (module != null) {
-                    append("(await _importModule(${module.toJsStringLiteral()}))")
+                    append("(imports[${module.toJsStringLiteral()}] ?? await import(${module.toJsStringLiteral()}))")
                     if (qualifier != null)
                         append(".")
                 }
@@ -215,8 +249,6 @@ fun WasmCompiledModuleFragment.generateAsyncJsWrapper(
             }
         }.sorted()
         .joinToString("\n")
-
-    val d = "$"
 
     //language=js
     return """
@@ -229,10 +261,6 @@ export async function instantiate(imports={}, runInitializer=true) {
         if (cachedBox !== void 0) return cachedBox;
         externrefBoxes.set(ref, ifNotCached);
         return ifNotCached;
-    }
-    
-    async function _importModule(x) { 
-        return imports[x] ?? await import(x);
     }
 
 $referencesToQualifiedAndImportedDeclarations
@@ -290,23 +318,11 @@ $imports
       }
     } catch (e) {
       if (e instanceof WebAssembly.CompileError) {
-        const styles = [];
-        const styled = (t, css, escSeq) => isBrowser ? (styles.push(css, /* reset */""), `%c$d{t}%c`) : `\x1b[$d{escSeq}m$d{t}\x1b[m`;
-        const name = t => styled(t, "font-weight:bold", 1);
-        const uri = t => styled(t, "text-decoration:underline", 4);
-        const cli = t => styled(t, "font-family:monospace", 2);
-        
-        let text = `Using experimental Kotlin/Wasm may require enabling experimental features in the target environment.
-
-- $d{name("Chrome")}: enable $d{name("WebAssembly Garbage Collection")} at $d{uri("chrome://flags/#enable-webassembly-garbage-collection")} or run the program with the $d{cli("--js-flags=--experimental-wasm-gc")} command line argument.
-- $d{name("Firefox")}: enable $d{name("javascript.options.wasm_function_references")} and $d{name("javascript.options.wasm_gc")} at $d{uri("about:config")}.
-- $d{name("Edge")}: run the program with the $d{cli("--js-flags=--experimental-wasm-gc")} command line argument.
-- $d{name("Node.js")}: run the program with the $d{cli("--experimental-wasm-gc")} command line argument.
-
-For more information see $d{uri("https://kotl.in/wasm_help/")}.
+        let text = `Please make sure that your runtime environment supports the latest version of Wasm GC and Exception-Handling proposals.
+For more information, see https://kotl.in/wasm-help
 `;
         if (isBrowser) {
-          console.error(text, ...styles);
+          console.error(text);
         } else {
           const t = "\n" + text;
           if (typeof console !== "undefined" && console.log !== void 0) 
@@ -320,7 +336,7 @@ For more information see $d{uri("https://kotl.in/wasm_help/")}.
     
     wasmExports = wasmInstance.exports;
     if (runInitializer) {
-        wasmExports.__init();
+        wasmExports._initialize();
     }
 
     return { instance: wasmInstance,  exports: wasmExports };
@@ -344,7 +360,9 @@ fun writeCompilationResult(
     }
     File(dir, "$fileNameBase.wasm").writeBytes(result.wasm)
 
-    File(dir, "$fileNameBase.uninstantiated.mjs").writeText(result.jsUninstantiatedWrapper)
+    if (result.jsUninstantiatedWrapper != null) {
+        File(dir, "$fileNameBase.uninstantiated.mjs").writeText(result.jsUninstantiatedWrapper)
+    }
     File(dir, "$fileNameBase.mjs").writeText(result.jsWrapper)
 
     if (result.sourceMap != null) {

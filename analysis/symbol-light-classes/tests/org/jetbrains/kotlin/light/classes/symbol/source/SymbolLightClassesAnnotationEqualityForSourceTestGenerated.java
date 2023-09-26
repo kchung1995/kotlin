@@ -25,6 +25,18 @@ public class SymbolLightClassesAnnotationEqualityForSourceTestGenerated extends 
     }
 
     @Test
+    @TestMetadata("Deprecated.kt")
+    public void testDeprecated() throws Exception {
+        runTest("analysis/symbol-light-classes/testData/annotationsEquality/Deprecated.kt");
+    }
+
+    @Test
+    @TestMetadata("EnumConstantNameInQuotes.kt")
+    public void testEnumConstantNameInQuotes() throws Exception {
+        runTest("analysis/symbol-light-classes/testData/annotationsEquality/EnumConstantNameInQuotes.kt");
+    }
+
+    @Test
     @TestMetadata("ExplicitRetension.kt")
     public void testExplicitRetension() throws Exception {
         runTest("analysis/symbol-light-classes/testData/annotationsEquality/ExplicitRetension.kt");
@@ -46,6 +58,12 @@ public class SymbolLightClassesAnnotationEqualityForSourceTestGenerated extends 
     @TestMetadata("JvmRepeatable.kt")
     public void testJvmRepeatable() throws Exception {
         runTest("analysis/symbol-light-classes/testData/annotationsEquality/JvmRepeatable.kt");
+    }
+
+    @Test
+    @TestMetadata("KotlinTargetFirst.kt")
+    public void testKotlinTargetFirst() throws Exception {
+        runTest("analysis/symbol-light-classes/testData/annotationsEquality/KotlinTargetFirst.kt");
     }
 
     @Test

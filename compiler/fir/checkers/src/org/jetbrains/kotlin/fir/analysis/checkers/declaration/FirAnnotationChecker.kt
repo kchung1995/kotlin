@@ -12,6 +12,7 @@ import org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget
 import org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget.*
 import org.jetbrains.kotlin.descriptors.annotations.KotlinTarget
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
+import org.jetbrains.kotlin.diagnostics.KtDiagnosticFactory1
 import org.jetbrains.kotlin.diagnostics.hasValOrVar
 import org.jetbrains.kotlin.diagnostics.reportOn
 import org.jetbrains.kotlin.fir.FirAnnotationContainer
@@ -29,6 +30,8 @@ import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.types.*
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.StandardClassIds
+import kotlin.contracts.ExperimentalContracts
+import kotlin.contracts.contract
 
 object FirAnnotationChecker : FirBasicDeclarationChecker() {
     private val deprecatedClassId = FqName("kotlin.Deprecated")
@@ -39,6 +42,10 @@ object FirAnnotationChecker : FirBasicDeclarationChecker() {
         context: CheckerContext,
         reporter: DiagnosticReporter
     ) {
+        if (declaration is FirDanglingModifierList) {
+            return
+        }
+
         checkAnnotationContainer(declaration, context, reporter)
 
         if (declaration is FirCallableDeclaration) {
@@ -71,7 +78,7 @@ object FirAnnotationChecker : FirBasicDeclarationChecker() {
             val receiverParameter = declaration.receiverParameter
             if (receiverParameter != null) {
                 for (receiverAnnotation in receiverParameter.annotations) {
-                    reportIfMfvc(context, reporter, receiverAnnotation, "receivers", receiverParameter.typeRef)
+                    reportIfMfvc(context, reporter, receiverAnnotation, "receivers", receiverParameter.typeRef.coneType)
                 }
             }
         }
@@ -95,7 +102,13 @@ object FirAnnotationChecker : FirBasicDeclarationChecker() {
         }
     }
 
-    private fun reportIfMfvc(context: CheckerContext, reporter: DiagnosticReporter, annotation: FirAnnotation, hint: String, type: FirTypeRef) {
+    private fun reportIfMfvc(
+        context: CheckerContext,
+        reporter: DiagnosticReporter,
+        annotation: FirAnnotation,
+        hint: String,
+        type: ConeKotlinType,
+    ) {
         if (type.needsMultiFieldValueClassFlattening(context.session)) {
             reporter.reportOn(annotation.source, FirErrors.ANNOTATION_ON_ILLEGAL_MULTI_FIELD_VALUE_CLASS_TYPED_TARGET, hint, context)
         }
@@ -111,8 +124,9 @@ object FirAnnotationChecker : FirBasicDeclarationChecker() {
                 propertySymbol.resolvedReceiverTypeRef == null && propertySymbol.resolvedContextReceivers.isEmpty()
 
         val (hint, type) = when (annotation.useSiteTarget) {
-            FIELD -> "fields" to ((declaration as? FirProperty)?.backingField?.returnTypeRef ?: return)
-            PROPERTY_DELEGATE_FIELD -> "delegate fields" to ((declaration as? FirProperty)?.delegate?.typeRef ?: return)
+            FIELD -> "fields" to ((declaration as? FirBackingField)?.returnTypeRef ?: return)
+            PROPERTY_DELEGATE_FIELD -> "delegate fields" to ((declaration as? FirBackingField)?.propertySymbol?.delegate?.resolvedType
+                ?: return)
             RECEIVER -> "receivers" to ((declaration as? FirCallableDeclaration)?.receiverParameter?.typeRef ?: return)
             FILE, PROPERTY, PROPERTY_GETTER, PROPERTY_SETTER, CONSTRUCTOR_PARAMETER, SETTER_PARAMETER, null -> when {
                 declaration is FirProperty && !declaration.isLocal -> {
@@ -133,7 +147,7 @@ object FirAnnotationChecker : FirBasicDeclarationChecker() {
                 else -> return
             }
         }
-        reportIfMfvc(context, reporter, annotation, hint, type)
+        reportIfMfvc(context, reporter, annotation, hint, type as? ConeKotlinType ?: (type as FirTypeRef).coneType)
     }
 
     private fun checkAnnotationTarget(
@@ -162,7 +176,9 @@ object FirAnnotationChecker : FirBasicDeclarationChecker() {
         }
 
         if (check(actualTargets.defaultTargets) || check(actualTargets.canBeSubstituted) || checkWithUseSiteTargets()) {
-            checkMultiFieldValueClassAnnotationRestrictions(declaration, annotation, context, reporter)
+            if (context.languageVersionSettings.supportsFeature(LanguageFeature.ValueClasses)) {
+                checkMultiFieldValueClassAnnotationRestrictions(declaration, annotation, context, reporter)
+            }
             return
         }
 
@@ -196,22 +212,36 @@ object FirAnnotationChecker : FirBasicDeclarationChecker() {
         when (target) {
             PROPERTY,
             PROPERTY_GETTER -> {
+                checkPropertyGetter(
+                    annotated,
+                    annotation,
+                    target,
+                    context,
+                    reporter,
+                    when (context.session.languageVersionSettings.supportsFeature(LanguageFeature.ProhibitUseSiteGetTargetAnnotations)) {
+                        true -> FirErrors.INAPPLICABLE_TARGET_ON_PROPERTY
+                        false -> FirErrors.INAPPLICABLE_TARGET_ON_PROPERTY_WARNING
+                    }
+                )
             }
             FIELD -> {
-                if (annotated is FirProperty && annotated.delegateFieldSymbol != null && !annotated.hasBackingField) {
-                    reporter.reportOn(annotation.source, FirErrors.INAPPLICABLE_TARGET_PROPERTY_HAS_NO_BACKING_FIELD, context)
+                if (annotated is FirBackingField) {
+                    val propertySymbol = annotated.propertySymbol
+                    if (propertySymbol.delegateFieldSymbol != null && !propertySymbol.hasBackingField) {
+                        reporter.reportOn(annotation.source, FirErrors.INAPPLICABLE_TARGET_PROPERTY_HAS_NO_BACKING_FIELD, context)
+                    }
                 }
             }
             PROPERTY_DELEGATE_FIELD -> {
-                if (annotated is FirProperty && annotated.delegateFieldSymbol == null) {
+                if (annotated is FirBackingField && annotated.propertySymbol.delegateFieldSymbol == null) {
                     reporter.reportOn(annotation.source, FirErrors.INAPPLICABLE_TARGET_PROPERTY_HAS_NO_DELEGATE, context)
                 }
             }
             PROPERTY_SETTER,
             SETTER_PARAMETER -> {
-                if (annotated !is FirProperty || annotated.isLocal) {
-                    reporter.reportOn(annotation.source, FirErrors.INAPPLICABLE_TARGET_ON_PROPERTY, target.renderName, context)
-                } else if (!annotated.isVar) {
+                if (!checkPropertyGetter(annotated, annotation, target, context, reporter, FirErrors.INAPPLICABLE_TARGET_ON_PROPERTY) &&
+                    !annotated.isVar
+                ) {
                     reporter.reportOn(annotation.source, FirErrors.INAPPLICABLE_TARGET_PROPERTY_IMMUTABLE, target.renderName, context)
                 }
             }
@@ -242,6 +272,23 @@ object FirAnnotationChecker : FirBasicDeclarationChecker() {
                 )
             }
         }
+    }
+
+    @OptIn(ExperimentalContracts::class)
+    private fun checkPropertyGetter(
+        annotated: FirAnnotationContainer,
+        annotation: FirAnnotation,
+        target: AnnotationUseSiteTarget,
+        context: CheckerContext,
+        reporter: DiagnosticReporter,
+        diagnostic: KtDiagnosticFactory1<String>
+    ): Boolean {
+        contract {
+            returns(false) implies (annotated is FirProperty)
+        }
+        val isReport = annotated !is FirProperty || annotated.isLocal
+        if (isReport) reporter.reportOn(annotation.source, diagnostic, target.renderName, context)
+        return isReport
     }
 
     private fun checkDeprecatedCalls(

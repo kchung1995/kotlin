@@ -17,14 +17,6 @@ internal object KotlinCommonCompilerToolOptionsHelper {
         args.freeArgs += from.freeCompilerArgs.get()
     }
 
-    internal fun fillDefaultValues(
-        args: org.jetbrains.kotlin.cli.common.arguments.CommonToolArguments,
-    ) {
-        args.allWarningsAsErrors = false
-        args.suppressWarnings = false
-        args.verbose = false
-    }
-
     internal fun syncOptionsAsConvention(
         from: org.jetbrains.kotlin.gradle.dsl.KotlinCommonCompilerToolOptions,
         into: org.jetbrains.kotlin.gradle.dsl.KotlinCommonCompilerToolOptions,
@@ -32,6 +24,6 @@ internal object KotlinCommonCompilerToolOptionsHelper {
         into.allWarningsAsErrors.convention(from.allWarningsAsErrors)
         into.suppressWarnings.convention(from.suppressWarnings)
         into.verbose.convention(from.verbose)
-        into.freeCompilerArgs.convention(from.freeCompilerArgs)
+        into.freeCompilerArgs.addAll(from.freeCompilerArgs)
     }
 }

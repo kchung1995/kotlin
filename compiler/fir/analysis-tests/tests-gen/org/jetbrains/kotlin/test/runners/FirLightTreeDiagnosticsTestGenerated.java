@@ -22,6 +22,30 @@ public class FirLightTreeDiagnosticsTestGenerated extends AbstractFirLightTreeDi
     @TestDataPath("$PROJECT_ROOT")
     public class Resolve {
         @Test
+        @TestMetadata("accessJavaFromKotlinViaImport.kt")
+        public void testAccessJavaFromKotlinViaImport() throws Exception {
+            runTest("compiler/fir/analysis-tests/testData/resolve/accessJavaFromKotlinViaImport.kt");
+        }
+
+        @Test
+        @TestMetadata("accessJavaFromKotlinViaStaticImport.kt")
+        public void testAccessJavaFromKotlinViaStaticImport() throws Exception {
+            runTest("compiler/fir/analysis-tests/testData/resolve/accessJavaFromKotlinViaStaticImport.kt");
+        }
+
+        @Test
+        @TestMetadata("accessJavaFromKotlinViaStaticImport2.kt")
+        public void testAccessJavaFromKotlinViaStaticImport2() throws Exception {
+            runTest("compiler/fir/analysis-tests/testData/resolve/accessJavaFromKotlinViaStaticImport2.kt");
+        }
+
+        @Test
+        @TestMetadata("accessJavaFromKotlinViaStaticImportAndPermits.kt")
+        public void testAccessJavaFromKotlinViaStaticImportAndPermits() throws Exception {
+            runTest("compiler/fir/analysis-tests/testData/resolve/accessJavaFromKotlinViaStaticImportAndPermits.kt");
+        }
+
+        @Test
         public void testAllFilesPresentInResolve() throws Exception {
             KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/fir/analysis-tests/testData/resolve"), Pattern.compile("^([^.]+)\\.kt$"), null, true);
         }
@@ -222,6 +246,12 @@ public class FirLightTreeDiagnosticsTestGenerated extends AbstractFirLightTreeDi
         @TestMetadata("flexibleCapturedType.kt")
         public void testFlexibleCapturedType() throws Exception {
             runTest("compiler/fir/analysis-tests/testData/resolve/flexibleCapturedType.kt");
+        }
+
+        @Test
+        @TestMetadata("flexibleTypeRendering.kt")
+        public void testFlexibleTypeRendering() throws Exception {
+            runTest("compiler/fir/analysis-tests/testData/resolve/flexibleTypeRendering.kt");
         }
 
         @Test
@@ -501,9 +531,21 @@ public class FirLightTreeDiagnosticsTestGenerated extends AbstractFirLightTreeDi
         }
 
         @Test
+        @TestMetadata("properLocalPackages.kt")
+        public void testProperLocalPackages() throws Exception {
+            runTest("compiler/fir/analysis-tests/testData/resolve/properLocalPackages.kt");
+        }
+
+        @Test
         @TestMetadata("propertyFromJavaPlusAssign.kt")
         public void testPropertyFromJavaPlusAssign() throws Exception {
             runTest("compiler/fir/analysis-tests/testData/resolve/propertyFromJavaPlusAssign.kt");
+        }
+
+        @Test
+        @TestMetadata("propertyGetterWithoutType.kt")
+        public void testPropertyGetterWithoutType() throws Exception {
+            runTest("compiler/fir/analysis-tests/testData/resolve/propertyGetterWithoutType.kt");
         }
 
         @Test
@@ -1368,6 +1410,12 @@ public class FirLightTreeDiagnosticsTestGenerated extends AbstractFirLightTreeDi
             }
 
             @Test
+            @TestMetadata("nestedClass.kt")
+            public void testNestedClass() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolve/cfg/nestedClass.kt");
+            }
+
+            @Test
             @TestMetadata("postponedLambdaInConstructor.kt")
             public void testPostponedLambdaInConstructor() throws Exception {
                 runTest("compiler/fir/analysis-tests/testData/resolve/cfg/postponedLambdaInConstructor.kt");
@@ -1881,6 +1929,12 @@ public class FirLightTreeDiagnosticsTestGenerated extends AbstractFirLightTreeDi
             @TestMetadata("qualifiedSupertypeExtendedByOtherSupertype.kt")
             public void testQualifiedSupertypeExtendedByOtherSupertype() throws Exception {
                 runTest("compiler/fir/analysis-tests/testData/resolve/diagnostics/qualifiedSupertypeExtendedByOtherSupertype.kt");
+            }
+
+            @Test
+            @TestMetadata("recursiveProblemWithSyntaxError.kt")
+            public void testRecursiveProblemWithSyntaxError() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolve/diagnostics/recursiveProblemWithSyntaxError.kt");
             }
 
             @Test
@@ -3536,6 +3590,12 @@ public class FirLightTreeDiagnosticsTestGenerated extends AbstractFirLightTreeDi
             }
 
             @Test
+            @TestMetadata("lambdaWithAnonymousObject.kt")
+            public void testLambdaWithAnonymousObject() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolve/localClasses/lambdaWithAnonymousObject.kt");
+            }
+
+            @Test
             @TestMetadata("overrideInLocal.kt")
             public void testOverrideInLocal() throws Exception {
                 runTest("compiler/fir/analysis-tests/testData/resolve/localClasses/overrideInLocal.kt");
@@ -3776,6 +3836,30 @@ public class FirLightTreeDiagnosticsTestGenerated extends AbstractFirLightTreeDi
             }
 
             @Test
+            @TestMetadata("incompleteUserType.kt")
+            public void testIncompleteUserType() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolve/problems/incompleteUserType.kt");
+            }
+
+            @Test
+            @TestMetadata("incompleteUserTypeWithUnresovledTypeArgument.kt")
+            public void testIncompleteUserTypeWithUnresovledTypeArgument() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolve/problems/incompleteUserTypeWithUnresovledTypeArgument.kt");
+            }
+
+            @Test
+            @TestMetadata("incompleteWhen.kt")
+            public void testIncompleteWhen() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolve/problems/incompleteWhen.kt");
+            }
+
+            @Test
+            @TestMetadata("incorrectGenericLambdaProperty.kt")
+            public void testIncorrectGenericLambdaProperty() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolve/problems/incorrectGenericLambdaProperty.kt");
+            }
+
+            @Test
             @TestMetadata("innerClassHierarchy.kt")
             public void testInnerClassHierarchy() throws Exception {
                 runTest("compiler/fir/analysis-tests/testData/resolve/problems/innerClassHierarchy.kt");
@@ -3815,6 +3899,12 @@ public class FirLightTreeDiagnosticsTestGenerated extends AbstractFirLightTreeDi
             @TestMetadata("objectDerivedFromInnerClass.kt")
             public void testObjectDerivedFromInnerClass() throws Exception {
                 runTest("compiler/fir/analysis-tests/testData/resolve/problems/objectDerivedFromInnerClass.kt");
+            }
+
+            @Test
+            @TestMetadata("primaryConstructorParameterWithoutReturnType.kt")
+            public void testPrimaryConstructorParameterWithoutReturnType() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolve/problems/primaryConstructorParameterWithoutReturnType.kt");
             }
 
             @Test
@@ -4157,6 +4247,12 @@ public class FirLightTreeDiagnosticsTestGenerated extends AbstractFirLightTreeDi
             @Test
             public void testAllFilesPresentInScopes() throws Exception {
                 KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/fir/analysis-tests/testData/resolve/scopes"), Pattern.compile("^([^.]+)\\.kt$"), null, true);
+            }
+
+            @Test
+            @TestMetadata("delegatedDataClass.kt")
+            public void testDelegatedDataClass() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolve/scopes/delegatedDataClass.kt");
             }
 
             @Test
@@ -4765,6 +4861,12 @@ public class FirLightTreeDiagnosticsTestGenerated extends AbstractFirLightTreeDi
                 public void testSmartcastAfterReassignment() throws Exception {
                     runTest("compiler/fir/analysis-tests/testData/resolve/smartcasts/variables/smartcastAfterReassignment.kt");
                 }
+
+                @Test
+                @TestMetadata("smartcastStoredInLocalVar.kt")
+                public void testSmartcastStoredInLocalVar() throws Exception {
+                    runTest("compiler/fir/analysis-tests/testData/resolve/smartcasts/variables/smartcastStoredInLocalVar.kt");
+                }
             }
         }
 
@@ -4927,6 +5029,12 @@ public class FirLightTreeDiagnosticsTestGenerated extends AbstractFirLightTreeDi
             @TestMetadata("correctJava.kt")
             public void testCorrectJava() throws Exception {
                 runTest("compiler/fir/analysis-tests/testData/resolve/unqualifiedEnum/correctJava.kt");
+            }
+
+            @Test
+            @TestMetadata("enumWithTheSameNameAsEntry.kt")
+            public void testEnumWithTheSameNameAsEntry() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolve/unqualifiedEnum/enumWithTheSameNameAsEntry.kt");
             }
 
             @Test
@@ -6434,6 +6542,24 @@ public class FirLightTreeDiagnosticsTestGenerated extends AbstractFirLightTreeDi
             }
 
             @Test
+            @TestMetadata("genericGetterForJavaOverriddenProperty.kt")
+            public void testGenericGetterForJavaOverriddenProperty() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolveWithStdlib/j+k/genericGetterForJavaOverriddenProperty.kt");
+            }
+
+            @Test
+            @TestMetadata("genericGetterForJavaOverriddenProperty2.kt")
+            public void testGenericGetterForJavaOverriddenProperty2() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolveWithStdlib/j+k/genericGetterForJavaOverriddenProperty2.kt");
+            }
+
+            @Test
+            @TestMetadata("genericGetterForSyntheticProperty.kt")
+            public void testGenericGetterForSyntheticProperty() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolveWithStdlib/j+k/genericGetterForSyntheticProperty.kt");
+            }
+
+            @Test
             @TestMetadata("IntersectionTypesProblem.kt")
             public void testIntersectionTypesProblem() throws Exception {
                 runTest("compiler/fir/analysis-tests/testData/resolveWithStdlib/j+k/IntersectionTypesProblem.kt");
@@ -6742,6 +6868,18 @@ public class FirLightTreeDiagnosticsTestGenerated extends AbstractFirLightTreeDi
             }
 
             @Test
+            @TestMetadata("FieldAnnotationWithClasses.kt")
+            public void testFieldAnnotationWithClasses() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolveWithStdlib/problems/FieldAnnotationWithClasses.kt");
+            }
+
+            @Test
+            @TestMetadata("forEachOnZip.kt")
+            public void testForEachOnZip() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolveWithStdlib/problems/forEachOnZip.kt");
+            }
+
+            @Test
             @TestMetadata("immutableName.kt")
             public void testImmutableName() throws Exception {
                 runTest("compiler/fir/analysis-tests/testData/resolveWithStdlib/problems/immutableName.kt");
@@ -6787,6 +6925,12 @@ public class FirLightTreeDiagnosticsTestGenerated extends AbstractFirLightTreeDi
             @TestMetadata("localScopesInAnonymousObject.kt")
             public void testLocalScopesInAnonymousObject() throws Exception {
                 runTest("compiler/fir/analysis-tests/testData/resolveWithStdlib/problems/localScopesInAnonymousObject.kt");
+            }
+
+            @Test
+            @TestMetadata("malformedRawTypes.kt")
+            public void testMalformedRawTypes() throws Exception {
+                runTest("compiler/fir/analysis-tests/testData/resolveWithStdlib/problems/malformedRawTypes.kt");
             }
 
             @Test

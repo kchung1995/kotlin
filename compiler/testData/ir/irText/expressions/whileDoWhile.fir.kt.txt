@@ -1,20 +1,24 @@
 fun test() {
   var x: Int = 0
-  while (less(arg0 = x, arg1 = 0)) { // BLOCK
-  }
+  while (less(arg0 = x, arg1 = 0))
   while (less(arg0 = x, arg1 = 5)) { // BLOCK
     val <unary>: Int = x
     x = <unary>.inc()
     <unary>
   }
   while (less(arg0 = x, arg1 = 10)) { // BLOCK
-    val <unary>: Int = x
-    x = <unary>.inc()
-    <unary>
+    { // BLOCK
+      val <unary>: Int = x
+      x = <unary>.inc()
+      <unary>
+    }
+  }
+  { // BLOCK
+    do    while (less(arg0 = x, arg1 = 0))
   }
   { // BLOCK
     do// COMPOSITE {
-    // }    while (less(arg0 = x, arg1 = 0))
+    // }    while (less(arg0 = x, arg1 = 7))
   }
   { // BLOCK
     do{ // BLOCK
@@ -24,11 +28,13 @@ fun test() {
     }    while (less(arg0 = x, arg1 = 15))
   }
   { // BLOCK
-    do{ // BLOCK
+    do// COMPOSITE {
+    { // BLOCK
       val <unary>: Int = x
       x = <unary>.inc()
       <unary>
-    }    while (less(arg0 = x, arg1 = 20))
+    }
+    // }    while (less(arg0 = x, arg1 = 20))
   }
 }
 
@@ -45,3 +51,4 @@ fun testSmartcastInCondition() {
     }
   }
 }
+

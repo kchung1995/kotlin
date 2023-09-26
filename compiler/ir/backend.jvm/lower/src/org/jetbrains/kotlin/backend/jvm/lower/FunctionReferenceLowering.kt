@@ -11,7 +11,6 @@ import org.jetbrains.kotlin.backend.common.ir.moveBodyTo
 import org.jetbrains.kotlin.backend.common.lower.SamEqualsHashCodeMethodsGenerator
 import org.jetbrains.kotlin.backend.common.lower.VariableRemapper
 import org.jetbrains.kotlin.backend.common.phaser.makeIrFilePhase
-import org.jetbrains.kotlin.backend.common.phaser.makeIrModulePhase
 import org.jetbrains.kotlin.backend.jvm.JvmBackendContext
 import org.jetbrains.kotlin.backend.jvm.JvmLoweredDeclarationOrigin
 import org.jetbrains.kotlin.backend.jvm.JvmLoweredStatementOrigin
@@ -40,7 +39,7 @@ import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.SpecialNames
 import org.jetbrains.kotlin.resolve.jvm.annotations.JVM_SERIALIZABLE_LAMBDA_ANNOTATION_FQ_NAME
 
-internal val functionReferencePhase = makeIrModulePhase(
+internal val functionReferencePhase = makeIrFilePhase(
     ::FunctionReferenceLowering,
     name = "FunctionReference",
     description = "Construct instances of anonymous KFunction subclasses for function references"
@@ -70,10 +69,10 @@ internal class FunctionReferenceLowering(private val context: JvmBackendContext)
     }
 
     private val shouldGenerateIndySamConversions =
-        context.state.samConversionsScheme == JvmClosureGenerationScheme.INDY
+        context.config.samConversionsScheme == JvmClosureGenerationScheme.INDY
 
     private val shouldGenerateIndyLambdas =
-        context.state.lambdasScheme == JvmClosureGenerationScheme.INDY
+        context.config.lambdasScheme == JvmClosureGenerationScheme.INDY
 
     private val shouldGenerateLightweightLambdas =
         shouldGenerateIndyLambdas && context.state.languageVersionSettings.supportsFeature(LanguageFeature.LightweightLambdas)
@@ -462,7 +461,7 @@ internal class FunctionReferenceLowering(private val context: JvmBackendContext)
                 ?: throw AssertionError("Not a SAM class: ${functionSuperClass.owner.render()}")
 
         private val useOptimizedSuperClass =
-            context.state.generateOptimizedCallableReferenceSuperClasses
+            context.config.generateOptimizedCallableReferenceSuperClasses
 
         // This code is partially duplicated in IrUtils getAdapteeFromAdaptedForReferenceFunction
         // The difference is utils version supports ReturnableBlock, but returns called function instead of call node.

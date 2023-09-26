@@ -11,6 +11,7 @@ import org.jetbrains.kotlin.konan.properties.hasProperty
 import org.jetbrains.kotlin.library.KLIB_PROPERTY_DEPENDS
 import org.jetbrains.kotlin.library.ToolingSingleFileKlibResolveStrategy
 import org.jetbrains.kotlin.library.unresolvedDependencies
+import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.fail
 
@@ -43,6 +44,21 @@ class MppSharedNativeCompileIT : KGPBaseTest() {
                                 "Value: ${libraryFile.manifestProperties.getProperty(KLIB_PROPERTY_DEPENDS)}"
                     )
                 }
+            }
+        }
+    }
+
+    /**
+     *
+     */
+    @GradleTest
+    @Disabled("KT-60943: Will be fixed in K2")
+    fun `test - K2 - shared native compilation - assemble`(gradleVersion: GradleVersion) {
+        project("kt-57944-k2-native-compilation", gradleVersion, buildOptions = defaultBuildOptions.copy(languageVersion = "2.0")) {
+            build("assemble") {
+                assertTasksExecuted(":compileCommonMainKotlinMetadata")
+                assertTasksExecuted(":compileNativeMainKotlinMetadata")
+                assertTasksExecuted(":compileKotlinLinuxX64")
             }
         }
     }

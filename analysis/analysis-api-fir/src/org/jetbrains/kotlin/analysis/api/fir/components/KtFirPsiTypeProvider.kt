@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2021 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -11,6 +11,7 @@ import com.intellij.psi.impl.cache.TypeInfo
 import com.intellij.psi.impl.compiled.ClsTypeElementImpl
 import com.intellij.psi.impl.compiled.SignatureParsing
 import com.intellij.psi.impl.compiled.StubBuildingVisitor
+import java.text.StringCharacterIterator
 import org.jetbrains.kotlin.analysis.api.components.KtPsiTypeProvider
 import org.jetbrains.kotlin.analysis.api.fir.KtFirAnalysisSession
 import org.jetbrains.kotlin.analysis.api.fir.types.KtFirType
@@ -28,6 +29,7 @@ import org.jetbrains.kotlin.descriptors.java.JavaVisibilities
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.backend.jvm.jvmTypeMapper
 import org.jetbrains.kotlin.fir.declarations.FirResolvePhase
+import org.jetbrains.kotlin.fir.moduleData
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.substitution.AbstractConeSubstitutor
 import org.jetbrains.kotlin.fir.resolve.toSymbol
@@ -38,11 +40,12 @@ import org.jetbrains.kotlin.load.kotlin.TypeMappingMode
 import org.jetbrains.kotlin.load.kotlin.getOptimalModeForReturnType
 import org.jetbrains.kotlin.load.kotlin.getOptimalModeForValueParameter
 import org.jetbrains.kotlin.name.SpecialNames
+import org.jetbrains.kotlin.platform.has
+import org.jetbrains.kotlin.platform.jvm.JvmPlatform
 import org.jetbrains.kotlin.psi
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.psiUtil.parents
 import org.jetbrains.kotlin.types.model.SimpleTypeMarker
-import java.text.StringCharacterIterator
 
 internal class KtFirPsiTypeProvider(
     override val analysisSession: KtFirAnalysisSession,
@@ -64,6 +67,8 @@ internal class KtFirPsiTypeProvider(
             }
         }
 
+        if (!rootModuleSession.moduleData.platform.has<JvmPlatform>()) return null
+
         return coneType.simplifyType(rootModuleSession, useSitePosition)
             .asPsiTypeElement(rootModuleSession, mode.toTypeMappingMode(type, isAnnotationMethod), useSitePosition, allowErrorTypes)
     }
@@ -76,10 +81,15 @@ internal class KtFirPsiTypeProvider(
             KtTypeMappingMode.GENERIC_ARGUMENT -> TypeMappingMode.GENERIC_ARGUMENT
             KtTypeMappingMode.SUPER_TYPE -> TypeMappingMode.SUPER_TYPE
             KtTypeMappingMode.SUPER_TYPE_KOTLIN_COLLECTIONS_AS_IS -> TypeMappingMode.SUPER_TYPE_KOTLIN_COLLECTIONS_AS_IS
-            KtTypeMappingMode.RETURN_TYPE ->
-                rootModuleSession.jvmTypeMapper.typeContext.getOptimalModeForReturnType(type.coneType, isAnnotationMethod)
-            KtTypeMappingMode.VALUE_PARAMETER ->
-                rootModuleSession.jvmTypeMapper.typeContext.getOptimalModeForValueParameter(type.coneType)
+            KtTypeMappingMode.RETURN_TYPE_BOXED -> TypeMappingMode.RETURN_TYPE_BOXED
+            KtTypeMappingMode.RETURN_TYPE -> {
+                val expandedType = type.coneType.fullyExpandedType(rootModuleSession)
+                rootModuleSession.jvmTypeMapper.typeContext.getOptimalModeForReturnType(expandedType, isAnnotationMethod)
+            }
+            KtTypeMappingMode.VALUE_PARAMETER -> {
+                val expandedType = type.coneType.fullyExpandedType(rootModuleSession)
+                rootModuleSession.jvmTypeMapper.typeContext.getOptimalModeForValueParameter(expandedType)
+            }
         }
     }
 }
@@ -237,7 +247,15 @@ private class AnonymousTypesSubstitutor(
         if (type !is ConeClassLikeType) return null
 
         val hasStableName = type.classId?.isLocal == true
-        if (!hasStableName) return null
+        if (!hasStableName) {
+            // Make sure we're not going to expand type argument over and over again.
+            // If so, i.e., if there is a recursive type argument, return the current, non-null [type]
+            // to prevent the following [substituteTypeOr*] from proceeding to its own (recursive) substitution.
+            if (type.hasRecursiveTypeArgument()) return type
+            // Return `null` means we will use [fir.resolve.substitution.Substitutors]'s [substituteRecursive]
+            // that literally substitutes type arguments recursively.
+            return null
+        }
 
         val firClassNode = type.lookupTag.toSymbol(session) as? FirClassSymbol
         if (firClassNode != null) {
@@ -247,4 +265,22 @@ private class AnonymousTypesSubstitutor(
         return if (type.nullability.isNullable) session.builtinTypes.nullableAnyType.type
         else session.builtinTypes.anyType.type
     }
+
+    private fun ConeKotlinType.hasRecursiveTypeArgument(
+        visited: MutableSet<ConeKotlinType> = mutableSetOf()
+    ): Boolean {
+        if (typeArguments.isEmpty()) return false
+        visited.add(this)
+        for (projection in typeArguments) {
+            // E.g., Test : Comparable<Test>
+            val type = (projection as? ConeKotlinTypeProjection)?.type ?: continue
+            // E.g., Comparable<Test>
+            val newType = substituteOrNull(type) ?: continue
+            if (newType in visited) return true
+            // Visit new type: e.g., Test, as a type argument, is substituted with Comparable<Test>, again.
+            if (newType.hasRecursiveTypeArgument(visited)) return true
+        }
+        return false
+    }
+
 }

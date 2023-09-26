@@ -12,6 +12,7 @@ import org.gradle.language.base.plugins.LifecycleBasePlugin
 import org.jetbrains.kotlin.gradle.plugin.*
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinJsCompilation
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinUsages
+import org.jetbrains.kotlin.gradle.plugin.mpp.addSourceSet
 import org.jetbrains.kotlin.gradle.tasks.KotlinTasksProvider
 import org.jetbrains.kotlin.gradle.tasks.locateTask
 import org.jetbrains.kotlin.gradle.tasks.registerTask
@@ -61,7 +62,8 @@ open class KotlinJsTargetConfigurator :
         val project = target.project
 
         target.compilations.all { compilation ->
-            compilation.source(compilation.defaultSourceSet)
+            @Suppress("DEPRECATION")
+            compilation.addSourceSet(compilation.defaultSourceSet)
 
             configureResourceProcessing(
                 compilation,

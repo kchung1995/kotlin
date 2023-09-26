@@ -67,7 +67,7 @@ class ConstraintSystemCompleter(components: BodyResolveComponents, private val c
         }
 
         completion@ while (true) {
-            // TODO: This is very slow
+            // TODO: This is very slow, KT-59680
             val postponedArguments = getOrderedNotAnalyzedPostponedArguments(topLevelAtoms)
 
             if (completionMode == ConstraintSystemCompletionMode.UNTIL_FIRST_LAMBDA && hasLambdaToAnalyze(
@@ -174,6 +174,12 @@ class ConstraintSystemCompleter(components: BodyResolveComponents, private val c
         }
     }
 
+    /**
+     * General documentation for builder inference algorithm is located at `/docs/fir/builder_inference.md`
+     *
+     * This function checks if any of the postponed arguments are suitable for builder inference, and performs it for all eligible lambda arguments
+     * @return true if we got new proper constraints after builder inference
+     */
     private fun ConstraintSystemCompletionContext.tryToCompleteWithBuilderInference(
         completionMode: ConstraintSystemCompletionMode,
         topLevelType: ConeKotlinType,
@@ -227,7 +233,7 @@ class ConstraintSystemCompleter(components: BodyResolveComponents, private val c
             is ResolvedCallableReferenceAtom ->
                 argument.reviseExpectedType(revisedExpectedType)
             is LambdaWithTypeVariableAsExpectedTypeAtom ->
-                argument.transformToResolvedLambda(c.getBuilder(), resolutionContext, revisedExpectedType, null /*TODO()*/)
+                argument.transformToResolvedLambda(c.getBuilder(), resolutionContext, revisedExpectedType)
             else -> throw IllegalStateException("Unsupported postponed argument type of $argument")
         }
 
@@ -250,17 +256,7 @@ class ConstraintSystemCompleter(components: BodyResolveComponents, private val c
         ) ?: return false
 
         val variableWithConstraints = notFixedTypeVariables.getValue(variableForFixation.variable)
-        if (!variableForFixation.hasProperConstraint) {
-            if (context.inferenceSession.isSyntheticTypeVariable(variableWithConstraints.typeVariable)) {
-                context.inferenceSession.fixSyntheticTypeVariableWithNotEnoughInformation(
-                    variableWithConstraints.typeVariable as ConeTypeVariable,
-                    this
-                )
-                return true
-            }
-
-            return false
-        }
+        if (!variableForFixation.hasProperConstraint) return false
 
         fixVariable(this, variableWithConstraints)
 
@@ -332,7 +328,6 @@ class ConstraintSystemCompleter(components: BodyResolveComponents, private val c
         fun ConeTypeVariable?.toTypeConstructor(): TypeConstructorMarker? =
             this?.typeConstructor?.takeIf { it in notFixedTypeVariables.keys }
 
-        // TODO: non-top-level variables?
         fun PostponedAtomWithRevisableExpectedType.collectNotFixedVariables() {
             revisedExpectedType?.lowerBoundIfFlexible()?.asArgumentList()?.let { typeArgumentList ->
                 for (typeArgument in typeArgumentList) {
@@ -374,16 +369,28 @@ class ConstraintSystemCompleter(components: BodyResolveComponents, private val c
             topLevelAtom.collectAllTypeVariables()
         }
 
-        if (context.inferenceSession.hasSyntheticTypeVariables()) {
-            result.addAll(notFixedTypeVariables.filter { context.inferenceSession.isSyntheticTypeVariable(it.value.typeVariable) }.keys.asIterable())
-        }
-
-        require(result.size == notFixedTypeVariables.size) {
-            val notFoundTypeVariables = notFixedTypeVariables.keys.toMutableSet().apply { removeAll(result) }
-            "Not all type variables found: $notFoundTypeVariables"
-        }
+        checkNotFixedTypeVariablesCountConsistency(result)
 
         return result.toList()
+    }
+
+    private fun ConstraintSystemCompletionContext.checkNotFixedTypeVariablesCountConsistency(
+        result: LinkedHashSet<TypeConstructorMarker>,
+    ) {
+        val notFixedTypeVariablesToUse =
+            when (outerSystemVariablesPrefixSize) {
+                0 -> notFixedTypeVariables.keys
+                else -> notFixedTypeVariables.keys.toMutableSet().apply {
+                    removeAll(allTypeVariables.keys.take(outerSystemVariablesPrefixSize).toSet())
+                }
+            }
+
+        require(result.size == notFixedTypeVariablesToUse.size) {
+            val notFoundTypeVariables = notFixedTypeVariablesToUse.toMutableSet().apply {
+                removeAll(result)
+            }
+            "Not all type variables found: $notFoundTypeVariables"
+        }
     }
 
     private fun fixVariable(
@@ -396,15 +403,20 @@ class ConstraintSystemCompleter(components: BodyResolveComponents, private val c
             TypeVariableDirectionCalculator.ResolveDirection.UNKNOWN
         )
         val variable = variableWithConstraints.typeVariable
-        c.fixVariable(variable, resultType, ConeFixVariableConstraintPosition(variable)) // TODO: obtain atom for diagnostics
+        c.fixVariable(variable, resultType, ConeFixVariableConstraintPosition(variable))
     }
 
     companion object {
+        internal fun getOrderedNotAnalyzedPostponedArguments(candidate: Candidate): List<PostponedResolvedAtom> {
+            val callSite = candidate.callInfo.callSite as? FirStatement ?: return emptyList()
+            return getOrderedNotAnalyzedPostponedArguments(listOf(callSite))
+        }
+
         private fun getOrderedNotAnalyzedPostponedArguments(topLevelAtoms: List<FirStatement>): List<PostponedResolvedAtom> {
             val notAnalyzedArguments = arrayListOf<PostponedResolvedAtom>()
             for (primitive in topLevelAtoms) {
                 primitive.processAllContainingCallCandidates(
-                    // TODO: remove this argument and relevant parameter
+                    // TODO: remove this argument and relevant parameter, KT-59679
                     // Currently, it's used because otherwise problem happens with a lambda in a try-block (see tryWithLambdaInside test)
                     processBlocks = true
                 ) { candidate ->

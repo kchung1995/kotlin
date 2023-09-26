@@ -34,6 +34,12 @@ public class SerializationFirLightTreeBlackBoxTestGenerated extends AbstractSeri
         }
 
         @Test
+        @TestMetadata("caching.kt")
+        public void testCaching() throws Exception {
+            runTest("plugins/kotlinx-serialization/testData/boxIr/caching.kt");
+        }
+
+        @Test
         @TestMetadata("classSerializerAsObject.kt")
         public void testClassSerializerAsObject() throws Exception {
             runTest("plugins/kotlinx-serialization/testData/boxIr/classSerializerAsObject.kt");
@@ -58,9 +64,21 @@ public class SerializationFirLightTreeBlackBoxTestGenerated extends AbstractSeri
         }
 
         @Test
+        @TestMetadata("contextualWithTypeParameters.kt")
+        public void testContextualWithTypeParameters() throws Exception {
+            runTest("plugins/kotlinx-serialization/testData/boxIr/contextualWithTypeParameters.kt");
+        }
+
+        @Test
         @TestMetadata("delegatedInterface.kt")
         public void testDelegatedInterface() throws Exception {
             runTest("plugins/kotlinx-serialization/testData/boxIr/delegatedInterface.kt");
+        }
+
+        @Test
+        @TestMetadata("delegatedProperty.kt")
+        public void testDelegatedProperty() throws Exception {
+            runTest("plugins/kotlinx-serialization/testData/boxIr/delegatedProperty.kt");
         }
 
         @Test
@@ -76,9 +94,21 @@ public class SerializationFirLightTreeBlackBoxTestGenerated extends AbstractSeri
         }
 
         @Test
+        @TestMetadata("expectActualSealedClass.kt")
+        public void testExpectActualSealedClass() throws Exception {
+            runTest("plugins/kotlinx-serialization/testData/boxIr/expectActualSealedClass.kt");
+        }
+
+        @Test
         @TestMetadata("externalSerialierJava.kt")
         public void testExternalSerialierJava() throws Exception {
             runTest("plugins/kotlinx-serialization/testData/boxIr/externalSerialierJava.kt");
+        }
+
+        @Test
+        @TestMetadata("externalSerializerForClassWithNonSerializableType.kt")
+        public void testExternalSerializerForClassWithNonSerializableType() throws Exception {
+            runTest("plugins/kotlinx-serialization/testData/boxIr/externalSerializerForClassWithNonSerializableType.kt");
         }
 
         @Test
@@ -112,6 +142,12 @@ public class SerializationFirLightTreeBlackBoxTestGenerated extends AbstractSeri
         }
 
         @Test
+        @TestMetadata("interfaces.kt")
+        public void testInterfaces() throws Exception {
+            runTest("plugins/kotlinx-serialization/testData/boxIr/interfaces.kt");
+        }
+
+        @Test
         @TestMetadata("intrinsicAnnotations.kt")
         public void testIntrinsicAnnotations() throws Exception {
             runTest("plugins/kotlinx-serialization/testData/boxIr/intrinsicAnnotations.kt");
@@ -121,6 +157,12 @@ public class SerializationFirLightTreeBlackBoxTestGenerated extends AbstractSeri
         @TestMetadata("intrinsicsBox.kt")
         public void testIntrinsicsBox() throws Exception {
             runTest("plugins/kotlinx-serialization/testData/boxIr/intrinsicsBox.kt");
+        }
+
+        @Test
+        @TestMetadata("intrinsicsNullable.kt")
+        public void testIntrinsicsNullable() throws Exception {
+            runTest("plugins/kotlinx-serialization/testData/boxIr/intrinsicsNullable.kt");
         }
 
         @Test
@@ -160,6 +202,18 @@ public class SerializationFirLightTreeBlackBoxTestGenerated extends AbstractSeri
         }
 
         @Test
+        @TestMetadata("namedCompanions.kt")
+        public void testNamedCompanions() throws Exception {
+            runTest("plugins/kotlinx-serialization/testData/boxIr/namedCompanions.kt");
+        }
+
+        @Test
+        @TestMetadata("repeatableSerialInfo.kt")
+        public void testRepeatableSerialInfo() throws Exception {
+            runTest("plugins/kotlinx-serialization/testData/boxIr/repeatableSerialInfo.kt");
+        }
+
+        @Test
         @TestMetadata("sealedInterfaces.kt")
         public void testSealedInterfaces() throws Exception {
             runTest("plugins/kotlinx-serialization/testData/boxIr/sealedInterfaces.kt");
@@ -172,9 +226,33 @@ public class SerializationFirLightTreeBlackBoxTestGenerated extends AbstractSeri
         }
 
         @Test
+        @TestMetadata("serializableFromAnotherModule.kt")
+        public void testSerializableFromAnotherModule() throws Exception {
+            runTest("plugins/kotlinx-serialization/testData/boxIr/serializableFromAnotherModule.kt");
+        }
+
+        @Test
+        @TestMetadata("serializableFromAnotherModule_multipleFields.kt")
+        public void testSerializableFromAnotherModule_multipleFields() throws Exception {
+            runTest("plugins/kotlinx-serialization/testData/boxIr/serializableFromAnotherModule_multipleFields.kt");
+        }
+
+        @Test
         @TestMetadata("serializableOnPropertyType.kt")
         public void testSerializableOnPropertyType() throws Exception {
             runTest("plugins/kotlinx-serialization/testData/boxIr/serializableOnPropertyType.kt");
+        }
+
+        @Test
+        @TestMetadata("serializerFactory.kt")
+        public void testSerializerFactory() throws Exception {
+            runTest("plugins/kotlinx-serialization/testData/boxIr/serializerFactory.kt");
+        }
+
+        @Test
+        @TestMetadata("serializerFactoryInUserDefined.kt")
+        public void testSerializerFactoryInUserDefined() throws Exception {
+            runTest("plugins/kotlinx-serialization/testData/boxIr/serializerFactoryInUserDefined.kt");
         }
 
         @Test

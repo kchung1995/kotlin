@@ -15,6 +15,7 @@ import org.jetbrains.kotlin.backend.konan.lower.getObjectClassInstanceFunction
 import org.jetbrains.kotlin.builtins.PrimitiveType
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.types.*
+import org.jetbrains.kotlin.ir.objcinterop.*
 import org.jetbrains.kotlin.ir.util.*
 
 internal class RTTIGenerator(
@@ -230,7 +231,7 @@ internal class RTTIGenerator(
 
         val objOffsetsPtr = staticData.placeGlobalConstArray("krefs:$className", llvm.int32Type, objOffsets)
 
-        val objOffsetsCount = if (irClass.descriptor == context.builtIns.array) {
+        val objOffsetsCount = if (irClass.symbol == context.irBuiltIns.arrayClass) {
             1 // To mark it as non-leaf.
         } else {
             objOffsets.size
@@ -595,7 +596,7 @@ internal class RTTIGenerator(
             null
         }
 
-        val packageName: String = reflectionPackageName ?: packageFragment.fqName.asString() // Compute and store package name in TypeInfo anyways.
+        val packageName: String = reflectionPackageName ?: packageFragment.packageFqName.asString() // Compute and store package name in TypeInfo anyways.
         val relativeName: String?
         val flags: Int
 

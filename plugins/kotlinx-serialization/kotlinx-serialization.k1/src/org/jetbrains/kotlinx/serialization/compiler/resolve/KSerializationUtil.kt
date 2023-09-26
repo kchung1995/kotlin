@@ -14,6 +14,7 @@ import org.jetbrains.kotlin.descriptors.annotations.Annotations
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.platform.isJs
+import org.jetbrains.kotlin.platform.isWasm
 import org.jetbrains.kotlin.platform.konan.isNative
 import org.jetbrains.kotlin.psi.KtAnnotationEntry
 import org.jetbrains.kotlin.resolve.descriptorUtil.annotationClass
@@ -112,7 +113,11 @@ val KotlinType?.toClassDescriptor: ClassDescriptor?
     }
 
 val ClassDescriptor.shouldHaveGeneratedMethodsInCompanion: Boolean
-    get() = this.isSerializableObject || this.isSerializableEnum() || (this.kind == ClassKind.CLASS && hasSerializableOrMetaAnnotation) || this.isSealedSerializableInterface
+    get() = this.isSerializableObject
+            || this.isSerializableEnum()
+            || (this.kind == ClassKind.CLASS && hasSerializableOrMetaAnnotation)
+            || this.isSealedSerializableInterface
+            || this.isSerializableInterfaceWithCustom
 
 val ClassDescriptor.isSerializableObject: Boolean
     get() = kind == ClassKind.OBJECT && hasSerializableOrMetaAnnotation
@@ -122,6 +127,12 @@ val ClassDescriptor.isInternallySerializableObject: Boolean
 
 val ClassDescriptor.isSealedSerializableInterface: Boolean
     get() = kind == ClassKind.INTERFACE && modality == Modality.SEALED && hasSerializableOrMetaAnnotation
+
+val ClassDescriptor.isSerializableInterfaceWithCustom: Boolean
+    get() = kind == ClassKind.INTERFACE && hasSerializableAnnotationWithArgs
+
+val ClassDescriptor.isAbstractOrSealedOrInterface: Boolean
+    get() = kind == ClassKind.INTERFACE || modality == Modality.SEALED || modality == Modality.ABSTRACT
 
 val ClassDescriptor.isInternalSerializable: Boolean //todo normal checking
     get() {
@@ -190,6 +201,15 @@ private val ClassDescriptor.hasSerializableAnnotationWithoutArgs: Boolean
         // Otherwise, this descriptor is deserialized from another module, and it is OK to check value right away.
         val psi = findSerializableAnnotationDeclaration() ?: return (serializableWith == null)
         return psi.valueArguments.isEmpty()
+    }
+
+private val ClassDescriptor.hasSerializableAnnotationWithArgs: Boolean
+    get() {
+        if (!hasSerializableAnnotation) return false
+        // If provided descriptor is lazy, carefully look at psi in order not to trigger full resolve which may be recursive.
+        // Otherwise, this descriptor is deserialized from another module, and it is OK to check value right away.
+        val psi = findSerializableAnnotationDeclaration() ?: return (serializableWith != null)
+        return psi.valueArguments.isNotEmpty()
     }
 
 private fun Annotated.findSerializableAnnotationDeclaration(): KtAnnotationEntry? {
@@ -267,12 +287,13 @@ fun getSerializableClassDescriptorByCompanion(thisDescriptor: ClassDescriptor): 
 }
 
 fun ClassDescriptor.needSerializerFactory(): Boolean {
-    if (!(this.platform?.isNative() == true || this.platform.isJs())) return false
+    if (!(this.platform?.isNative() == true || this.platform.isJs() || this.platform.isWasm())) return false
     val serializableClass = getSerializableClassDescriptorByCompanion(this) ?: return false
     if (serializableClass.isSerializableObject) return true
     if (serializableClass.isSerializableEnum()) return true
     if (serializableClass.isAbstractOrSealedSerializableClass()) return true
     if (serializableClass.isSealedSerializableInterface) return true
+    if (serializableClass.isSerializableInterfaceWithCustom) return true
     if (serializableClass.declaredTypeParameters.isEmpty()) return false
     return true
 }

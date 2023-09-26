@@ -61,7 +61,7 @@ dependencies {
     val kotlinVersion = project.bootstrapKotlinVersion
     val ktorVersion  = "1.2.1"
     val slackApiVersion = "1.2.0"
-    val shadowVersion = "7.1.2"
+    val shadowVersion = "8.1.1"
     val metadataVersion = "0.0.1-dev-10"
 
     implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
@@ -72,10 +72,12 @@ dependencies {
     implementation("io.ktor:ktor-client-auth:$ktorVersion")
     implementation("io.ktor:ktor-client-core:$ktorVersion")
     implementation("io.ktor:ktor-client-cio:$ktorVersion")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.5.0")
+
 
     // Located in <repo root>/shared and always provided by the composite build.
     //api("org.jetbrains.kotlin:kotlin-native-shared:$konanVersion")
-    implementation("gradle.plugin.com.github.johnrengelman:shadow:$shadowVersion")
+    implementation("com.github.johnrengelman:shadow:$shadowVersion")
 
     implementation("org.jetbrains.kotlinx:kotlinx-metadata-klib:$metadataVersion")
 }
@@ -106,7 +108,12 @@ gradlePlugin {
 }
 
 afterEvaluate {
-    tasks.withType<JavaCompile> {
+    tasks.withType<JavaCompile>().configureEach {
         targetCompatibility = "1.8"
+    }
+    tasks.withType<KotlinCompile>().configureEach {
+        kotlinOptions {
+            jvmTarget = "1.8"
+        }
     }
 }

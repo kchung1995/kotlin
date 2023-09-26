@@ -43,6 +43,10 @@ object FirDiagnosticsDirectives : SimpleDirectivesContainer() {
         description = "Defines which parser should be used for FIR compiler"
     )
 
+    val RENDER_DIAGNOSTICS_MESSAGES by directive(
+        description = "Forces diagnostic arguments to be rendered"
+    )
+
     val FIR_DISABLE_LAZY_RESOLVE_CHECKS by directive(
         description = "Temporary disables lazy resolve checks until the lazy resolve contract violation is fixed"
     )
@@ -76,6 +80,19 @@ object FirDiagnosticsDirectives : SimpleDirectivesContainer() {
             Ignore failures in ${FirResolvedTypesVerifier::class}.
             Directive must contain description of ignoring in argument
         """.trimIndent()
+    )
+
+    val PLATFORM_DEPENDANT_METADATA by directive(
+        description = """
+            Generate separate dumps for JVM and JS load compiled kotlin tests
+            See AbstractLoadedMetadataDumpHandler
+        """
+    )
+
+    val RENDER_FIR_DECLARATION_ATTRIBUTES by directive(
+        description = """
+            Prints declaration attributes to dumps in load compiled kotlin tests
+        """
     )
 }
 

@@ -17,11 +17,13 @@ import org.jetbrains.kotlin.backend.konan.llvm.computeFunctionName
 import org.jetbrains.kotlin.backend.konan.llvm.toLLVMType
 import org.jetbrains.kotlin.backend.konan.llvm.localHash
 import org.jetbrains.kotlin.backend.konan.lower.bridgeTarget
+import org.jetbrains.kotlin.backend.konan.serialization.KonanIrLinker
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.expressions.IrClassReference
 import org.jetbrains.kotlin.ir.expressions.IrConst
+import org.jetbrains.kotlin.ir.objcinterop.*
 import org.jetbrains.kotlin.ir.symbols.IrFieldSymbol
 import org.jetbrains.kotlin.ir.types.IrType
 import org.jetbrains.kotlin.ir.util.*
@@ -369,7 +371,7 @@ internal class ClassLayoutBuilder(val irClass: IrClass, val context: Context) {
     fun vtableIndex(function: IrSimpleFunction): Int {
         val bridgeDirections = function.target.bridgeDirectionsTo(function)
         val index = vtableEntries.indexOfFirst { it.function == function && it.bridgeDirections == bridgeDirections }
-        if (index < 0) throw Error(function.render() + " $function " + " (${function.symbol.descriptor}) not in vtable of " + irClass.render())
+        require(index >= 0) { "${function.render()} is not found in vtable of ${irClass.render()}" }
         return index
     }
 
@@ -466,7 +468,7 @@ internal class ClassLayoutBuilder(val irClass: IrClass, val context: Context) {
         val result = mutableMapOf<IrClass, IrClass>()
 
         irClass.annotations.forEach {
-            val irFile = irClass.getContainingFile()
+            val irFile = irClass.fileOrNull
 
             val annotationClass = (it.symbol.owner as? IrConstructor)?.constructedClass
                     ?: error(irFile, it, "unexpected annotation")
@@ -507,17 +509,10 @@ internal class ClassLayoutBuilder(val irClass: IrClass, val context: Context) {
         val outerThisField = if (irClass.isInner)
             context.innerClassesSupport.getOuterThisField(irClass)
         else null
-        val packageFragment = irClass.getPackageFragment()
-        if (packageFragment is IrExternalPackageFragment) {
-            val moduleDescriptor = packageFragment.packageFragmentDescriptor.containingDeclaration
-            if (moduleDescriptor.isFromInteropLibrary()) return emptyList()
-            val moduleDeserializer = context.irLinker.moduleDeserializers[moduleDescriptor]
-                    ?: error("No module deserializer for ${irClass.render()}")
-            require(context.config.cachedLibraries.isLibraryCached(moduleDeserializer.klib)) {
-                "No IR and no cache for ${irClass.render()}"
-            }
+
+        val moduleDeserializer = context.irLinker.getCachedDeclarationModuleDeserializer(irClass)
+        if (moduleDeserializer != null)
             return moduleDeserializer.deserializeClassFields(irClass, outerThisField?.toFieldInfo(llvm))
-        }
 
         val declarations = irClass.declarations.toMutableList()
         outerThisField?.let {

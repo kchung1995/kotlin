@@ -7,13 +7,15 @@ package org.jetbrains.kotlin.analysis.api.fir.symbols
 
 import org.jetbrains.kotlin.analysis.api.fir.KtFirAnalysisSession
 import org.jetbrains.kotlin.analysis.api.fir.components.KtFirAnalysisSessionComponent
+import org.jetbrains.kotlin.analysis.api.getModule
 import org.jetbrains.kotlin.analysis.api.symbols.*
-import org.jetbrains.kotlin.analysis.low.level.api.fir.api.getOrBuildFir
 import org.jetbrains.kotlin.analysis.low.level.api.fir.api.getOrBuildFirFile
+import org.jetbrains.kotlin.analysis.low.level.api.fir.api.resolveToFirSymbol
 import org.jetbrains.kotlin.analysis.low.level.api.fir.api.resolveToFirSymbolOfType
+import org.jetbrains.kotlin.analysis.low.level.api.fir.api.throwUnexpectedFirElementError
 import org.jetbrains.kotlin.analysis.low.level.api.fir.util.errorWithFirSpecificEntries
-import org.jetbrains.kotlin.analysis.low.level.api.fir.util.withFirSymbolEntry
-import org.jetbrains.kotlin.analysis.utils.errors.buildErrorWithAttachment
+import org.jetbrains.kotlin.fir.utils.exceptions.withFirSymbolEntry
+import org.jetbrains.kotlin.utils.exceptions.errorWithAttachment
 import org.jetbrains.kotlin.analysis.utils.errors.withPsiEntry
 import org.jetbrains.kotlin.fir.declarations.FirDeclarationOrigin
 import org.jetbrains.kotlin.fir.declarations.fullyExpandedClass
@@ -70,9 +72,9 @@ internal class KtFirSymbolProvider(
             }
 
             is FirAnonymousFunctionSymbol -> firSymbolBuilder.functionLikeBuilder.buildAnonymousFunctionSymbol(firSymbol)
-            else -> buildErrorWithAttachment("Unexpected ${firSymbol::class}") {
+            else -> errorWithAttachment("Unexpected ${firSymbol::class}") {
                 withFirSymbolEntry("firSymbol", firSymbol)
-                withPsiEntry("function", psi)
+                withPsiEntry("function", psi, analysisSession::getModule)
             }
         }
     }
@@ -140,9 +142,10 @@ internal class KtFirSymbolProvider(
     private fun KtClassOrObject.resolveToFirClassLikeSymbol(): FirClassSymbol<*> {
         return when (val firClassLike = resolveToFirSymbolOfType<FirClassLikeSymbol<*>>(firResolveSession)) {
             is FirTypeAliasSymbol -> firClassLike.fullyExpandedClass(analysisSession.useSiteSession)
-                ?: buildErrorWithAttachment("${firClassLike.fir::class} should be expanded to the expected type alias") {
+                ?: errorWithAttachment("${firClassLike.fir::class} should be expanded to the expected type alias") {
+                    val errorElement = this@resolveToFirClassLikeSymbol
                     withFirSymbolEntry("firClassLikeSymbol", firClassLike)
-                    withPsiEntry("ktClassOrObject", this@resolveToFirClassLikeSymbol)
+                    withPsiEntry("ktClassOrObject", errorElement, analysisSession::getModule)
                 }
             is FirAnonymousObjectSymbol -> firClassLike
             is FirRegularClassSymbol -> firClassLike
@@ -185,8 +188,18 @@ internal class KtFirSymbolProvider(
     override val ROOT_PACKAGE_SYMBOL: KtPackageSymbol = KtFirPackageSymbol(FqName.ROOT, firResolveSession.project, token)
 
     override fun getDestructuringDeclarationEntrySymbol(psi: KtDestructuringDeclarationEntry): KtLocalVariableSymbol {
-        return firSymbolBuilder.variableLikeBuilder.buildLocalVariableSymbol(
-            psi.resolveToFirSymbolOfType<FirPropertySymbol>(firResolveSession)
-        )
+        return when (val firSymbol = psi.resolveToFirSymbol(firResolveSession)) {
+            is FirPropertySymbol -> firSymbolBuilder.variableLikeBuilder.buildLocalVariableSymbol(firSymbol)
+            is FirErrorPropertySymbol -> firSymbolBuilder.variableLikeBuilder.buildErrorVariableSymbol(firSymbol)
+            else -> throwUnexpectedFirElementError(
+                firSymbol, psi,
+                FirPropertySymbol::class, FirErrorPropertySymbol::class, FirValueParameterSymbol::class
+            )
+        }
+    }
+
+    override fun getDestructuringDeclarationSymbol(psi: KtDestructuringDeclaration): KtDestructuringDeclarationSymbol {
+        val firSymbol = psi.resolveToFirSymbolOfType<FirVariableSymbol<*>>(firResolveSession)
+        return firSymbolBuilder.buildDestructuringDeclarationSymbol(firSymbol)
     }
 }

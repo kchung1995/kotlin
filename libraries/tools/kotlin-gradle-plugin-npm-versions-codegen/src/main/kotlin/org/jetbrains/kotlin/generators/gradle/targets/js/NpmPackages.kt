@@ -27,9 +27,7 @@ val npmPackages = listOf(
     NpmPackage("karma-safari-launcher"),
     NpmPackage("karma-mocha"),
     NpmPackage("karma-webpack"),
-    NpmPackage("karma-coverage"),
     NpmPackage("karma-sourcemap-loader"),
-    NpmPackage("format-util"),
     NpmPackage("typescript"),
 )
 

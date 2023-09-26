@@ -8,15 +8,17 @@ package org.jetbrains.kotlin.fir.session
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.kotlin.config.*
 import org.jetbrains.kotlin.fir.*
+import org.jetbrains.kotlin.fir.analysis.FirDefaultOverridesBackwardCompatibilityHelper
 import org.jetbrains.kotlin.fir.analysis.FirOverridesBackwardCompatibilityHelper
 import org.jetbrains.kotlin.fir.extensions.FirExtensionRegistrar
+import org.jetbrains.kotlin.fir.extensions.FirExtensionService
 import org.jetbrains.kotlin.fir.java.FirProjectSessionProvider
 import org.jetbrains.kotlin.fir.resolve.calls.ConeCallConflictResolverFactory
 import org.jetbrains.kotlin.fir.scopes.FirPlatformClassMapper
-import org.jetbrains.kotlin.fir.scopes.impl.FirEnumEntriesSupport
 import org.jetbrains.kotlin.fir.session.environment.AbstractProjectEnvironment
 import org.jetbrains.kotlin.fir.session.environment.AbstractProjectFileSearchScope
 import org.jetbrains.kotlin.incremental.components.EnumWhenTracker
+import org.jetbrains.kotlin.incremental.components.ImportTracker
 import org.jetbrains.kotlin.incremental.components.LookupTracker
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.platform.TargetPlatform
@@ -36,6 +38,7 @@ object FirSessionFactoryHelper {
         librariesScope: AbstractProjectFileSearchScope,
         lookupTracker: LookupTracker?,
         enumWhenTracker: EnumWhenTracker?,
+        importTracker: ImportTracker?,
         incrementalCompilationContext: IncrementalCompilationContext?,
         extensionRegistrars: List<FirExtensionRegistrar>,
         needRegisterJavaElementFinder: Boolean,
@@ -51,6 +54,7 @@ object FirSessionFactoryHelper {
             sessionProvider,
             dependencyList.moduleDataProvider,
             projectEnvironment,
+            extensionRegistrars,
             librariesScope,
             packagePartProvider,
             languageVersionSettings,
@@ -75,9 +79,10 @@ object FirSessionFactoryHelper {
             languageVersionSettings,
             lookupTracker,
             enumWhenTracker,
-            needRegisterJavaElementFinder,
+            importTracker,
+            needRegisterJavaElementFinder = needRegisterJavaElementFinder,
             registerExtraComponents = {},
-            sessionConfigurator,
+            init = sessionConfigurator,
         )
     }
 
@@ -118,15 +123,20 @@ object FirSessionFactoryHelper {
                         get() = stub()
                 }
             ))
+
+            register(FirExtensionService::class, FirExtensionService(this))
         }
     }
 
+    /**
+     * Registers default components for [FirSession]
+     * They could be overridden by calling a function that registers specific platform components
+     */
     @OptIn(SessionConfiguration::class)
-    fun FirSession.registerDefaultExtraComponentsForModuleBased() {
+    fun FirSession.registerDefaultComponents() {
         register(FirVisibilityChecker::class, FirVisibilityChecker.Default)
         register(ConeCallConflictResolverFactory::class, DefaultCallConflictResolverFactory)
         register(FirPlatformClassMapper::class, FirPlatformClassMapper.Default)
-        register(FirOverridesBackwardCompatibilityHelper::class, FirOverridesBackwardCompatibilityHelper.Default())
-        register(FirEnumEntriesSupport::class, FirEnumEntriesSupport(this))
+        register(FirOverridesBackwardCompatibilityHelper::class, FirDefaultOverridesBackwardCompatibilityHelper)
     }
 }

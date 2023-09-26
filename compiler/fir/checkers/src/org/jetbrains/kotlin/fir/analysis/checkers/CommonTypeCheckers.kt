@@ -5,7 +5,6 @@
 
 package org.jetbrains.kotlin.fir.analysis.checkers
 
-import org.jetbrains.kotlin.fir.analysis.checkers.type.FirUnsupportedDefaultValueInFunctionTypeParameterChecker
 import org.jetbrains.kotlin.fir.analysis.checkers.type.*
 
 object CommonTypeCheckers : TypeCheckers() {
@@ -17,5 +16,9 @@ object CommonTypeCheckers : TypeCheckers() {
         FirDefinitelyNotNullableChecker,
         FirUnsupportedDefaultValueInFunctionTypeParameterChecker,
         FirUnsupportedModifiersInFunctionTypeParameterChecker,
+        FirStarProjectionModifierChecker,
+        FirDuplicateParameterNameInFunctionTypeChecker,
+        FirOptionalExpectationTypeChecker,
+        FirIncompatibleClassTypeChecker,
     )
 }

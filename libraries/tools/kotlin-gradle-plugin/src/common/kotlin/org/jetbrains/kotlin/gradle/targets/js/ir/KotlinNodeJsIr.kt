@@ -7,6 +7,7 @@ package org.jetbrains.kotlin.gradle.targets.js.ir
 
 import org.gradle.api.Action
 import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
+import org.jetbrains.kotlin.gradle.targets.js.KotlinWasmTargetType
 import org.jetbrains.kotlin.gradle.targets.js.dsl.KotlinJsNodeDsl
 import org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsExec
 import org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsRootPlugin.Companion.kotlinNodeJsExtension
@@ -34,10 +35,17 @@ abstract class KotlinNodeJsIr @Inject constructor(target: KotlinJsIrTarget) :
     override fun locateOrRegisterRunTask(binary: JsIrBinary, name: String) {
         if (project.locateTask<NodeJsExec>(name) != null) return
 
-        val runTaskHolder = NodeJsExec.create(binary.compilation, name) {
+        val compilation = binary.compilation
+        val runTaskHolder = NodeJsExec.create(compilation, name) {
             group = taskGroupName
-            dependsOn(binary.linkSyncTask)
-            inputFileProperty.fileProvider(
+            val inputFile = if ((compilation.target as KotlinJsIrTarget).wasmTargetType == KotlinWasmTargetType.WASI) {
+                dependsOn(binary.linkTask)
+                sourceMapStackTraces = false
+                binary.linkTask.flatMap { linkTask ->
+                    linkTask.outputFileProperty
+                }
+            } else {
+                dependsOn(binary.linkSyncTask)
                 binary.linkSyncTask.flatMap { linkSyncTask ->
                     binary.linkTask.flatMap { linkTask ->
                         linkTask.outputFileProperty.map { file ->
@@ -45,17 +53,22 @@ abstract class KotlinNodeJsIr @Inject constructor(target: KotlinJsIrTarget) :
                         }
                     }
                 }
+            }
+            inputFileProperty.fileProvider(
+                inputFile
             )
         }
         target.runTask.dependsOn(runTaskHolder)
     }
 
     override fun configureTestDependencies(test: KotlinJsTest) {
-        test.dependsOn(
-            nodeJsTaskProviders.npmInstallTaskProvider,
-            nodeJsTaskProviders.storeYarnLockTaskProvider,
-            nodeJsTaskProviders.nodeJsSetupTaskProvider
-        )
+        test.dependsOn(nodeJsTaskProviders.nodeJsSetupTaskProvider)
+        if (target.wasmTargetType != KotlinWasmTargetType.WASI) {
+            test.dependsOn(
+                nodeJsTaskProviders.npmInstallTaskProvider,
+                nodeJsTaskProviders.storeYarnLockTaskProvider,
+            )
+        }
     }
 
     override fun configureDefaultTestFramework(test: KotlinJsTest) {

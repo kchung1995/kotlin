@@ -347,6 +347,12 @@ public class FirIdeNormalAnalysisSourceModuleResolveCallTestGenerated extends Ab
     }
 
     @Test
+    @TestMetadata("defaultValueThatCallsPreviousParameter.kt")
+    public void testDefaultValueThatCallsPreviousParameter() throws Exception {
+        runTest("analysis/analysis-api/testData/components/callResolver/resolveCall/defaultValueThatCallsPreviousParameter.kt");
+    }
+
+    @Test
     @TestMetadata("delegatedConstructorCall_super.kt")
     public void testDelegatedConstructorCall_super() throws Exception {
         runTest("analysis/analysis-api/testData/components/callResolver/resolveCall/delegatedConstructorCall_super.kt");
@@ -785,6 +791,18 @@ public class FirIdeNormalAnalysisSourceModuleResolveCallTestGenerated extends Ab
     }
 
     @Test
+    @TestMetadata("smartCastedArg.kt")
+    public void testSmartCastedArg() throws Exception {
+        runTest("analysis/analysis-api/testData/components/callResolver/resolveCall/smartCastedArg.kt");
+    }
+
+    @Test
+    @TestMetadata("smartCastedNonNullArg.kt")
+    public void testSmartCastedNonNullArg() throws Exception {
+        runTest("analysis/analysis-api/testData/components/callResolver/resolveCall/smartCastedNonNullArg.kt");
+    }
+
+    @Test
     @TestMetadata("substituteOverrideResolution.kt")
     public void testSubstituteOverrideResolution() throws Exception {
         runTest("analysis/analysis-api/testData/components/callResolver/resolveCall/substituteOverrideResolution.kt");
@@ -951,6 +969,12 @@ public class FirIdeNormalAnalysisSourceModuleResolveCallTestGenerated extends Ab
         @Test
         public void testAllFilesPresentInInvalidCode() throws Exception {
             KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/analysis-api/testData/components/callResolver/resolveCall/invalidCode"), Pattern.compile("^(.+)\\.kt$"), null, true);
+        }
+
+        @Test
+        @TestMetadata("assignementInExpression.kt")
+        public void testAssignementInExpression() throws Exception {
+            runTest("analysis/analysis-api/testData/components/callResolver/resolveCall/invalidCode/assignementInExpression.kt");
         }
 
         @Test

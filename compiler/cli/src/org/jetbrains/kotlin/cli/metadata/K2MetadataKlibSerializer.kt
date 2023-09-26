@@ -58,7 +58,8 @@ internal class K2MetadataKlibSerializer(
             project,
             exportKDoc = false,
             skipExpects = false,
-            includeOnlyModuleContent = true
+            includeOnlyModuleContent = true,
+            produceHeaderKlib = false,
         ).serializeModule(module)
 
         buildKotlinMetadataLibrary(configuration, serializedMetadata, destDir)
@@ -177,8 +178,7 @@ private class KlibMetadataDependencyContainer(
         KlibMetadataModuleDescriptorFactoryImpl(
             MetadataFactories.DefaultDescriptorFactory,
             MetadataFactories.DefaultPackageFragmentsFactory,
-            MetadataFactories.flexibleTypeDeserializer,
-            MetadataFactories.platformDependentTypeTransformer
+            MetadataFactories.flexibleTypeDeserializer
         )
     }
 
@@ -209,6 +209,5 @@ private class KlibMetadataDependencyContainer(
 private val MetadataFactories =
     KlibMetadataFactories(
         { DefaultBuiltIns.Instance },
-        NullFlexibleTypeDeserializer,
-        NativeTypeTransformer()
+        NullFlexibleTypeDeserializer
     )

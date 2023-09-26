@@ -5,12 +5,13 @@
 
 package org.jetbrains.kotlin.backend.konan
 
-import org.jetbrains.kotlin.backend.common.atMostOne
-import org.jetbrains.kotlin.backend.konan.descriptors.isFromInteropLibrary
+import org.jetbrains.kotlin.utils.atMostOne
 import org.jetbrains.kotlin.backend.konan.descriptors.isInteropLibrary
+import org.jetbrains.kotlin.backend.konan.ir.isFromInteropLibrary
 import org.jetbrains.kotlin.backend.konan.llvm.FunctionOrigin
 import org.jetbrains.kotlin.backend.konan.llvm.llvmSymbolOrigin
 import org.jetbrains.kotlin.backend.konan.llvm.standardLlvmSymbolsOrigin
+import org.jetbrains.kotlin.ir.ObsoleteDescriptorBasedAPI
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.util.getPackageFragment
 import org.jetbrains.kotlin.konan.library.KonanLibrary
@@ -86,9 +87,9 @@ internal class DependenciesTrackerImpl(
                 ?: error("Can't find stdlib")
         val stdlibDeserializer = context.irLinker.moduleDeserializers[context.stdlibModule]
                 ?: error("No deserializer for stdlib")
-        val file = stdlibDeserializer.files.atMostOne { it.fqName == fqName && it.name == fileName }
+        val file = stdlibDeserializer.files.atMostOne { it.packageFqName == fqName && it.name == fileName }
                 ?: error("Can't find $fqName:$fileName in stdlib")
-        return LibraryFile(stdlib, file.fqName.asString(), file.path)
+        return LibraryFile(stdlib, file.packageFqName.asString(), file.path)
     }
 
     private val stdlibRuntime by lazy { findStdlibFile(KonanFqNames.internalPackageName, "Runtime.kt") }
@@ -116,15 +117,15 @@ internal class DependenciesTrackerImpl(
         return if (packageFragment.isFunctionInterfaceFile)
             FileOrigin.StdlibKFunctionImpl
         else {
-            val library = when (val origin = packageFragment.packageFragmentDescriptor.llvmSymbolOrigin) {
+            val library = when (val origin = packageFragment.llvmSymbolOrigin) {
                 CurrentKlibModuleOrigin -> config.libraryToCache?.klib?.takeIf { config.producePerFileCache }
                 else -> (origin as DeserializedKlibModuleOrigin).library
             }
             when {
                 library == null -> FileOrigin.CurrentFile
-                packageFragment.packageFragmentDescriptor.containingDeclaration.isFromInteropLibrary() ->
+                packageFragment.isFromInteropLibrary() ->
                     FileOrigin.EntireModule(library)
-                else -> FileOrigin.CertainFile(library, packageFragment.fqName.asString(), filePathGetter())
+                else -> FileOrigin.CertainFile(library, packageFragment.packageFqName.asString(), filePathGetter())
             }
         }
     }
@@ -188,7 +189,7 @@ internal class DependenciesTrackerImpl(
                             require(library.isInteropLibrary()) { "No module deserializer for cached library ${library.uniqueName}" }
                         } else {
                             moduleDeserializer.eagerInitializedFiles.forEach {
-                                add(CacheSupport.cacheFileId(it.fqName.asString(), it.path))
+                                add(CacheSupport.cacheFileId(it.packageFqName.asString(), it.path))
                             }
                         }
                     }

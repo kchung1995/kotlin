@@ -26,7 +26,7 @@ public class RawFirBuilderTestCaseGenerated extends AbstractRawFirBuilderTestCas
     }
 
     public void testAllFilesPresentInRawBuilder() throws Exception {
-        KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/fir/raw-fir/psi2fir/testData/rawBuilder"), Pattern.compile("^(.+)\\.kt$"), null, true);
+        KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/fir/raw-fir/psi2fir/testData/rawBuilder"), Pattern.compile("^(.+)\\.(kt|kts)$"), null, true);
     }
 
     @TestMetadata("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations")
@@ -38,12 +38,22 @@ public class RawFirBuilderTestCaseGenerated extends AbstractRawFirBuilderTestCas
         }
 
         public void testAllFilesPresentInDeclarations() throws Exception {
-            KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations"), Pattern.compile("^(.+)\\.kt$"), null, true);
+            KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations"), Pattern.compile("^(.+)\\.(kt|kts)$"), null, true);
         }
 
         @TestMetadata("annotation.kt")
         public void testAnnotation() throws Exception {
             runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/annotation.kt");
+        }
+
+        @TestMetadata("annotationOnField.kt")
+        public void testAnnotationOnField() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/annotationOnField.kt");
+        }
+
+        @TestMetadata("annotationOnProperty.kt")
+        public void testAnnotationOnProperty() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/annotationOnProperty.kt");
         }
 
         @TestMetadata("annotationsOnNullableParenthesizedTypes.kt")
@@ -54,6 +64,11 @@ public class RawFirBuilderTestCaseGenerated extends AbstractRawFirBuilderTestCas
         @TestMetadata("annotationsOnParenthesizedTypes.kt")
         public void testAnnotationsOnParenthesizedTypes() throws Exception {
             runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/annotationsOnParenthesizedTypes.kt");
+        }
+
+        @TestMetadata("classWithWrongSuperCall.kt")
+        public void testClassWithWrongSuperCall() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/classWithWrongSuperCall.kt");
         }
 
         @TestMetadata("complexTypes.kt")
@@ -121,6 +136,26 @@ public class RawFirBuilderTestCaseGenerated extends AbstractRawFirBuilderTestCas
             runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/expectActual.kt");
         }
 
+        @TestMetadata("expectClassesAndFunctions.kt")
+        public void testExpectClassesAndFunctions() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/expectClassesAndFunctions.kt");
+        }
+
+        @TestMetadata("expectNestedAnnotationClassWithConstructorParameter.kt")
+        public void testExpectNestedAnnotationClassWithConstructorParameter() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/expectNestedAnnotationClassWithConstructorParameter.kt");
+        }
+
+        @TestMetadata("expectNestedClassMembers.kt")
+        public void testExpectNestedClassMembers() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/expectNestedClassMembers.kt");
+        }
+
+        @TestMetadata("expectNestedEnumClassGeneratedMembers.kt")
+        public void testExpectNestedEnumClassGeneratedMembers() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/expectNestedEnumClassGeneratedMembers.kt");
+        }
+
         @TestMetadata("external.kt")
         public void testExternal() throws Exception {
             runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/external.kt");
@@ -151,6 +186,11 @@ public class RawFirBuilderTestCaseGenerated extends AbstractRawFirBuilderTestCas
             runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/initBlockWithDeclarations.kt");
         }
 
+        @TestMetadata("invalidDestructing.kt")
+        public void testInvalidDestructing() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/invalidDestructing.kt");
+        }
+
         @TestMetadata("nestedClass.kt")
         public void testNestedClass() throws Exception {
             runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/nestedClass.kt");
@@ -179,6 +219,11 @@ public class RawFirBuilderTestCaseGenerated extends AbstractRawFirBuilderTestCas
         @TestMetadata("propertyWithBackingFieldDifferentTypes.kt")
         public void testPropertyWithBackingFieldDifferentTypes() throws Exception {
             runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/propertyWithBackingFieldDifferentTypes.kt");
+        }
+
+        @TestMetadata("script.kts")
+        public void testScript() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/script.kts");
         }
 
         @TestMetadata("simpleClass.kt")
@@ -235,7 +280,7 @@ public class RawFirBuilderTestCaseGenerated extends AbstractRawFirBuilderTestCas
             }
 
             public void testAllFilesPresentInContracts() throws Exception {
-                KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/contracts"), Pattern.compile("^(.+)\\.kt$"), null, true);
+                KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/contracts"), Pattern.compile("^(.+)\\.(kt|kts)$"), null, true);
             }
 
             @TestMetadata("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/contracts/newSyntax")
@@ -247,7 +292,7 @@ public class RawFirBuilderTestCaseGenerated extends AbstractRawFirBuilderTestCas
                 }
 
                 public void testAllFilesPresentInNewSyntax() throws Exception {
-                    KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/contracts/newSyntax"), Pattern.compile("^(.+)\\.kt$"), null, true);
+                    KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/contracts/newSyntax"), Pattern.compile("^(.+)\\.(kt|kts)$"), null, true);
                 }
 
                 @TestMetadata("functionWithBothOldAndNewSyntaxContractDescription.kt")
@@ -275,7 +320,7 @@ public class RawFirBuilderTestCaseGenerated extends AbstractRawFirBuilderTestCas
                 }
 
                 public void testAllFilesPresentInOldSyntax() throws Exception {
-                    KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/contracts/oldSyntax"), Pattern.compile("^(.+)\\.kt$"), null, true);
+                    KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/contracts/oldSyntax"), Pattern.compile("^(.+)\\.(kt|kts)$"), null, true);
                 }
 
                 @TestMetadata("contractDescription.kt")
@@ -294,7 +339,7 @@ public class RawFirBuilderTestCaseGenerated extends AbstractRawFirBuilderTestCas
             }
 
             public void testAllFilesPresentInNoParameterType() throws Exception {
-                KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType"), Pattern.compile("^(.+)\\.kt$"), null, true);
+                KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType"), Pattern.compile("^(.+)\\.(kt|kts)$"), null, true);
             }
 
             @TestMetadata("noParameterTypRefInCatch.kt")
@@ -322,9 +367,19 @@ public class RawFirBuilderTestCaseGenerated extends AbstractRawFirBuilderTestCas
                 runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType/noParameterTypRefInPrimaryConstructor.kt");
             }
 
+            @TestMetadata("noParameterTypRefInPrimaryConstructorWithVararg.kt")
+            public void testNoParameterTypRefInPrimaryConstructorWithVararg() throws Exception {
+                runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType/noParameterTypRefInPrimaryConstructorWithVararg.kt");
+            }
+
             @TestMetadata("noParameterTypRefInPrimaryConsturctorVal.kt")
             public void testNoParameterTypRefInPrimaryConsturctorVal() throws Exception {
                 runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType/noParameterTypRefInPrimaryConsturctorVal.kt");
+            }
+
+            @TestMetadata("noParameterTypRefInPrimaryConsturctorValWithVararg.kt")
+            public void testNoParameterTypRefInPrimaryConsturctorValWithVararg() throws Exception {
+                runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType/noParameterTypRefInPrimaryConsturctorValWithVararg.kt");
             }
 
             @TestMetadata("noParameterTypRefInSecondaryConstructor.kt")
@@ -335,6 +390,16 @@ public class RawFirBuilderTestCaseGenerated extends AbstractRawFirBuilderTestCas
             @TestMetadata("noParameterTypRefInSetter.kt")
             public void testNoParameterTypRefInSetter() throws Exception {
                 runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType/noParameterTypRefInSetter.kt");
+            }
+
+            @TestMetadata("uncompletedTypRefInPrimaryConstructorWithVararg.kt")
+            public void testUncompletedTypRefInPrimaryConstructorWithVararg() throws Exception {
+                runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType/uncompletedTypRefInPrimaryConstructorWithVararg.kt");
+            }
+
+            @TestMetadata("uncompletedTypRefInPrimaryConsturctorValWithVararg.kt")
+            public void testUncompletedTypRefInPrimaryConsturctorValWithVararg() throws Exception {
+                runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType/uncompletedTypRefInPrimaryConsturctorValWithVararg.kt");
             }
         }
     }
@@ -348,7 +413,7 @@ public class RawFirBuilderTestCaseGenerated extends AbstractRawFirBuilderTestCas
         }
 
         public void testAllFilesPresentInExpressions() throws Exception {
-            KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/expressions"), Pattern.compile("^(.+)\\.kt$"), null, true);
+            KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/expressions"), Pattern.compile("^(.+)\\.(kt|kts)$"), null, true);
         }
 
         @TestMetadata("annotated.kt")
@@ -424,6 +489,11 @@ public class RawFirBuilderTestCaseGenerated extends AbstractRawFirBuilderTestCas
         @TestMetadata("init.kt")
         public void testInit() throws Exception {
             runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/expressions/init.kt");
+        }
+
+        @TestMetadata("invalidWhen.kt")
+        public void testInvalidWhen() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/expressions/invalidWhen.kt");
         }
 
         @TestMetadata("labelForInfix.kt")

@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2022 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -28,7 +28,7 @@ import org.jetbrains.kotlin.fir.declarations.impl.FirDefaultPropertyAccessor
 import org.jetbrains.kotlin.fir.declarations.synthetic.FirSyntheticPropertyAccessor
 import org.jetbrains.kotlin.fir.declarations.utils.*
 import org.jetbrains.kotlin.fir.resolve.scope
-import org.jetbrains.kotlin.fir.scopes.FakeOverrideTypeCalculator
+import org.jetbrains.kotlin.fir.scopes.CallableCopyTypeCalculator
 import org.jetbrains.kotlin.fir.scopes.getDirectOverriddenProperties
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertyAccessorSymbol
 import org.jetbrains.kotlin.name.CallableId
@@ -55,16 +55,17 @@ internal class KtFirPropertySetterSymbol(
             val containingClassScope = firSymbol.dispatchReceiverType?.scope(
                 session,
                 analysisSession.getScopeSessionFor(session),
-                FakeOverrideTypeCalculator.DoNothing,
-                requiredPhase = FirResolvePhase.STATUS,
+                CallableCopyTypeCalculator.DoNothing,
+                requiredMembersPhase = FirResolvePhase.STATUS,
             ) ?: return false
+
             val overriddenProperties = containingClassScope.getDirectOverriddenProperties(propertySymbol)
             overriddenProperties.any { it.isVar }
         }
 
     override val hasBody: Boolean get() = withValidityAssertion { firSymbol.fir.hasBody }
 
-    override val modality: Modality get() = withValidityAssertion { firSymbol.modalityOrFinal }
+    override val modality: Modality get() = withValidityAssertion { firSymbol.modality }
     override val visibility: Visibility get() = withValidityAssertion { firSymbol.visibility }
 
     override val annotationsList by cached {

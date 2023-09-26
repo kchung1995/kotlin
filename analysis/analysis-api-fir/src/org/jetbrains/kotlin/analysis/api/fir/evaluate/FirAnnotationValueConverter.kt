@@ -7,6 +7,7 @@ package org.jetbrains.kotlin.analysis.api.fir.evaluate
 
 import org.jetbrains.kotlin.analysis.api.annotations.*
 import org.jetbrains.kotlin.analysis.api.base.KtConstantValue
+import org.jetbrains.kotlin.analysis.api.base.KtConstantValueFactory
 import org.jetbrains.kotlin.analysis.api.components.KtConstantEvaluationMode
 import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.fir.FirSession
@@ -44,10 +45,12 @@ internal object FirAnnotationValueConverter {
 
     private fun <T> FirConstExpression<T>.convertConstantExpression(): KtConstantAnnotationValue? {
         val expression = psi as? KtElement
-        val type = (typeRef as? FirResolvedTypeRef)?.type
+
+        @OptIn(UnresolvedExpressionTypeAccess::class)
+        val type = coneTypeOrNull
         val constantValue = when {
             value == null -> KtConstantValue.KtNullConstantValue(expression)
-            type == null -> return null
+            type == null -> KtConstantValueFactory.createConstantValue(value, psi as? KtElement)
             type.isBoolean -> KtConstantValue.KtBooleanConstantValue(value as Boolean, expression)
             type.isChar -> KtConstantValue.KtCharConstantValue((value as? Char) ?: (value as Number).toInt().toChar(), expression)
             type.isByte -> KtConstantValue.KtByteConstantValue((value as Number).toByte(), expression)
@@ -61,10 +64,10 @@ internal object FirAnnotationValueConverter {
             type.isString -> KtConstantValue.KtStringConstantValue(value.toString(), expression)
             type.isFloat -> KtConstantValue.KtFloatConstantValue((value as Number).toFloat(), expression)
             type.isDouble -> KtConstantValue.KtDoubleConstantValue((value as Number).toDouble(), expression)
-            else -> return null
+            else -> null
         }
 
-        return KtConstantAnnotationValue(constantValue)
+        return constantValue?.let(::KtConstantAnnotationValue)
     }
 
     private fun Collection<FirExpression>.convertVarargsExpression(
@@ -114,7 +117,7 @@ internal object FirAnnotationValueConverter {
                 KtArrayAnnotationValue(annotationValues, representativePsi ?: sourcePsi)
             }
 
-            is FirArrayOfCall -> {
+            is FirArrayLiteral -> {
                 // Desugared collection literals.
                 KtArrayAnnotationValue(argumentList.arguments.convertVarargsExpression(session).first, sourcePsi)
             }
@@ -178,7 +181,7 @@ internal object FirAnnotationValueConverter {
                         val qualifierParts = mutableListOf<String?>()
 
                         fun process(expression: FirExpression) {
-                            val errorType = expression.typeRef.coneType as? ConeErrorType
+                            val errorType = expression.resolvedType as? ConeErrorType
                             val unresolvedName = when (val diagnostic = errorType?.diagnostic) {
                                 is ConeUnresolvedTypeQualifierError -> diagnostic.qualifier
                                 is ConeUnresolvedNameError -> diagnostic.qualifier

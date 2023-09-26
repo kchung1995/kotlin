@@ -8,8 +8,8 @@ repositories {
 }
 
 with(org.jetbrains.kotlin.gradle.targets.js.nodejs.NodeJsRootPlugin.apply(rootProject)) {
-    //canary nodejs that supports wasm GC M6
-    nodeVersion = "20.0.0-v8-canary2022112061c569ba0d"
+    // canary nodejs that supports recent Wasm GC changes
+    nodeVersion = "21.0.0-v8-canary202309167e82ab1fa2"
     nodeDownloadBaseUrl = "https://nodejs.org/download/v8-canary"
 }
 
@@ -19,10 +19,10 @@ with(org.jetbrains.kotlin.gradle.targets.js.d8.D8RootPlugin.apply(rootProject)) 
     version = (version as String)
 }
 
-with(org.jetbrains.kotlin.gradle.targets.js.yarn.YarnPlugin.apply(rootProject)) {
-    //A little hacky way to disable yarn for unsupported nightly node version
-    command = "echo"
-    download = false
+allprojects.forEach {
+    it.tasks.withType<org.jetbrains.kotlin.gradle.targets.js.npm.tasks.KotlinNpmInstallTask>().configureEach {
+        args.add("--ignore-engines")
+    }
 }
 
 tasks.named<org.jetbrains.kotlin.gradle.targets.js.yarn.YarnLockCopyTask>("kotlinStoreYarnLock") {
@@ -31,7 +31,7 @@ tasks.named<org.jetbrains.kotlin.gradle.targets.js.yarn.YarnLockCopyTask>("kotli
 }
 
 kotlin {
-    wasm {
+    wasmJs {
         <JsEngine> {
             testTask {
                 filter.apply {

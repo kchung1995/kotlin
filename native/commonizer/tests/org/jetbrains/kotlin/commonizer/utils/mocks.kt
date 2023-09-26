@@ -75,7 +75,6 @@ internal val MOCK_CLASSIFIERS = CirKnownClassifiers(
                     isData = false,
                     isValue = false,
                     isInner = false,
-                    isExternal = false,
                     hasEnumEntries = false
                 )
             }
@@ -180,6 +179,7 @@ fun MockNativeManifestDataProvider(
     isInterop: Boolean = true,
     packageFqName: String? = "mock",
     exportForwardDeclarations: List<String> = emptyList(),
+    includedForwardDeclarations: List<String> = emptyList(),
     nativeTargets: Collection<String> = emptyList(),
     shortName: String? = "mock"
 ): NativeManifestDataProvider = object : NativeManifestDataProvider {
@@ -191,6 +191,7 @@ fun MockNativeManifestDataProvider(
             isInterop = isInterop,
             packageFqName = packageFqName,
             exportForwardDeclarations = exportForwardDeclarations,
+            includedForwardDeclarations = includedForwardDeclarations,
             nativeTargets = nativeTargets,
             shortName = shortName,
             commonizerTarget = target,

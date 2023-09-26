@@ -9,7 +9,7 @@ import org.jetbrains.kotlin.KtSourceFile
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.diagnostics.impl.BaseDiagnosticsCollector
 import org.jetbrains.kotlin.fir.FirSession
-import org.jetbrains.kotlin.fir.builder.RawFirBuilder
+import org.jetbrains.kotlin.fir.builder.PsiRawFirBuilder
 import org.jetbrains.kotlin.fir.declarations.FirFile
 import org.jetbrains.kotlin.fir.lightTree.LightTree2Fir
 import org.jetbrains.kotlin.fir.resolve.providers.firProvider
@@ -17,6 +17,7 @@ import org.jetbrains.kotlin.fir.resolve.providers.impl.FirProviderImpl
 import org.jetbrains.kotlin.fir.session.sourcesToPathsMapper
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.readSourceFileWithMapping
+import kotlin.reflect.KFunction2
 
 fun FirSession.buildFirViaLightTree(
     files: Collection<KtSourceFile>,
@@ -46,7 +47,7 @@ fun FirSession.buildFirViaLightTree(
 
 fun FirSession.buildFirFromKtFiles(ktFiles: Collection<KtFile>): List<FirFile> {
     val firProvider = (firProvider as FirProviderImpl)
-    val builder = RawFirBuilder(this, firProvider.kotlinScopeProvider)
+    val builder = PsiRawFirBuilder(this, firProvider.kotlinScopeProvider)
     return ktFiles.map {
         builder.buildFirFile(it).also { firFile ->
             firProvider.recordFile(firFile)
@@ -54,7 +55,7 @@ fun FirSession.buildFirFromKtFiles(ktFiles: Collection<KtFile>): List<FirFile> {
     }
 }
 
-fun buildResolveAndCheckFir(
+fun buildResolveAndCheckFirFromKtFiles(
     session: FirSession,
     ktFiles: List<KtFile>,
     diagnosticsReporter: BaseDiagnosticsCollector
@@ -65,9 +66,19 @@ fun buildResolveAndCheckFir(
 fun resolveAndCheckFir(
     session: FirSession,
     firFiles: List<FirFile>,
-    diagnosticsReporter: DiagnosticReporter
+    diagnosticsReporter: BaseDiagnosticsCollector
 ): ModuleCompilerAnalyzedOutput {
     val (scopeSession, fir) = session.runResolution(firFiles)
     session.runCheckers(scopeSession, fir, diagnosticsReporter)
     return ModuleCompilerAnalyzedOutput(session, scopeSession, fir)
+}
+
+fun buildResolveAndCheckFirViaLightTree(
+    session: FirSession,
+    ktFiles: Collection<KtSourceFile>,
+    diagnosticsReporter: BaseDiagnosticsCollector,
+    countFilesAndLines: KFunction2<Int, Int, Unit>?
+): ModuleCompilerAnalyzedOutput {
+    val firFiles = session.buildFirViaLightTree(ktFiles, diagnosticsReporter, countFilesAndLines)
+    return resolveAndCheckFir(session, firFiles, diagnosticsReporter)
 }

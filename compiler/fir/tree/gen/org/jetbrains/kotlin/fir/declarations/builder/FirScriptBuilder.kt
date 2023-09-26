@@ -3,7 +3,7 @@
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
-@file:Suppress("DuplicatedCode")
+@file:Suppress("DuplicatedCode", "unused")
 
 package org.jetbrains.kotlin.fir.declarations.builder
 
@@ -17,9 +17,13 @@ import org.jetbrains.kotlin.fir.declarations.FirContextReceiver
 import org.jetbrains.kotlin.fir.declarations.FirDeclarationAttributes
 import org.jetbrains.kotlin.fir.declarations.FirDeclarationOrigin
 import org.jetbrains.kotlin.fir.declarations.FirResolvePhase
+import org.jetbrains.kotlin.fir.declarations.FirResolveState
 import org.jetbrains.kotlin.fir.declarations.FirScript
 import org.jetbrains.kotlin.fir.declarations.FirVariable
+import org.jetbrains.kotlin.fir.declarations.ResolveStateAccess
+import org.jetbrains.kotlin.fir.declarations.asResolveState
 import org.jetbrains.kotlin.fir.declarations.impl.FirScriptImpl
+import org.jetbrains.kotlin.fir.declarations.resolvePhase
 import org.jetbrains.kotlin.fir.expressions.FirAnnotation
 import org.jetbrains.kotlin.fir.expressions.FirStatement
 import org.jetbrains.kotlin.fir.symbols.impl.FirScriptSymbol
@@ -44,6 +48,7 @@ class FirScriptBuilder : FirAnnotationContainerBuilder {
     lateinit var symbol: FirScriptSymbol
     val parameters: MutableList<FirVariable> = mutableListOf()
     val contextReceivers: MutableList<FirContextReceiver> = mutableListOf()
+    var resultPropertyName: Name? = null
 
     override fun build(): FirScript {
         return FirScriptImpl(
@@ -54,10 +59,11 @@ class FirScriptBuilder : FirAnnotationContainerBuilder {
             origin,
             attributes,
             name,
-            statements,
+            statements.toMutableOrEmpty(),
             symbol,
             parameters,
             contextReceivers.toMutableOrEmpty(),
+            resultPropertyName,
         )
     }
 
@@ -88,5 +94,6 @@ inline fun buildScriptCopy(original: FirScript, init: FirScriptBuilder.() -> Uni
     copyBuilder.symbol = original.symbol
     copyBuilder.parameters.addAll(original.parameters)
     copyBuilder.contextReceivers.addAll(original.contextReceivers)
+    copyBuilder.resultPropertyName = original.resultPropertyName
     return copyBuilder.apply(init).build()
 }

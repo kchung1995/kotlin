@@ -7,7 +7,6 @@
 package org.jetbrains.kotlin.gradle.mpp
 
 import org.gradle.api.logging.LogLevel
-import org.gradle.api.logging.configuration.WarningMode
 import org.gradle.util.GradleVersion
 import org.jetbrains.kotlin.gradle.*
 import org.jetbrains.kotlin.gradle.embedProject
@@ -26,17 +25,13 @@ import java.io.File
 import java.util.*
 import java.lang.Boolean as RefBoolean
 
-class AndroidAndJavaConsumeMppLibBuiltByGradle69IT : AndroidAndJavaConsumeMppLibIT() {
-    override val producerAgpVersion: AGPVersion = AGPVersion.v4_2_0
-    override val producerGradleVersion: GradleVersionRequired = GradleVersionRequired.Exact(
-        TestVersions.Gradle.G_6_9
-    )
-}
 
+// Tests are not working with AGP >= 7.1.0. See KT-57351 for details
 class AndroidAndJavaConsumeMppLibBuiltByGradle7IT : AndroidAndJavaConsumeMppLibIT() {
     override val producerAgpVersion: AGPVersion = AGPVersion.v7_0_0
-    override val producerGradleVersion: GradleVersionRequired = GradleVersionRequired.AtLeast(
-        TestVersions.Gradle.G_7_0
+    override val producerGradleVersion: GradleVersionRequired = GradleVersionRequired.InRange(
+        TestVersions.Gradle.G_7_0,
+        TestVersions.Gradle.G_7_6
     )
 }
 
@@ -73,8 +68,7 @@ abstract class AndroidAndJavaConsumeMppLibIT : BaseGradleIT() {
         fun testCases(): List<Array<Any>> {
             val consumers = listOf(
                 AGPVersion.v4_2_0 to GradleVersionRequired.Exact(TestVersions.Gradle.G_6_9),
-                AGPVersion.v4_2_0 to GradleVersionRequired.AtLeast(TestVersions.Gradle.G_7_0),
-                AGPVersion.v7_0_0 to GradleVersionRequired.AtLeast(TestVersions.Gradle.G_7_0),
+                AGPVersion.v7_0_0 to GradleVersionRequired.AtLeast(TestVersions.Gradle.G_7_6),
             )
             val buildParams = listOf(
                 /* useFlavors, isAndroidPublishDebugOnly, isPublishedLibrary */
@@ -232,7 +226,8 @@ abstract class AndroidAndJavaConsumeMppLibIT : BaseGradleIT() {
                     "\ninclude(\":${dependencyProject.projectName}:lib\")"
                 )
             }
-            setupWorkingDir()
+
+            setupWorkingDir(applyLanguageVersion = withKotlinVersion != oldKotlinVersion)
 
             gradleBuildScript("Lib").apply {
                 writeText(

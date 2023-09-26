@@ -79,7 +79,12 @@ class MethodSignatureMapper(private val context: JvmBackendContext, private val 
         if (property != null) {
             val propertyName = property.name.asString()
             val propertyParent = property.parentAsClass
-            if (propertyParent.isAnnotationClass || propertyParent.superTypes.any { it.isJavaLangRecord() }) return propertyName
+
+            if (propertyParent.isAnnotationClass) return propertyName
+
+            for (i in propertyParent.superTypes.indices) {
+                if (propertyParent.superTypes[i].isJavaLangRecord()) return propertyName
+            }
 
             // The enum property getters <get-name> and <get-ordinal> have special names which also
             // apply to their fake overrides. Unfortunately, getJvmMethodNameIfSpecial does not handle
@@ -126,6 +131,7 @@ class MethodSignatureMapper(private val context: JvmBackendContext, private val 
     private fun IrSimpleFunction.getInternalFunctionForManglingIfNeeded(): IrSimpleFunction? {
         if (visibility == DescriptorVisibilities.INTERNAL &&
             origin != JvmLoweredDeclarationOrigin.STATIC_INLINE_CLASS_CONSTRUCTOR &&
+            origin != JvmLoweredDeclarationOrigin.STATIC_MULTI_FIELD_VALUE_CLASS_CONSTRUCTOR &&
             origin != JvmLoweredDeclarationOrigin.SYNTHETIC_METHOD_FOR_PROPERTY_OR_TYPEALIAS_ANNOTATIONS &&
             origin != IrDeclarationOrigin.PROPERTY_DELEGATE &&
             !isPublishedApi()
@@ -247,8 +253,8 @@ class MethodSignatureMapper(private val context: JvmBackendContext, private val 
 
         sw.writeParametersStart()
 
-        val contextReceivers = function.valueParameters.subList(0, function.contextReceiverParametersCount)
-        for (contextReceiver in contextReceivers) {
+        for (i in 0 until function.contextReceiverParametersCount) {
+            val contextReceiver = function.valueParameters[i]
             writeParameter(sw, JvmMethodParameterKind.CONTEXT_RECEIVER, contextReceiver.type, function)
         }
 
@@ -257,9 +263,8 @@ class MethodSignatureMapper(private val context: JvmBackendContext, private val 
             writeParameter(sw, JvmMethodParameterKind.RECEIVER, receiverParameter.type, function)
         }
 
-        val regularValueParameters =
-            function.valueParameters.subList(function.contextReceiverParametersCount, function.valueParameters.size)
-        for (parameter in regularValueParameters) {
+        for (i in function.contextReceiverParametersCount until function.valueParameters.size) {
+            val parameter = function.valueParameters[i]
             val kind = when (parameter.origin) {
                 JvmLoweredDeclarationOrigin.FIELD_FOR_OUTER_THIS -> JvmMethodParameterKind.OUTER
                 JvmLoweredDeclarationOrigin.ENUM_CONSTRUCTOR_SYNTHETIC_PARAMETER -> JvmMethodParameterKind.ENUM_NAME_OR_ORDINAL
@@ -443,10 +448,13 @@ class MethodSignatureMapper(private val context: JvmBackendContext, private val 
         mapAsmMethod(findSuperDeclaration(function, isSuperCall))
 
     private fun findSuperDeclaration(function: IrSimpleFunction, isSuperCall: Boolean): IrSimpleFunction =
-        findSuperDeclaration(function, isSuperCall, context.state.jvmDefaultMode)
+        findSuperDeclaration(function, isSuperCall, context.config.jvmDefaultMode)
 
     private fun getJvmMethodNameIfSpecial(irFunction: IrSimpleFunction): String? {
-        if (irFunction.origin == JvmLoweredDeclarationOrigin.STATIC_INLINE_CLASS_REPLACEMENT) {
+        if (
+            irFunction.origin == JvmLoweredDeclarationOrigin.STATIC_INLINE_CLASS_REPLACEMENT ||
+            irFunction.origin == JvmLoweredDeclarationOrigin.STATIC_MULTI_FIELD_VALUE_CLASS_REPLACEMENT
+        ) {
             return null
         }
 
@@ -455,7 +463,7 @@ class MethodSignatureMapper(private val context: JvmBackendContext, private val 
     }
 
     private val IrSimpleFunction.isBuiltIn: Boolean
-        get() = getPackageFragment().fqName == StandardNames.BUILT_INS_PACKAGE_FQ_NAME ||
+        get() = getPackageFragment().packageFqName == StandardNames.BUILT_INS_PACKAGE_FQ_NAME ||
                 (parent as? IrClass)?.fqNameWhenAvailable?.toUnsafe()?.let(JavaToKotlinClassMap::mapKotlinToJava) != null
 
     // From BuiltinMethodsWithDifferentJvmName.isBuiltinFunctionWithDifferentNameInJvm, BuiltinMethodsWithDifferentJvmName.getJvmName
@@ -464,11 +472,10 @@ class MethodSignatureMapper(private val context: JvmBackendContext, private val 
         if (!isBuiltIn) return null
         return allOverridden(includeSelf = true)
             .filter { it.isBuiltIn }
-            .mapNotNull {
+            .firstNotNullOfOrNull {
                 val signature = it.computeJvmSignature()
                 SpecialGenericSignatures.SIGNATURE_TO_JVM_REPRESENTATION_NAME[signature]?.asString()
             }
-            .firstOrNull()
     }
 
     private fun IrSimpleFunction.getBuiltinSpecialPropertyGetterName(): String? {
@@ -518,7 +525,7 @@ class MethodSignatureMapper(private val context: JvmBackendContext, private val 
             is IrConstructor ->
                 irFun
             is IrSimpleFunction ->
-                findSuperDeclaration(irFun, false, context.state.jvmDefaultMode)
+                findSuperDeclaration(irFun, false, context.config.jvmDefaultMode)
             else ->
                 throw AssertionError("Simple function or constructor expected: ${irFun.render()}")
         }

@@ -49,9 +49,6 @@ val Project.testOutputRoot
 val Project.testOutputLocal
     get() = (findProperty("testOutputLocal") as File).toString()
 
-val Project.testOutputStdlib
-    get() = (findProperty("testOutputStdlib") as File).toString()
-
 val Project.testOutputFramework
     get() = (findProperty("testOutputFramework") as File).toString()
 
@@ -157,12 +154,6 @@ fun isSimulatorTarget(project: Project, target: KonanTarget): Boolean =
     project.platformManager.platform(target).targetTriple.isSimulator
 
 /**
- * Check that [target] is an Apple device.
- */
-fun supportsRunningTestsOnDevice(target: KonanTarget): Boolean =
-    target == KonanTarget.IOS_ARM32 || target == KonanTarget.IOS_ARM64
-
-/**
  * Creates a list of file paths to be compiled from the given [compile] list with regard to [exclude] list.
  */
 fun Project.getFilesToCompile(compile: List<String>, exclude: List<String>): List<String> {
@@ -213,14 +204,13 @@ private val Project.hasPlatformLibs: Boolean
         return false
     }
 
-private val Project.isCrossDist: Boolean
-    get() {
-        if (!isDefaultNativeHome) {
-            return File(buildDistribution(project.kotlinNativeDist.absolutePath).runtime(project.testTarget))
+private fun Project.isCrossDist(target: KonanTarget): Boolean {
+    if (!isDefaultNativeHome) {
+        return File(buildDistribution(project.kotlinNativeDist.absolutePath).runtime(target))
                 .exists()
-        }
-        return false
     }
+    return false
+}
 
 fun Task.dependsOnDist() {
     val target = project.testTarget
@@ -232,7 +222,7 @@ fun Task.dependsOnDist() {
             dependsOn(":kotlin-native:${target.name}CrossDist")
         }
     } else {
-        if (!project.isCrossDist) {
+        if (!project.isCrossDist(project.testTarget)) {
             dependsOn(":kotlin-native:${target.name}CrossDist")
         }
     }
@@ -246,7 +236,7 @@ fun Task.dependsOnCrossDist(target: KonanTarget) {
             dependsOn(":kotlin-native:${target.name}CrossDist")
         }
     } else {
-        if (!project.isCrossDist) {
+        if (!project.isCrossDist(target)) {
             dependsOn(":kotlin-native:${target.name}CrossDist")
         }
     }
@@ -310,7 +300,10 @@ fun compileSwift(
             options + "-o" + output.toString() + sources +
             if (fullBitcode) listOf("-embed-bitcode", "-Xlinker", "-bitcode_verify") else listOf("-embed-bitcode-marker")
 
-    val (stdOut, stdErr, exitCode) = runProcess(executor = localExecutor(project), executable = compiler, args = args)
+    val (stdOut, stdErr, exitCode) = runProcess(
+            executor = localExecutor(project), executable = compiler, args = args,
+            env = mapOf("DYLD_FALLBACK_FRAMEWORK_PATH" to configs.absoluteTargetToolchain + "/ExtraFrameworks")
+    )
 
     println(
         """

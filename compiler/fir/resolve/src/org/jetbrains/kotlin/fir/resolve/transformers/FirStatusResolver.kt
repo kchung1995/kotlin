@@ -1,29 +1,33 @@
 /*
- * Copyright 2010-2022 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
 package org.jetbrains.kotlin.fir.resolve.transformers
 
 import org.jetbrains.kotlin.descriptors.*
-import org.jetbrains.kotlin.fir.*
+import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.declarations.*
 import org.jetbrains.kotlin.fir.declarations.impl.FirDeclarationStatusImpl
-import org.jetbrains.kotlin.fir.declarations.impl.FirOuterClassTypeParameterRef
 import org.jetbrains.kotlin.fir.declarations.impl.FirResolvedDeclarationStatusImpl
 import org.jetbrains.kotlin.fir.declarations.utils.effectiveVisibility
 import org.jetbrains.kotlin.fir.declarations.utils.isExpect
 import org.jetbrains.kotlin.fir.declarations.utils.isOverride
 import org.jetbrains.kotlin.fir.declarations.utils.visibility
-import org.jetbrains.kotlin.fir.extensions.*
+import org.jetbrains.kotlin.fir.extensions.FirStatusTransformerExtension
+import org.jetbrains.kotlin.fir.extensions.extensionService
+import org.jetbrains.kotlin.fir.extensions.statusTransformerExtensions
 import org.jetbrains.kotlin.fir.resolve.ScopeSession
 import org.jetbrains.kotlin.fir.resolve.toSymbol
 import org.jetbrains.kotlin.fir.scopes.ProcessorAction
 import org.jetbrains.kotlin.fir.scopes.unsubstitutedScope
+import org.jetbrains.kotlin.fir.toEffectiveVisibility
 import org.jetbrains.kotlin.fir.types.*
-import org.jetbrains.kotlin.name.StandardClassIds
+import org.jetbrains.kotlin.fir.utils.exceptions.withFirEntry
+import org.jetbrains.kotlin.fir.visibilityChecker
+import org.jetbrains.kotlin.types.EnrichedProjectionKind
 import org.jetbrains.kotlin.types.Variance
-import org.jetbrains.kotlin.utils.addToStdlib.runIf
+import org.jetbrains.kotlin.utils.exceptions.errorWithAttachment
 
 class FirStatusResolver(
     val session: FirSession,
@@ -74,7 +78,9 @@ class FirStatusResolver(
             is FirConstructor -> resolveStatus(declaration, containingClass, isLocal)
             is FirField -> resolveStatus(declaration, containingClass, isLocal)
             is FirBackingField -> resolveStatus(declaration, containingClass, isLocal)
-            else -> error("Unsupported declaration type: ${declaration.render()}")
+            else -> errorWithAttachment("Unsupported declaration type: ${declaration::class.java}") {
+                withFirEntry("declaration", declaration)
+            }
         }
     }
 
@@ -86,7 +92,7 @@ class FirStatusResolver(
             return emptyList()
         }
 
-        val scope = containingClass.unsubstitutedScope(session, scopeSession, withForcedTypeCalculator = false)
+        val scope = containingClass.unsubstitutedScope(session, scopeSession, withForcedTypeCalculator = false, memberRequiredPhase = null)
 
         return buildList {
             scope.processPropertiesByName(property.name) {}
@@ -115,16 +121,22 @@ class FirStatusResolver(
         return resolveStatus(property, status, containingClass, null, isLocal, statuses)
     }
 
-    private fun getOverriddenStatuses(
+    fun getOverriddenFunctions(
         function: FirSimpleFunction,
         containingClass: FirClass?
-    ): List<FirResolvedDeclarationStatus> {
+    ): List<FirSimpleFunction> {
         if (containingClass == null) {
             return emptyList()
         }
 
-        return buildList<FirCallableDeclaration> {
-            val scope = containingClass.unsubstitutedScope(session, scopeSession, withForcedTypeCalculator = false)
+        return buildList {
+            val scope = containingClass.unsubstitutedScope(
+                session,
+                scopeSession,
+                withForcedTypeCalculator = false,
+                memberRequiredPhase = null,
+            )
+
             val symbol = function.symbol
             scope.processFunctionsByName(function.name) {}
             scope.processDirectOverriddenFunctionsWithBaseScope(symbol) { overriddenSymbol, _ ->
@@ -136,17 +148,23 @@ class FirStatusResolver(
                 }
                 ProcessorAction.NEXT
             }
-        }.map {
-            it.status as FirResolvedDeclarationStatus
         }
     }
 
-    fun resolveStatus(function: FirSimpleFunction, containingClass: FirClass?, isLocal: Boolean): FirResolvedDeclarationStatus {
+    fun resolveStatus(
+        function: FirSimpleFunction,
+        containingClass: FirClass?,
+        isLocal: Boolean,
+        overriddenStatuses: List<FirResolvedDeclarationStatus>? = null,
+    ): FirResolvedDeclarationStatus {
         val status = function.applyExtensionTransformers {
             transformStatus(it, function, containingClass?.symbol, isLocal)
         }
-        val overriddenStatuses = getOverriddenStatuses(function, containingClass)
-        return resolveStatus(function, status, containingClass, null, isLocal, overriddenStatuses)
+
+        val statuses = overriddenStatuses
+            ?: getOverriddenFunctions(function, containingClass).map { it.status as FirResolvedDeclarationStatus }
+
+        return resolveStatus(function, status, containingClass, null, isLocal, statuses)
     }
 
     fun resolveStatus(
@@ -272,29 +290,27 @@ class FirStatusResolver(
             containingClass?.symbol?.toLookupTag(), forClass = declaration is FirClass
         )
         val effectiveVisibility = parentEffectiveVisibility.lowerBound(selfEffectiveVisibility, session.typeContext)
-        val annotations = (containingProperty ?: declaration).annotations
 
-        val hasPublishedApiAnnotation = annotations.any {
-            it.typeRef.coneTypeSafe<ConeClassLikeType>()?.lookupTag?.classId == StandardClassIds.Annotations.PublishedApi
-        }
+        if (!isLocal) {
+            val annotations = (containingProperty ?: declaration).annotations
+            val parentPublishedEffectiveVisibility = when {
+                containingProperty != null -> containingProperty.publishedApiEffectiveVisibility
+                containingClass is FirRegularClass -> containingClass.publishedApiEffectiveVisibility
+                else -> null
+            }
 
-        var selfPublishedEffectiveVisibility = runIf(hasPublishedApiAnnotation) {
-            visibility.toEffectiveVisibility(
-                containingClass?.symbol?.toLookupTag(), forClass = declaration is FirClass, ownerIsPublishedApi = true
-            )
-        }
-        var parentPublishedEffectiveVisibility = when {
-            containingProperty != null -> containingProperty.publishedApiEffectiveVisibility
-            containingClass is FirRegularClass -> containingClass.publishedApiEffectiveVisibility
-            else -> null
-        }
-        if (selfPublishedEffectiveVisibility != null || parentPublishedEffectiveVisibility != null) {
-            selfPublishedEffectiveVisibility = selfPublishedEffectiveVisibility ?: selfEffectiveVisibility
-            parentPublishedEffectiveVisibility = parentPublishedEffectiveVisibility ?: parentEffectiveVisibility
-            declaration.publishedApiEffectiveVisibility = parentPublishedEffectiveVisibility.lowerBound(
-                selfPublishedEffectiveVisibility,
-                session.typeContext
-            )
+            computePublishedApiEffectiveVisibility(
+                annotations,
+                visibility,
+                selfEffectiveVisibility,
+                containingClass?.symbol,
+                parentEffectiveVisibility,
+                parentPublishedEffectiveVisibility,
+                declaration is FirClass,
+                session
+            )?.let {
+                declaration.nonLazyPublishedApiEffectiveVisibility = it
+            }
         }
 
         if (containingClass is FirRegularClass && containingClass.isExpect) {
@@ -342,16 +358,21 @@ class FirStatusResolver(
         if (type is ConeTypeParameterType) {
             return !type.lookupTag.typeParameterSymbol.fir.variance.allowsPosition(requiredVariance)
         }
+        // TODO: handle other types (like flexible, DNN, captured, ...) KT-62134
         if (type is ConeClassLikeType) {
             val classLike = type.lookupTag.toSymbol(session)?.fir
             for ((index, argument) in type.typeArguments.withIndex()) {
-                if (classLike?.typeParameters?.getOrNull(index) is FirOuterClassTypeParameterRef) continue
-                val (argType, requiredVarianceForArgument) = when (argument) {
-                    is ConeKotlinTypeProjectionOut -> argument.type to requiredVariance
-                    is ConeKotlinTypeProjectionIn -> argument.type to requiredVariance.opposite()
-                    is ConeKotlinTypeProjection -> argument.type to Variance.INVARIANT
-                    is ConeStarProjection -> continue
+                val typeParameterRef = classLike?.typeParameters?.getOrNull(index)
+                if (typeParameterRef !is FirTypeParameter) continue
+                val requiredVarianceForArgument = when (
+                    EnrichedProjectionKind.getEffectiveProjectionKind(typeParameterRef.variance, argument.variance)
+                ) {
+                    EnrichedProjectionKind.OUT -> requiredVariance
+                    EnrichedProjectionKind.IN -> requiredVariance.opposite()
+                    EnrichedProjectionKind.INV -> Variance.INVARIANT
+                    EnrichedProjectionKind.STAR -> continue // CONFLICTING_PROJECTION error was reported
                 }
+                val argType = argument.type ?: continue
                 if (contradictsWith(argType, requiredVarianceForArgument)) {
                     return true
                 }
@@ -359,6 +380,14 @@ class FirStatusResolver(
         }
         return false
     }
+
+    private val ConeTypeProjection.variance: Variance
+        get() = when (this.kind) {
+            ProjectionKind.STAR -> Variance.OUT_VARIANCE
+            ProjectionKind.IN -> Variance.IN_VARIANCE
+            ProjectionKind.OUT -> Variance.OUT_VARIANCE
+            ProjectionKind.INVARIANT -> Variance.INVARIANT
+        }
 
     private fun resolveVisibility(
         declaration: FirDeclaration,

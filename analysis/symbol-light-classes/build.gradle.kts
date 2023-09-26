@@ -18,10 +18,14 @@ dependencies {
     implementation(kotlinxCollectionsImmutable())
 
     testImplementation(project(":analysis:decompiled:decompiler-to-file-stubs"))
+    testImplementation(projectTests(":analysis:analysis-test-framework"))
     testImplementation(projectTests(":analysis:decompiled:decompiler-to-file-stubs"))
     testImplementation(projectTests(":analysis:analysis-api-impl-base"))
     testImplementation(projectTests(":analysis:analysis-api-fir"))
     testImplementation(projectTests(":compiler:tests-common-new"))
+    testImplementation(projectTests(":analysis:low-level-api-fir"))
+    testImplementation(libs.junit.jupiter.api)
+    testRuntimeOnly(libs.junit.jupiter.engine)
 }
 
 sourceSets {
@@ -37,6 +41,7 @@ projectTest(jUnitMode = JUnitMode.JUnit5) {
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
     kotlinOptions.freeCompilerArgs += "-Xcontext-receivers"
+    kotlinOptions.freeCompilerArgs += "-opt-in=org.jetbrains.kotlin.analysis.api.lifetime.KtAllowProhibitedAnalyzeFromWriteAction"
 }
 
 

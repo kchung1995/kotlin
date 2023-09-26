@@ -19,15 +19,17 @@ import org.jetbrains.kotlin.cli.common.messages.MessageRenderer
 import org.jetbrains.kotlin.cli.jvm.compiler.EnvironmentConfigFiles
 import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
 import org.jetbrains.kotlin.cli.jvm.plugins.PluginCliParser
-import org.jetbrains.kotlin.config.CommonConfigurationKeys
-import org.jetbrains.kotlin.config.CompilerConfiguration
-import org.jetbrains.kotlin.config.KotlinCompilerVersion
-import org.jetbrains.kotlin.config.Services
+import org.jetbrains.kotlin.config.*
+import org.jetbrains.kotlin.ir.linkage.partial.PartialLinkageConfig
+import org.jetbrains.kotlin.ir.linkage.partial.partialLinkageConfig
+import org.jetbrains.kotlin.ir.linkage.partial.setupPartialLinkageConfig
+import org.jetbrains.kotlin.ir.util.IrMessageLogger
 import org.jetbrains.kotlin.library.metadata.KlibMetadataVersion
 import org.jetbrains.kotlin.metadata.deserialization.BinaryVersion
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.util.profile
 import org.jetbrains.kotlin.utils.KotlinPaths
+
 
 private class K2NativeCompilerPerformanceManager: CommonCompilerPerformanceManager("Kotlin to Native Compiler")
 
@@ -61,7 +63,6 @@ class K2Native : CLICompiler<K2NativeCompilerArguments>() {
         if (!enoughArguments) {
             messageCollector.report(ERROR, "You have not specified any compilation arguments. No output has been produced.")
         }
-
         val environment = prepareEnvironment(arguments, configuration, rootDisposable)
 
         try {
@@ -116,18 +117,37 @@ class K2Native : CLICompiler<K2NativeCompilerArguments>() {
             environment: KotlinCoreEnvironment,
             rootDisposable: Disposable
     ) {
-        val konanDriver = KonanDriver(environment.project, environment, configuration) { args, setupConfiguration ->
-            val spawnedArguments = K2NativeCompilerArguments()
-            parseCommandLineArguments(args, spawnedArguments)
-            val spawnedConfiguration = CompilerConfiguration()
+        val konanDriver = KonanDriver(environment.project, environment, configuration, object : CompilationSpawner {
+            override fun spawn(configuration: CompilerConfiguration) {
+                val spawnedArguments = K2NativeCompilerArguments()
+                parseCommandLineArguments(emptyList(), spawnedArguments)
+                val spawnedEnvironment = KotlinCoreEnvironment.createForProduction(
+                        rootDisposable, configuration, EnvironmentConfigFiles.NATIVE_CONFIG_FILES)
 
-            spawnedConfiguration.put(CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY, configuration.getNotNull(CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY))
-            spawnedConfiguration.setupCommonArguments(spawnedArguments, this::createMetadataVersion)
-            spawnedConfiguration.setupFromArguments(spawnedArguments)
-            spawnedConfiguration.setupConfiguration()
-            val spawnedEnvironment = prepareEnvironment(spawnedArguments, spawnedConfiguration, rootDisposable)
-            runKonanDriver(spawnedConfiguration, spawnedEnvironment, rootDisposable)
-        }
+                runKonanDriver(configuration, spawnedEnvironment, rootDisposable)
+            }
+
+            override fun spawn(arguments: List<String>, setupConfiguration: CompilerConfiguration.() -> Unit) {
+                val spawnedArguments = K2NativeCompilerArguments()
+                parseCommandLineArguments(arguments, spawnedArguments)
+                val spawnedConfiguration = CompilerConfiguration()
+
+                spawnedConfiguration.put(CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY, configuration.getNotNull(CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY))
+                spawnedConfiguration.put(IrMessageLogger.IR_MESSAGE_LOGGER, configuration.getNotNull(IrMessageLogger.IR_MESSAGE_LOGGER))
+                spawnedConfiguration.setupCommonArguments(spawnedArguments, this@K2Native::createMetadataVersion)
+                spawnedConfiguration.setupFromArguments(spawnedArguments)
+                spawnedConfiguration.setupPartialLinkageConfig(configuration.partialLinkageConfig)
+                configuration.get(CommonConfigurationKeys.USE_FIR)?.let {
+                    spawnedConfiguration.put(CommonConfigurationKeys.USE_FIR, it)
+                }
+                configuration.get(CommonConfigurationKeys.LANGUAGE_VERSION_SETTINGS)?.let {
+                    spawnedConfiguration.put(CommonConfigurationKeys.LANGUAGE_VERSION_SETTINGS, it)
+                }
+                spawnedConfiguration.setupConfiguration()
+                val spawnedEnvironment = prepareEnvironment(spawnedArguments, spawnedConfiguration, rootDisposable)
+                runKonanDriver(spawnedConfiguration, spawnedEnvironment, rootDisposable)
+            }
+        })
         konanDriver.run()
     }
 

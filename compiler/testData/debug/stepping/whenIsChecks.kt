@@ -1,5 +1,4 @@
-// IGNORE_BACKEND_K2_LIGHT_TREE: JVM_IR
-//   Reason: KT-56755
+// IGNORE_BACKEND: WASM
 // FILE: test.kt
 
 fun foo(x: Any) {
@@ -20,36 +19,30 @@ fun box() {
 }
 
 // EXPECTATIONS JVM JVM_IR
+// test.kt:16 box
+// test.kt:5 foo
+// test.kt:6 foo
+// test.kt:7 foo
+// test.kt:13 foo
 // test.kt:17 box
+// test.kt:5 foo
 // test.kt:6 foo
-// test.kt:7 foo
 // test.kt:8 foo
-// test.kt:14 foo
+// test.kt:9 foo
+// test.kt:13 foo
 // test.kt:18 box
+// test.kt:5 foo
 // test.kt:6 foo
-// test.kt:7 foo
-// test.kt:9 foo
-// test.kt:10 foo
-// test.kt:14 foo
+// test.kt:8 foo
+// test.kt:11 foo
+// test.kt:13 foo
 // test.kt:19 box
-// test.kt:6 foo
-// test.kt:7 foo
-// test.kt:9 foo
-// test.kt:12 foo
-// test.kt:14 foo
-// test.kt:20 box
 
 // EXPECTATIONS JS_IR
+// test.kt:16 box
+// test.kt:13 foo
 // test.kt:17 box
-// test.kt:6 foo
-// test.kt:7 foo
-// test.kt:14 foo
+// test.kt:13 foo
 // test.kt:18 box
-// test.kt:6 foo
-// test.kt:7 foo
-// test.kt:14 foo
+// test.kt:13 foo
 // test.kt:19 box
-// test.kt:6 foo
-// test.kt:7 foo
-// test.kt:14 foo
-// test.kt:20 box

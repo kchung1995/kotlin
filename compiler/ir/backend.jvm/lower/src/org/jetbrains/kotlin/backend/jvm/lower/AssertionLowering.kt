@@ -45,7 +45,7 @@ private class AssertionLowering(private val context: JvmBackendContext) :
 
     override fun lower(irFile: IrFile) {
         // In legacy mode we treat assertions as inline function calls
-        if (context.state.assertionsMode != JVMAssertionsMode.LEGACY)
+        if (context.config.assertionsMode != JVMAssertionsMode.LEGACY)
             irFile.transformChildren(this, null)
     }
 
@@ -78,7 +78,7 @@ private class AssertionLowering(private val context: JvmBackendContext) :
         if (!function.isAssert)
             return super.visitCall(expression, data)
 
-        val mode = context.state.assertionsMode
+        val mode = context.config.assertionsMode
         if (mode == JVMAssertionsMode.ALWAYS_DISABLE)
             return IrCompositeImpl(expression.startOffset, expression.endOffset, context.irBuiltIns.unitType)
 
@@ -116,5 +116,5 @@ private class AssertionLowering(private val context: JvmBackendContext) :
     }
 
     private val IrFunction.isAssert: Boolean
-        get() = name.asString() == "assert" && getPackageFragment().fqName == StandardNames.BUILT_INS_PACKAGE_FQ_NAME
+        get() = name.asString() == "assert" && getPackageFragment().packageFqName == StandardNames.BUILT_INS_PACKAGE_FQ_NAME
 }

@@ -5,13 +5,14 @@
 
 package org.jetbrains.kotlin.gradle.targets.js.npm.resolver
 
+import org.gradle.api.Action
 import org.gradle.api.logging.Logger
+import org.gradle.api.provider.ListProperty
 import org.jetbrains.kotlin.gradle.targets.js.nodejs.TasksRequirements
 import org.jetbrains.kotlin.gradle.targets.js.npm.*
-import org.jetbrains.kotlin.gradle.targets.js.npm.NpmProject.Companion.PACKAGE_JSON
 import org.jetbrains.kotlin.gradle.targets.js.npm.resolved.PreparedKotlinCompilationNpmResolution
-import java.io.Serializable
 import java.io.File
+import java.io.Serializable
 
 class KotlinCompilationNpmResolution(
     var internalDependencies: Collection<InternalDependency>,
@@ -28,31 +29,28 @@ class KotlinCompilationNpmResolution(
     val npmProjectMain: String,
     val npmProjectPackageJsonFile: File,
     val npmProjectDir: File,
-    val tasksRequirements: TasksRequirements
+    val tasksRequirements: TasksRequirements,
 ) : Serializable {
 
     val inputs: PackageJsonProducerInputs
         get() = PackageJsonProducerInputs(
             internalDependencies.map { it.projectName },
-            internalCompositeDependencies.flatMap { it.getPackages() },
             externalGradleDependencies.map { it.file },
             externalNpmDependencies.map { it.uniqueRepresentation() },
             fileCollectionDependencies.flatMap { it.files }
         )
 
     private var closed = false
-    private var resolution: PreparedKotlinCompilationNpmResolution? = null
+    internal var resolution: PreparedKotlinCompilationNpmResolution? = null
 
     @Synchronized
     fun prepareWithDependencies(
-        skipWriting: Boolean = false,
         npmResolutionManager: KotlinNpmResolutionManager,
-        logger: Logger
+        logger: Logger,
     ): PreparedKotlinCompilationNpmResolution {
         check(resolution == null) { "$this already resolved" }
 
         return createPreparedResolution(
-            skipWriting,
             npmResolutionManager,
             logger
         ).also {
@@ -67,7 +65,6 @@ class KotlinCompilationNpmResolution(
     ): PreparedKotlinCompilationNpmResolution {
 
         return resolution ?: prepareWithDependencies(
-            skipWriting = true,
             npmResolutionManager,
             logger
         )
@@ -84,19 +81,20 @@ class KotlinCompilationNpmResolution(
     }
 
     fun createPreparedResolution(
-        skipWriting: Boolean,
         npmResolutionManager: KotlinNpmResolutionManager,
-        logger: Logger
+        logger: Logger,
     ): PreparedKotlinCompilationNpmResolution {
         val rootResolver = npmResolutionManager.parameters.resolution.get()
 
-        internalDependencies.map {
-            val compilationNpmResolution: KotlinCompilationNpmResolution = rootResolver[it.projectPath][it.compilationName]
-            compilationNpmResolution.getResolutionOrPrepare(
-                npmResolutionManager,
-                logger
-            )
-        }
+        val internalNpmDependencies = internalDependencies
+            .map {
+                val compilationNpmResolution: KotlinCompilationNpmResolution = rootResolver[it.projectPath][it.compilationName]
+                compilationNpmResolution.getResolutionOrPrepare(
+                    npmResolutionManager,
+                    logger
+                )
+            }
+            .flatMap { it.externalNpmDependencies }
         val importedExternalGradleDependencies = externalGradleDependencies.mapNotNull {
             npmResolutionManager.parameters.gradleNodeModulesProvider.get().get(it.dependencyName, it.dependencyVersion, it.file)
         } + fileCollectionDependencies.flatMap { dependency ->
@@ -111,56 +109,40 @@ class KotlinCompilationNpmResolution(
                     )
                 }
         }.filterNotNull()
-        val transitiveNpmDependencies = importedExternalGradleDependencies.flatMap {
+        val transitiveNpmDependencies = (importedExternalGradleDependencies.flatMap {
             it.dependencies
-        }.filter { it.scope != NpmDependency.Scope.DEV }
-
-        val compositeDependencies = internalCompositeDependencies.flatMap { dependency ->
-            dependency.getPackages()
-                .map { file ->
-                    npmResolutionManager.parameters.compositeNodeModulesProvider.get().get(
-                        dependency.dependencyName,
-                        dependency.dependencyVersion,
-                        file
-                    )
-                }
-        }.filterNotNull()
+        } + internalNpmDependencies).filter { it.scope != NpmDependency.Scope.DEV }
 
         val toolsNpmDependencies = tasksRequirements
             .getCompilationNpmRequirements(projectPath, compilationDisambiguatedName)
 
         val otherNpmDependencies = toolsNpmDependencies + transitiveNpmDependencies
         val allNpmDependencies = disambiguateDependencies(externalNpmDependencies, otherNpmDependencies, logger)
-        val packageJsonHandlers =
-            npmResolutionManager.parameters.packageJsonHandlers.get()["$projectPath:${compilationDisambiguatedName}"]
-                ?: emptyList()
 
+        return PreparedKotlinCompilationNpmResolution(
+            npmProjectDir,
+            importedExternalGradleDependencies,
+            allNpmDependencies,
+        )
+    }
+
+    fun createPackageJson(
+        resolution: PreparedKotlinCompilationNpmResolution,
+        packageJsonHandlers: ListProperty<Action<PackageJson>>,
+    ) {
         val packageJson = packageJson(
             npmProjectName,
             npmProjectVersion,
             npmProjectMain,
-            allNpmDependencies,
-            packageJsonHandlers
+            resolution.externalNpmDependencies,
+            packageJsonHandlers.get()
         )
 
-        compositeDependencies.forEach {
-            packageJson.dependencies[it.name] = it.version
+        packageJsonHandlers.get().forEach {
+            it.execute(packageJson)
         }
 
-        packageJsonHandlers.forEach {
-            it(packageJson)
-        }
-
-        if (!skipWriting) {
-            packageJson.saveTo(npmProjectPackageJsonFile)
-        }
-
-        return PreparedKotlinCompilationNpmResolution(
-            npmProjectDir,
-            compositeDependencies,
-            importedExternalGradleDependencies,
-            allNpmDependencies,
-        )
+        packageJson.saveTo(npmProjectPackageJsonFile)
     }
 
     private fun disambiguateDependencies(
@@ -188,14 +170,5 @@ class KotlinCompilationNpmResolution(
                 }
             }
         return direct + unique
-    }
-
-    internal fun CompositeDependency.getPackages(): List<File> {
-        val packages = includedBuildDir.resolve(projectPackagesDir.relativeTo(rootDir))
-        return packages
-            .list()
-            ?.map { packages.resolve(it) }
-            ?.map { it.resolve(PACKAGE_JSON) }
-            ?: emptyList()
     }
 }

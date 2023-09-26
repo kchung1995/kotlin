@@ -6,6 +6,7 @@
 package org.jetbrains.kotlin.fir.session
 
 import org.jetbrains.kotlin.config.LanguageVersionSettings
+import org.jetbrains.kotlin.container.topologicalSort
 import org.jetbrains.kotlin.fir.*
 import org.jetbrains.kotlin.fir.checkers.registerCommonCheckers
 import org.jetbrains.kotlin.fir.deserialization.ModuleDataProvider
@@ -16,10 +17,14 @@ import org.jetbrains.kotlin.fir.java.FirProjectSessionProvider
 import org.jetbrains.kotlin.fir.resolve.providers.DEPENDENCIES_SYMBOL_PROVIDER_QUALIFIED_KEY
 import org.jetbrains.kotlin.fir.resolve.providers.FirProvider
 import org.jetbrains.kotlin.fir.resolve.providers.FirSymbolProvider
-import org.jetbrains.kotlin.fir.resolve.providers.impl.*
+import org.jetbrains.kotlin.fir.resolve.providers.impl.FirCachingCompositeSymbolProvider
+import org.jetbrains.kotlin.fir.resolve.providers.impl.FirExtensionSyntheticFunctionInterfaceProvider
+import org.jetbrains.kotlin.fir.resolve.providers.impl.FirLibrarySessionProvider
+import org.jetbrains.kotlin.fir.resolve.providers.impl.FirProviderImpl
 import org.jetbrains.kotlin.fir.resolve.providers.symbolProvider
 import org.jetbrains.kotlin.fir.scopes.FirKotlinScopeProvider
 import org.jetbrains.kotlin.incremental.components.EnumWhenTracker
+import org.jetbrains.kotlin.incremental.components.ImportTracker
 import org.jetbrains.kotlin.incremental.components.LookupTracker
 import org.jetbrains.kotlin.name.Name
 
@@ -30,9 +35,10 @@ abstract class FirAbstractSessionFactory {
         sessionProvider: FirProjectSessionProvider,
         moduleDataProvider: ModuleDataProvider,
         languageVersionSettings: LanguageVersionSettings,
+        extensionRegistrars: List<FirExtensionRegistrar>,
         registerExtraComponents: ((FirSession) -> Unit),
         createKotlinScopeProvider: () -> FirKotlinScopeProvider,
-        createProviders: (FirSession, FirModuleData, FirKotlinScopeProvider) -> List<FirSymbolProvider>
+        createProviders: (FirSession, FirModuleData, FirKotlinScopeProvider, FirExtensionSyntheticFunctionInterfaceProvider?) -> List<FirSymbolProvider>
     ): FirSession {
         return FirCliSession(sessionProvider, FirSession.Kind.Library).apply session@{
             moduleDataProvider.allModuleData.forEach {
@@ -42,7 +48,6 @@ abstract class FirAbstractSessionFactory {
 
             registerCliCompilerOnlyComponents()
             registerCommonComponents(languageVersionSettings)
-            registerCommonComponentsAfterExtensionsAreConfigured()
             registerExtraComponents(this)
 
             val kotlinScopeProvider = createKotlinScopeProvider.invoke()
@@ -55,7 +60,16 @@ abstract class FirAbstractSessionFactory {
             )
             builtinsModuleData.bindSession(this)
 
-            val providers = createProviders(this, builtinsModuleData, kotlinScopeProvider)
+            FirSessionConfigurator(this).apply {
+                for (extensionRegistrar in extensionRegistrars) {
+                    registerExtensions(extensionRegistrar.configure())
+                }
+            }.configure()
+            registerCommonComponentsAfterExtensionsAreConfigured()
+
+            val syntheticFunctionInterfaceProvider =
+                FirExtensionSyntheticFunctionInterfaceProvider.createIfNeeded(this, builtinsModuleData, kotlinScopeProvider)
+            val providers = createProviders(this, builtinsModuleData, kotlinScopeProvider, syntheticFunctionInterfaceProvider)
 
             val symbolProvider = FirCachingCompositeSymbolProvider(this, providers)
             register(FirSymbolProvider::class, symbolProvider)
@@ -70,6 +84,7 @@ abstract class FirAbstractSessionFactory {
         languageVersionSettings: LanguageVersionSettings,
         lookupTracker: LookupTracker?,
         enumWhenTracker: EnumWhenTracker?,
+        importTracker: ImportTracker?,
         init: FirSessionConfigurator.() -> Unit,
         registerExtraComponents: ((FirSession) -> Unit),
         registerExtraCheckers: ((FirSessionConfigurator) -> Unit)?,
@@ -77,7 +92,6 @@ abstract class FirAbstractSessionFactory {
         createProviders: (
             FirSession, FirKotlinScopeProvider, FirSymbolProvider,
             FirSwitchableExtensionDeclarationsSymbolProvider?,
-            FirExtensionSyntheticFunctionInterfaceProvider,
             dependencies: List<FirSymbolProvider>,
         ) -> List<FirSymbolProvider>
     ): FirSession {
@@ -87,7 +101,7 @@ abstract class FirAbstractSessionFactory {
             registerModuleData(moduleData)
             registerCliCompilerOnlyComponents()
             registerCommonComponents(languageVersionSettings)
-            registerResolveComponents(lookupTracker, enumWhenTracker)
+            registerResolveComponents(lookupTracker, enumWhenTracker, importTracker)
             registerExtraComponents(this)
 
             val kotlinScopeProvider = createKotlinScopeProvider.invoke()
@@ -108,15 +122,13 @@ abstract class FirAbstractSessionFactory {
             registerCommonComponentsAfterExtensionsAreConfigured()
 
             val dependencyProviders = computeDependencyProviderList(moduleData)
-            val generatedSymbolsProvider = FirSwitchableExtensionDeclarationsSymbolProvider.create(this)
-            val syntheticFunctionInterfaceProvider = FirExtensionSyntheticFunctionInterfaceProvider(this, moduleData, kotlinScopeProvider)
+            val generatedSymbolsProvider = FirSwitchableExtensionDeclarationsSymbolProvider.createIfNeeded(this)
 
             val providers = createProviders(
                 this,
                 kotlinScopeProvider,
                 firProvider.symbolProvider,
                 generatedSymbolsProvider,
-                syntheticFunctionInterfaceProvider,
                 dependencyProviders,
             )
 
@@ -135,7 +147,11 @@ abstract class FirAbstractSessionFactory {
 
     private fun FirSession.computeDependencyProviderList(moduleData: FirModuleData): List<FirSymbolProvider> {
         val visited = mutableSetOf<FirSymbolProvider>()
-        return (moduleData.dependencies + moduleData.friendDependencies + moduleData.dependsOnDependencies)
+
+        // dependsOnDependencies can actualize declarations from their dependencies. Because actual declarations can be more specific
+        // (e.g. have additional supertypes), the modules must be ordered from most specific (i.e. actual) to most generic (i.e. expect)
+        // to prevent false positive resolution errors (see KT-57369 for an example).
+        return (moduleData.dependencies + moduleData.friendDependencies + moduleData.allDependsOnDependencies)
             .mapNotNull { sessionProvider?.getSession(it) }
             .map { it.symbolProvider }
             .flatMap { it.flatten(visited, collectSourceProviders = it.session.kind == FirSession.Kind.Source) }

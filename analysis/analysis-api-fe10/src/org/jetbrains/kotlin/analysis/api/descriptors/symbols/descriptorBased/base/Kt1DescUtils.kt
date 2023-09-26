@@ -15,7 +15,7 @@ import org.jetbrains.kotlin.analysis.api.descriptors.Fe10AnalysisContext
 import org.jetbrains.kotlin.analysis.api.descriptors.symbols.KtFe10FileSymbol
 import org.jetbrains.kotlin.analysis.api.descriptors.symbols.KtFe10PackageSymbol
 import org.jetbrains.kotlin.analysis.api.descriptors.symbols.descriptorBased.*
-import org.jetbrains.kotlin.analysis.api.descriptors.symbols.psiBased.KtFe10PsiClassInitializerSymbol
+import org.jetbrains.kotlin.analysis.api.descriptors.symbols.psiBased.*
 import org.jetbrains.kotlin.analysis.api.descriptors.symbols.psiBased.KtFe10PsiDefaultPropertyGetterSymbol
 import org.jetbrains.kotlin.analysis.api.descriptors.symbols.psiBased.KtFe10PsiDefaultPropertySetterSymbol
 import org.jetbrains.kotlin.analysis.api.descriptors.symbols.psiBased.KtFe10PsiDefaultSetterParameterSymbol
@@ -28,6 +28,7 @@ import org.jetbrains.kotlin.analysis.api.types.KtType
 import org.jetbrains.kotlin.analysis.api.types.KtTypeNullability
 import org.jetbrains.kotlin.analysis.utils.errors.unexpectedElementError
 import org.jetbrains.kotlin.builtins.KotlinBuiltIns
+import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.builtins.functions.FunctionClassDescriptor
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.descriptors.annotations.AnnotationDescriptor
@@ -45,7 +46,7 @@ import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtCallElement
 import org.jetbrains.kotlin.psi.KtClassOrObject
-import org.jetbrains.kotlin.psi.KtProperty
+import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.renderer.DescriptorRenderer
 import org.jetbrains.kotlin.resolve.DescriptorUtils
 import org.jetbrains.kotlin.resolve.calls.inference.CapturedType
@@ -143,6 +144,7 @@ internal fun KtSymbol.getDescriptor(): DeclarationDescriptor? {
         is KtFe10FileSymbol -> null
         is KtFe10DescDefaultPropertySetterSymbol.DefaultKtValueParameterSymbol -> descriptor
         is KtFe10PsiDefaultPropertySetterSymbol.DefaultKtValueParameterSymbol -> descriptor
+        is KtFe10DescDefaultBackingFieldSymbol, is KtFe10PsiDefaultBackingFieldSymbol -> null
         is KtFe10PsiClassInitializerSymbol -> null
         else -> unexpectedElementError("KtSymbol", this)
     }
@@ -348,7 +350,7 @@ internal fun DeclarationDescriptor.getSymbolOrigin(analysisContext: Fe10Analysis
         return analysisContext.getOrigin(virtualFile)
     } else { // psi == null
         // Implicit lambda parameter
-        if (this is ValueParameterDescriptor && this.name.identifierOrNullIfSpecial == "it") {
+        if (this is ValueParameterDescriptor && this.name == StandardNames.IMPLICIT_LAMBDA_PARAMETER_NAME) {
             return KtSymbolOrigin.SOURCE_MEMBER_GENERATED
         }
     }
@@ -565,7 +567,7 @@ internal val ClassifierDescriptor.classId: ClassId?
     }
 
 internal val ClassifierDescriptor.maybeLocalClassId: ClassId
-    get() = classId ?: ClassId(containingPackage() ?: FqName.ROOT, FqName.topLevel(this.name), true)
+    get() = classId ?: ClassId(containingPackage() ?: FqName.ROOT, FqName.topLevel(this.name), isLocal = true)
 
 internal fun ClassDescriptor.getSupertypesWithAny(): Collection<KotlinType> {
     val supertypes = typeConstructor.supertypes
@@ -583,15 +585,13 @@ internal fun CallableMemberDescriptor.getSymbolPointerSignature(): String {
 }
 
 internal fun createKtInitializerValue(
-    ktProperty: KtProperty?,
+    initializer: KtExpression?,
     propertyDescriptor: PropertyDescriptor?,
     analysisContext: Fe10AnalysisContext,
 ): KtInitializerValue? {
-    require(ktProperty != null || propertyDescriptor != null)
-    if (ktProperty?.initializer == null && propertyDescriptor?.compileTimeInitializer == null) {
+    if (initializer == null && propertyDescriptor?.compileTimeInitializer == null) {
         return null
     }
-    val initializer = ktProperty?.initializer
 
     val compileTimeInitializer = propertyDescriptor?.compileTimeInitializer
     if (compileTimeInitializer != null) {

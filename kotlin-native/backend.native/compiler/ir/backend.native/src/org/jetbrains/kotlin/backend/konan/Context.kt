@@ -9,6 +9,7 @@ import llvm.LLVMTypeRef
 import org.jetbrains.kotlin.backend.common.DefaultDelegateFactory
 import org.jetbrains.kotlin.backend.common.DefaultMapping
 import org.jetbrains.kotlin.backend.common.LoggingContext
+import org.jetbrains.kotlin.backend.common.linkage.partial.createPartialLinkageSupportForLowerings
 import org.jetbrains.kotlin.backend.konan.cexport.CAdapterExportedElements
 import org.jetbrains.kotlin.backend.konan.descriptors.BridgeDirections
 import org.jetbrains.kotlin.backend.konan.descriptors.ClassLayoutBuilder
@@ -27,6 +28,7 @@ import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.symbols.IrFunctionSymbol
 import org.jetbrains.kotlin.ir.types.IrTypeSystemContext
 import org.jetbrains.kotlin.ir.types.IrTypeSystemContextImpl
+import org.jetbrains.kotlin.ir.util.irMessageLogger
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.resolve.descriptorUtil.module
@@ -35,7 +37,8 @@ import java.util.concurrent.ConcurrentHashMap
 internal class NativeMapping : DefaultMapping() {
     data class BridgeKey(val target: IrSimpleFunction, val bridgeDirections: BridgeDirections)
     enum class AtomicFunctionType {
-        COMPARE_AND_SWAP, COMPARE_AND_SET, GET_AND_SET, GET_AND_ADD;
+        COMPARE_AND_EXCHANGE, COMPARE_AND_SET, GET_AND_SET, GET_AND_ADD,
+        ATOMIC_GET_ARRAY_ELEMENT, ATOMIC_SET_ARRAY_ELEMENT, COMPARE_AND_EXCHANGE_ARRAY_ELEMENT, COMPARE_AND_SET_ARRAY_ELEMENT, GET_AND_SET_ARRAY_ELEMENT, GET_AND_ADD_ARRAY_ELEMENT;
     }
     data class AtomicFunctionKey(val field: IrField, val type: AtomicFunctionType)
 
@@ -91,10 +94,6 @@ internal class Context(
     override val typeSystem: IrTypeSystemContext
         get() = IrTypeSystemContextImpl(irBuiltIns)
 
-    val interopBuiltIns by lazy {
-        InteropBuiltIns(this.builtIns)
-    }
-
     var cAdapterExportedElements: CAdapterExportedElements? = null
     var objCExportedInterface: ObjCExportedInterface? = null
     var objCExportCodeSpec: ObjCExportCodeSpec? = null
@@ -111,6 +110,12 @@ internal class Context(
     val memoryModel = config.memoryModel
 
     override fun dispose() {}
+
+    override val partialLinkageSupport = createPartialLinkageSupportForLowerings(
+            config.partialLinkageConfig,
+            irBuiltIns,
+            configuration.irMessageLogger
+    )
 }
 
 internal class ContextLogger(val context: LoggingContext) {

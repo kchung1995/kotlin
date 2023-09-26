@@ -5,8 +5,8 @@
 
 package org.jetbrains.kotlin.backend.jvm.ir
 
-import org.jetbrains.kotlin.backend.common.ir.inlineDeclaration
-import org.jetbrains.kotlin.backend.common.ir.isFunctionInlining
+import org.jetbrains.kotlin.ir.util.inlineDeclaration
+import org.jetbrains.kotlin.ir.util.isFunctionInlining
 import org.jetbrains.kotlin.backend.jvm.JvmBackendContext
 import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
 import org.jetbrains.kotlin.ir.IrElement
@@ -76,8 +76,8 @@ class IrInlineScopeResolver(context: JvmBackendContext) : IrInlineReferenceLocat
         get() = isInline && DescriptorVisibilities.isPrivate(visibility)
 
     private fun IrFunction.isCoroutineIntrinsic(): Boolean =
-        (name.asString() == "suspendCoroutine" && getPackageFragment().fqName == FqName("kotlin.coroutines")) ||
-                (name.asString() == "suspendCoroutineUninterceptedOrReturn" && getPackageFragment().fqName == FqName("kotlin.coroutines.intrinsics"))
+        (name.asString() == "suspendCoroutine" && getPackageFragment().packageFqName == FqName("kotlin.coroutines")) ||
+                (name.asString() == "suspendCoroutineUninterceptedOrReturn" && getPackageFragment().packageFqName == FqName("kotlin.coroutines.intrinsics"))
 
     fun findContainer(scope: IrElement): IrDeclarationContainer? =
         findContainer(scope, approximateToPackage = false)

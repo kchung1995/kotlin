@@ -11,6 +11,8 @@ import org.gradle.api.NamedDomainObjectContainer
 import org.gradle.api.Project
 import org.gradle.api.tasks.TaskProvider
 import org.jetbrains.kotlin.gradle.dsl.KotlinCommonOptions
+import org.jetbrains.kotlin.gradle.dsl.KotlinNativeCompilerOptions
+import org.jetbrains.kotlin.gradle.plugin.HasCompilerOptions
 import org.jetbrains.kotlin.gradle.plugin.PropertiesProvider
 import org.jetbrains.kotlin.gradle.plugin.mpp.compilationImpl.KotlinCompilationImpl
 import org.jetbrains.kotlin.gradle.targets.native.NativeCompilerOptions
@@ -37,6 +39,18 @@ abstract class AbstractKotlinNativeCompilation internal constructor(
     @Suppress("UNCHECKED_CAST")
     override val compileTaskProvider: TaskProvider<KotlinNativeCompile>
         get() = compilation.compileTaskProvider as TaskProvider<KotlinNativeCompile>
+
+    @Suppress("UNCHECKED_CAST")
+    override val compilerOptions: HasCompilerOptions<KotlinNativeCompilerOptions>
+        get() = compilation.compilerOptions as HasCompilerOptions<KotlinNativeCompilerOptions>
+
+    fun compilerOptions(configure: KotlinNativeCompilerOptions.() -> Unit) {
+        compilerOptions.configure(configure)
+    }
+
+    fun compilerOptions(configure: Action<KotlinNativeCompilerOptions>) {
+        configure.execute(compilerOptions.options)
+    }
 
     internal val useGenericPluginArtifact: Boolean
         get() = project.nativeUseEmbeddableCompilerJar

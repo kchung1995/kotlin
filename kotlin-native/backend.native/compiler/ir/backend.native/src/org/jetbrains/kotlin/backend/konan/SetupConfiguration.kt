@@ -9,9 +9,8 @@ import org.jetbrains.kotlin.cli.common.arguments.K2NativeCompilerArguments
 import org.jetbrains.kotlin.cli.common.config.addKotlinSourceRoot
 import org.jetbrains.kotlin.cli.common.config.kotlinSourceRoots
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity.*
-import org.jetbrains.kotlin.config.CommonConfigurationKeys
-import org.jetbrains.kotlin.config.CompilerConfiguration
-import org.jetbrains.kotlin.config.getModuleNameForSource
+import org.jetbrains.kotlin.config.*
+import org.jetbrains.kotlin.ir.linkage.partial.setupPartialLinkageConfig
 import org.jetbrains.kotlin.konan.file.File
 import org.jetbrains.kotlin.konan.target.CompilerOutputKind
 import org.jetbrains.kotlin.konan.util.visibleName
@@ -56,7 +55,7 @@ fun CompilerConfiguration.setupFromArguments(arguments: K2NativeCompilerArgument
     val outputKind = CompilerOutputKind.valueOf(
             (arguments.produce ?: "program").uppercase())
     put(PRODUCE, outputKind)
-    put(METADATA_KLIB, arguments.metadataKlib)
+    putIfNotNull(HEADER_KLIB, arguments.headerKlibPath)
 
     arguments.libraryVersion?.let { put(LIBRARY_VERSION, it) }
 
@@ -178,6 +177,11 @@ fun CompilerConfiguration.setupFromArguments(arguments: K2NativeCompilerArgument
     put(CACHE_DIRECTORIES, arguments.cacheDirectories.toNonNullList())
     put(AUTO_CACHEABLE_FROM, arguments.autoCacheableFrom.toNonNullList())
     arguments.autoCacheDir?.let { put(AUTO_CACHE_DIR, it) }
+    val incrementalCacheDir = arguments.incrementalCacheDir
+    if ((incrementalCacheDir != null) xor (arguments.incrementalCompilation == true))
+        report(ERROR, "For incremental compilation both flags should be supplied: " +
+                "-Xenable-incremental-compilation and ${K2NativeCompilerArguments.INCREMENTAL_CACHE_DIR}")
+    incrementalCacheDir?.let { put(INCREMENTAL_CACHE_DIR, it) }
     arguments.filesToCache?.let { put(FILES_TO_CACHE, it.toList()) }
     put(MAKE_PER_FILE_CACHE, arguments.makePerFileCache)
     val nThreadsRaw = parseBackendThreads(arguments.backendThreads)
@@ -197,24 +201,41 @@ fun CompilerConfiguration.setupFromArguments(arguments: K2NativeCompilerArgument
     put(FAKE_OVERRIDE_VALIDATOR, arguments.fakeOverrideValidator)
     putIfNotNull(PRE_LINK_CACHES, parsePreLinkCachesValue(this@setupFromArguments, arguments.preLinkCaches))
     putIfNotNull(OVERRIDE_KONAN_PROPERTIES, parseOverrideKonanProperties(arguments, this@setupFromArguments))
-    put(DESTROY_RUNTIME_MODE, when (arguments.destroyRuntimeMode) {
+    putIfNotNull(DESTROY_RUNTIME_MODE, when (arguments.destroyRuntimeMode) {
+        null -> null
         "legacy" -> DestroyRuntimeMode.LEGACY
         "on-shutdown" -> DestroyRuntimeMode.ON_SHUTDOWN
         else -> {
             report(ERROR, "Unsupported destroy runtime mode ${arguments.destroyRuntimeMode}")
-            DestroyRuntimeMode.ON_SHUTDOWN
-        }
-    })
-    putIfNotNull(GARBAGE_COLLECTOR, when (arguments.gc) {
-        null -> null
-        "noop" -> GC.NOOP
-        "stms" -> GC.SAME_THREAD_MARK_AND_SWEEP
-        "cms" -> GC.CONCURRENT_MARK_AND_SWEEP
-        else -> {
-            report(ERROR, "Unsupported GC ${arguments.gc}")
             null
         }
     })
+
+    val gcFromArgument = when (arguments.gc) {
+        null -> null
+        "noop" -> GC.NOOP
+        "stms" -> GC.STOP_THE_WORLD_MARK_AND_SWEEP
+        "cms" -> GC.PARALLEL_MARK_CONCURRENT_SWEEP
+        else -> {
+            val validValues = enumValues<GC>().map {
+                val fullName = "$it".lowercase()
+                it.shortcut?.let { short ->
+                    "$fullName (or: $short)"
+                } ?: fullName
+            }.joinToString("|")
+            report(ERROR, "Unsupported argument -Xgc=${arguments.gc}. Use -Xbinary=gc= with values ${validValues}")
+            null
+        }
+    }
+    if (gcFromArgument != null) {
+        val newValue = gcFromArgument.shortcut ?: "$gcFromArgument".lowercase()
+        report(WARNING, "-Xgc=${arguments.gc} compiler argument is deprecated. Use -Xbinary=gc=${newValue} instead")
+    }
+    // TODO: revise priority and/or report conflicting values.
+    if (get(BinaryOptions.gc) == null) {
+        putIfNotNull(BinaryOptions.gc, gcFromArgument)
+    }
+
     putIfNotNull(PROPERTY_LAZY_INITIALIZATION, when (arguments.propertyLazyInitialization) {
         null -> null
         "enable" -> true
@@ -244,7 +265,7 @@ fun CompilerConfiguration.setupFromArguments(arguments: K2NativeCompilerArgument
         }
     })
     put(LAZY_IR_FOR_CACHES, when (arguments.lazyIrForCaches) {
-        null -> true
+        null -> false
         "enable" -> true
         "disable" -> false
         else -> {
@@ -271,12 +292,21 @@ fun CompilerConfiguration.setupFromArguments(arguments: K2NativeCompilerArgument
     putIfNotNull(RUNTIME_LOGS, arguments.runtimeLogs)
     putIfNotNull(BUNDLE_ID, parseBundleId(arguments, outputKind, this@setupFromArguments))
     arguments.testDumpOutputPath?.let { put(TEST_DUMP_OUTPUT_PATH, it) }
-    put(PARTIAL_LINKAGE, arguments.partialLinkage)
+
+    setupPartialLinkageConfig(
+            mode = arguments.partialLinkageMode,
+            logLevel = arguments.partialLinkageLogLevel,
+            compilerModeAllowsUsingPartialLinkage = outputKind != CompilerOutputKind.LIBRARY, // Don't run PL when producing KLIB.
+            onWarning = { report(WARNING, it) },
+            onError = { report(ERROR, it) }
+    )
+
     put(OMIT_FRAMEWORK_BINARY, arguments.omitFrameworkBinary)
     putIfNotNull(COMPILE_FROM_BITCODE, parseCompileFromBitcode(arguments, this@setupFromArguments, outputKind))
     putIfNotNull(SERIALIZED_DEPENDENCIES, parseSerializedDependencies(arguments, this@setupFromArguments))
     putIfNotNull(SAVE_DEPENDENCIES_PATH, arguments.saveDependenciesPath)
     putIfNotNull(SAVE_LLVM_IR_DIRECTORY, arguments.saveLlvmIrDirectory)
+    putIfNotNull(KONAN_DATA_DIR, arguments.konanDataDir)
 }
 
 private fun String.absoluteNormalizedFile() = java.io.File(this).absoluteFile.normalize()
@@ -284,16 +314,17 @@ private fun String.absoluteNormalizedFile() = java.io.File(this).absoluteFile.no
 internal fun CompilerConfiguration.setupCommonOptionsForCaches(konanConfig: KonanConfig) = with(KonanConfigKeys) {
     put(TARGET, konanConfig.target.toString())
     put(DEBUG, konanConfig.debug)
-    put(PARTIAL_LINKAGE, konanConfig.partialLinkage)
+    setupPartialLinkageConfig(konanConfig.partialLinkageConfig)
     putIfNotNull(EXTERNAL_DEPENDENCIES, konanConfig.externalDependenciesFile?.absolutePath)
-    put(BinaryOptions.memoryModel, konanConfig.memoryModel)
     put(PROPERTY_LAZY_INITIALIZATION, konanConfig.propertyLazyInitialization)
     put(BinaryOptions.stripDebugInfoFromNativeLibs, !konanConfig.useDebugInfoInNativeLibs)
     put(ALLOCATION_MODE, konanConfig.allocationMode)
-    put(GARBAGE_COLLECTOR, konanConfig.gc)
+    put(BinaryOptions.gc, konanConfig.gc)
     put(BinaryOptions.gcSchedulerType, konanConfig.gcSchedulerType)
-    put(BinaryOptions.freezing, konanConfig.freezing)
     put(BinaryOptions.runtimeAssertionsMode, konanConfig.runtimeAssertsMode)
+    put(LAZY_IR_FOR_CACHES, konanConfig.lazyIrForCaches)
+    put(CommonConfigurationKeys.PARALLEL_BACKEND_THREADS, konanConfig.threadsCount)
+    putIfNotNull(KONAN_DATA_DIR, konanConfig.distribution.localKonanDir.absolutePath)
 }
 
 private fun Array<String>?.toNonNullList() = this?.asList().orEmpty()

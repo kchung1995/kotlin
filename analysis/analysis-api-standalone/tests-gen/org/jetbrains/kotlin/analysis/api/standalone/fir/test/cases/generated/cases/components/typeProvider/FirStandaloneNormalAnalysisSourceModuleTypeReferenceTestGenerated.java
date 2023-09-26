@@ -47,6 +47,66 @@ public class FirStandaloneNormalAnalysisSourceModuleTypeReferenceTestGenerated e
     }
 
     @Test
+    @TestMetadata("annotationEntry.kt")
+    public void testAnnotationEntry() throws Exception {
+        runTest("analysis/analysis-api/testData/components/typeProvider/typeReference/annotationEntry.kt");
+    }
+
+    @Test
+    @TestMetadata("annotationEntryBackingField.kt")
+    public void testAnnotationEntryBackingField() throws Exception {
+        runTest("analysis/analysis-api/testData/components/typeProvider/typeReference/annotationEntryBackingField.kt");
+    }
+
+    @Test
+    @TestMetadata("annotationEntryGetter.kt")
+    public void testAnnotationEntryGetter() throws Exception {
+        runTest("analysis/analysis-api/testData/components/typeProvider/typeReference/annotationEntryGetter.kt");
+    }
+
+    @Test
+    @TestMetadata("annotationEntryOnParameter.kt")
+    public void testAnnotationEntryOnParameter() throws Exception {
+        runTest("analysis/analysis-api/testData/components/typeProvider/typeReference/annotationEntryOnParameter.kt");
+    }
+
+    @Test
+    @TestMetadata("annotationEntrySetter.kt")
+    public void testAnnotationEntrySetter() throws Exception {
+        runTest("analysis/analysis-api/testData/components/typeProvider/typeReference/annotationEntrySetter.kt");
+    }
+
+    @Test
+    @TestMetadata("annotationOnFunction.kt")
+    public void testAnnotationOnFunction() throws Exception {
+        runTest("analysis/analysis-api/testData/components/typeProvider/typeReference/annotationOnFunction.kt");
+    }
+
+    @Test
+    @TestMetadata("functionReceiver.kt")
+    public void testFunctionReceiver() throws Exception {
+        runTest("analysis/analysis-api/testData/components/typeProvider/typeReference/functionReceiver.kt");
+    }
+
+    @Test
+    @TestMetadata("functionReturn.kt")
+    public void testFunctionReturn() throws Exception {
+        runTest("analysis/analysis-api/testData/components/typeProvider/typeReference/functionReturn.kt");
+    }
+
+    @Test
+    @TestMetadata("propertyReceiver.kt")
+    public void testPropertyReceiver() throws Exception {
+        runTest("analysis/analysis-api/testData/components/typeProvider/typeReference/propertyReceiver.kt");
+    }
+
+    @Test
+    @TestMetadata("propertyReturn.kt")
+    public void testPropertyReturn() throws Exception {
+        runTest("analysis/analysis-api/testData/components/typeProvider/typeReference/propertyReturn.kt");
+    }
+
+    @Test
     @TestMetadata("starProjection.kt")
     public void testStarProjection() throws Exception {
         runTest("analysis/analysis-api/testData/components/typeProvider/typeReference/starProjection.kt");

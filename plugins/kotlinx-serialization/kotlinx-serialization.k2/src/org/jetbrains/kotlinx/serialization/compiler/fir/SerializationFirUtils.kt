@@ -8,35 +8,29 @@ package org.jetbrains.kotlinx.serialization.compiler.fir
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.fir.FirAnnotationContainer
 import org.jetbrains.kotlin.fir.FirSession
-import org.jetbrains.kotlin.fir.builder.FirAnnotationContainerBuilder
 import org.jetbrains.kotlin.fir.declarations.*
-import org.jetbrains.kotlin.fir.declarations.utils.*
 import org.jetbrains.kotlin.fir.expressions.*
-import org.jetbrains.kotlin.fir.expressions.FirAnnotation
-import org.jetbrains.kotlin.fir.expressions.FirAnnotationCall
-import org.jetbrains.kotlin.fir.expressions.arguments
-import org.jetbrains.kotlin.fir.resolve.createSubstitutionForSupertype
 import org.jetbrains.kotlin.fir.expressions.builder.buildAnnotationCall
 import org.jetbrains.kotlin.fir.extensions.FirExtension
 import org.jetbrains.kotlin.fir.extensions.predicateBasedProvider
 import org.jetbrains.kotlin.fir.moduleData
 import org.jetbrains.kotlin.fir.references.builder.buildResolvedNamedReference
+import org.jetbrains.kotlin.fir.resolve.createSubstitutionForSupertype
 import org.jetbrains.kotlin.fir.resolve.defaultType
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
-import org.jetbrains.kotlin.fir.resolve.providers.FirSymbolProvider
+import org.jetbrains.kotlin.fir.resolve.providers.symbolProvider
 import org.jetbrains.kotlin.fir.resolve.substitution.ChainedSubstitutor
 import org.jetbrains.kotlin.fir.resolve.substitution.ConeSubstitutor
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
-import org.jetbrains.kotlin.fir.resolve.providers.symbolProvider
-import org.jetbrains.kotlin.fir.scopes.platformSpecificOverridabilityRules
-import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
 import org.jetbrains.kotlin.fir.types.*
 import org.jetbrains.kotlin.fir.types.builder.buildResolvedTypeRef
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.platform.isJs
+import org.jetbrains.kotlin.platform.isWasm
+import org.jetbrains.kotlin.platform.konan.isNative
 import org.jetbrains.kotlin.utils.addToStdlib.firstIsInstanceOrNull
 import org.jetbrains.kotlinx.serialization.compiler.fir.services.dependencySerializationInfoProvider
 import org.jetbrains.kotlinx.serialization.compiler.resolve.SerialEntityNames
@@ -79,7 +73,6 @@ fun FirBasedSymbol<*>.getSerialTransientAnnotation(session: FirSession): FirAnno
     getAnnotationByClassId(SerializationAnnotations.serialTransientClassId, session)
 
 context(FirSession)
-@Suppress("IncorrectFormatting") // KTIJ-22227
 val FirClassSymbol<*>.hasSerializableAnnotation: Boolean
     get() = serializableAnnotation(needArguments = false, this@FirSession) != null
 
@@ -105,6 +98,15 @@ fun FirClassSymbol<*>.hasSerializableAnnotationWithoutArgs(session: FirSession):
         }
     } ?: false
 
+fun FirClassSymbol<*>.hasSerializableAnnotationWithArgs(session: FirSession): Boolean {
+    val annotation = serializableAnnotation(needArguments = false, session) ?: return false
+    return if (annotation is FirAnnotationCall) {
+        annotation.arguments.isNotEmpty()
+    } else {
+        annotation.argumentMapping.mapping.isNotEmpty()
+    }
+}
+
 internal fun FirBasedSymbol<*>.getSerializableWith(session: FirSession): ConeKotlinType? =
     serializableAnnotation(needArguments = true, session)?.getKClassArgument(AnnotationParameterNames.WITH)
 
@@ -128,19 +130,20 @@ internal fun FirClassLikeDeclaration.getSerializerFor(session: FirSession): FirG
         ?.getGetKClassArgument(AnnotationParameterNames.FOR_CLASS)
 
 context(FirSession)
-@Suppress("IncorrectFormatting") // KTIJ-22227
 internal val FirClassSymbol<*>.isInternallySerializableObject: Boolean
     get() = classKind.isObject && hasSerializableOrMetaAnnotationWithoutArgs
 
 context(FirSession)
-@Suppress("IncorrectFormatting") // KTIJ-22227
 internal val FirClassSymbol<*>.isSerializableObject: Boolean
     get() = classKind.isObject && hasSerializableOrMetaAnnotation
 
 context(FirSession)
-@Suppress("IncorrectFormatting") // KTIJ-22227
 internal val FirClassSymbol<*>.isSealedSerializableInterface: Boolean
     get() = classKind.isInterface && rawStatus.modality == Modality.SEALED && hasSerializableOrMetaAnnotation
+
+context(FirSession)
+internal val FirClassSymbol<*>.isSerializableInterfaceWithCustom: Boolean
+    get() = classKind.isInterface && hasSerializableAnnotationWithArgs(this@FirSession)
 
 context(FirSession)
 val FirClassSymbol<*>.hasSerializableOrMetaAnnotation: Boolean
@@ -151,15 +154,27 @@ val FirClassSymbol<*>.hasMetaSerializableAnnotation: Boolean
     get() = predicateBasedProvider.matches(FirSerializationPredicates.hasMetaAnnotation, this)
 
 context(FirSession)
-@Suppress("IncorrectFormatting") // KTIJ-22227
 internal val FirClassSymbol<*>.shouldHaveGeneratedMethodsInCompanion: Boolean
     get() = isSerializableObject
             || isSerializableEnum
             || (classKind == ClassKind.CLASS && hasSerializableOrMetaAnnotation)
             || isSealedSerializableInterface
+            || isSerializableInterfaceWithCustom
 
 context(FirSession)
-@Suppress("IncorrectFormatting") // KTIJ-22227
+internal val FirClassSymbol<*>.companionNeedsSerializerFactory: Boolean
+    get() {
+        if (!moduleData.platform.run { isNative() || isJs() || isWasm() }) return false
+        if (isSerializableObject) return true
+        if (isSerializableEnum) return true
+        if (isAbstractOrSealedSerializableClass) return true
+        if (isSealedSerializableInterface) return true
+        if (isSerializableInterfaceWithCustom) return true
+        if (typeParameterSymbols.isEmpty()) return false
+        return true
+    }
+
+context(FirSession)
 internal val FirClassSymbol<*>.isInternalSerializable: Boolean
     get() {
         if (!classKind.isClass) return false
@@ -172,7 +187,6 @@ val FirClassSymbol<*>.hasSerializableOrMetaAnnotationWithoutArgs: Boolean
             (!hasSerializableAnnotation && hasMetaSerializableAnnotation)
 
 context(FirSession)
-@Suppress("IncorrectFormatting") // KTIJ-22227
 internal val FirClassSymbol<*>.isAbstractOrSealedSerializableClass: Boolean
     get() = isInternalSerializable && (rawStatus.modality == Modality.ABSTRACT || rawStatus.modality == Modality.SEALED)
 
@@ -180,7 +194,6 @@ internal val FirClassSymbol<*>.isAbstractOrSealedSerializableClass: Boolean
  * Check that class is enum and marked by `Serializable` or meta-serializable annotation.
  */
 context(FirSession)
-@Suppress("IncorrectFormatting") // KTIJ-22227
 internal val FirClassSymbol<*>.isSerializableEnum: Boolean
     get() = classKind.isEnumClass && hasSerializableOrMetaAnnotation
 
@@ -237,6 +250,11 @@ val ConeKotlinType.isTypeParameter: Boolean
 context(FirSession)
 val ConeKotlinType.isGeneratedSerializableObject: Boolean
     get() = toRegularClassSymbol(this@FirSession)?.let { it.classKind.isObject && it.hasSerializableOrMetaAnnotationWithoutArgs } ?: false
+
+context(FirSession)
+val ConeKotlinType.isAbstractOrSealedOrInterface: Boolean
+    get() = toRegularClassSymbol(this@FirSession)?.let { it.classKind.isInterface || it.rawStatus.modality == Modality.ABSTRACT || it.rawStatus.modality == Modality.SEALED }
+        ?: false
 
 
 context(FirExtension)

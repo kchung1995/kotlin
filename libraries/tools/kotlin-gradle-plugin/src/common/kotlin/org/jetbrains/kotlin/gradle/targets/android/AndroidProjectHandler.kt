@@ -7,7 +7,8 @@
 package org.jetbrains.kotlin.gradle.plugin
 
 import com.android.build.api.attributes.BuildTypeAttr
-import com.android.build.gradle.*
+import com.android.build.gradle.BaseExtension
+import com.android.build.gradle.BasePlugin
 import com.android.build.gradle.api.*
 import org.gradle.api.InvalidUserCodeException
 import org.gradle.api.NamedDomainObjectCollection
@@ -25,7 +26,8 @@ import org.gradle.api.tasks.TaskProvider
 import org.gradle.api.tasks.bundling.AbstractArchiveTask
 import org.gradle.api.tasks.compile.AbstractCompile
 import org.gradle.api.tasks.compile.JavaCompile
-import org.jetbrains.kotlin.gradle.dsl.*
+import org.jetbrains.kotlin.gradle.dsl.KotlinJvmCompilerOptions
+import org.jetbrains.kotlin.gradle.dsl.kotlinExtension
 import org.jetbrains.kotlin.gradle.internal.Kapt3GradleSubplugin
 import org.jetbrains.kotlin.gradle.internal.checkAndroidAnnotationProcessorDependencyUsage
 import org.jetbrains.kotlin.gradle.logging.kotlinDebug
@@ -33,10 +35,12 @@ import org.jetbrains.kotlin.gradle.plugin.android.AndroidGradleWrapper
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinAndroidTarget
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinJvmAndroidCompilation
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinJvmAndroidCompilationFactory
+import org.jetbrains.kotlin.gradle.plugin.mpp.addSourceSet
 import org.jetbrains.kotlin.gradle.plugin.sources.android.KotlinAndroidSourceSets.applyKotlinAndroidSourceSetLayout
 import org.jetbrains.kotlin.gradle.plugin.sources.android.findKotlinSourceSet
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.jetbrains.kotlin.gradle.tasks.KotlinTasksProvider
+import org.jetbrains.kotlin.gradle.tasks.configuration.KaptGenerateStubsConfig
 import org.jetbrains.kotlin.gradle.tasks.configuration.KotlinCompileConfig
 import org.jetbrains.kotlin.gradle.tasks.thisTaskProvider
 import org.jetbrains.kotlin.gradle.testing.internal.kotlinTestRegistry
@@ -46,7 +50,6 @@ import java.io.File
 import java.io.ObjectInputStream
 import java.io.ObjectOutputStream
 import java.io.Serializable
-import java.util.concurrent.Callable
 
 internal class AndroidProjectHandler(
     private val kotlinTasksProvider: KotlinTasksProvider
@@ -186,18 +189,29 @@ internal class AndroidProjectHandler(
             task.destinationDirectory.set(project.layout.buildDirectory.dir("tmp/kotlin-classes/$variantDataName"))
             task.description = "Compiles the $variantDataName kotlin."
         }
-        tasksProvider.registerKotlinJVMTask(
+        val kotlinTask = tasksProvider.registerKotlinJVMTask(
             project,
             compilation.compileKotlinTaskName,
             compilation.compilerOptions.options as KotlinJvmCompilerOptions,
             configAction
         )
 
+        // Need to move it into afterEvaluate, so it will be executed after KaptGenerateStubsConfig config actions
+        // Otherwise build will fail within AbstractKotlinCompileConfig trying to modify value with 'disallowChanges()' state
+        project.afterEvaluate {
+            KaptGenerateStubsConfig.configureUseModuleDetection(
+                project,
+                kotlinTask
+            ) { value(true).disallowChanges() }
+        }
+
         // Register the source only after the task is created, because the task is required for that:
-        compilation.source(defaultSourceSet)
+        @Suppress("DEPRECATION")
+        compilation.addSourceSet(defaultSourceSet)
 
         compilation.androidVariant.forEachKotlinSourceSet(project) { kotlinSourceSet ->
-            compilation.source(kotlinSourceSet)
+            @Suppress("DEPRECATION")
+            compilation.addSourceSet(kotlinSourceSet)
         }
     }
 
@@ -250,10 +264,22 @@ internal class AndroidProjectHandler(
         kotlinTask.configure { kotlinTaskInstance ->
             kotlinTaskInstance.libraries
                 .from(variantData.getCompileClasspath(preJavaClasspathKey))
-                .from(Callable { AndroidGradleWrapper.getRuntimeJars(androidPlugin, androidExt) })
+                .from({ AndroidGradleWrapper.getRuntimeJars(androidPlugin, androidExt) })
 
             kotlinTaskInstance.javaOutputDir.set(javaTask.flatMap { it.destinationDirectory })
         }
+
+        KaptGenerateStubsConfig.configureLibraries(
+            project,
+            kotlinTask,
+            variantData.getCompileClasspath(preJavaClasspathKey),
+            { AndroidGradleWrapper.getRuntimeJars(androidPlugin, androidExt) }
+        )
+        KaptGenerateStubsConfig.wireJavaAndKotlinOutputs(
+            project,
+            javaTask,
+            kotlinTask
+        )
 
         // Find the classpath entries that come from the tested variant and register them as the friend paths, lazily
         val originalArtifactCollection = variantData.getCompileClasspathArtifacts(preJavaClasspathKey)
@@ -306,7 +332,7 @@ internal class AndroidProjectHandler(
             project.addExtendsFromRelation(name, compilation.runtimeDependencyConfigurationName)
         }
 
-        val buildTypeAttrValue = project.objects.named(BuildTypeAttr::class.java, variant.buildType.name)
+        val buildTypeAttrValue = project.objects.named<BuildTypeAttr>(variant.buildType.name)
         listOf(compilation.compileDependencyConfigurationName, compilation.runtimeDependencyConfigurationName).forEach {
             project.configurations.findByName(it)?.attributes?.attribute(Attribute.of(BuildTypeAttr::class.java), buildTypeAttrValue)
         }

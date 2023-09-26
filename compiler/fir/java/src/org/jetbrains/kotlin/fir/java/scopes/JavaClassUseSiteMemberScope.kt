@@ -7,6 +7,7 @@ package org.jetbrains.kotlin.fir.java.scopes
 
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.descriptors.Modality
+import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.fir.*
 import org.jetbrains.kotlin.fir.declarations.*
 import org.jetbrains.kotlin.fir.declarations.builder.buildSimpleFunctionCopy
@@ -20,10 +21,12 @@ import org.jetbrains.kotlin.fir.java.declarations.FirJavaClass
 import org.jetbrains.kotlin.fir.java.declarations.FirJavaMethod
 import org.jetbrains.kotlin.fir.java.declarations.buildJavaMethodCopy
 import org.jetbrains.kotlin.fir.java.declarations.buildJavaValueParameterCopy
+import org.jetbrains.kotlin.fir.java.resolveIfJavaType
 import org.jetbrains.kotlin.fir.java.syntheticPropertiesStorage
 import org.jetbrains.kotlin.fir.java.symbols.FirJavaOverriddenSyntheticPropertySymbol
 import org.jetbrains.kotlin.fir.java.toConeKotlinTypeProbablyFlexible
 import org.jetbrains.kotlin.fir.resolve.defaultType
+import org.jetbrains.kotlin.fir.resolve.providers.toSymbol
 import org.jetbrains.kotlin.fir.scopes.*
 import org.jetbrains.kotlin.fir.scopes.impl.AbstractFirUseSiteMemberScope
 import org.jetbrains.kotlin.fir.scopes.impl.FirTypeIntersectionScopeContext.ResultOfIntersection
@@ -194,8 +197,13 @@ class JavaClassUseSiteMemberScope(
             val candidateReturnType = candidate.returnTypeRef.toConeKotlinTypeProbablyFlexible(session, typeParameterStack)
 
             candidateSymbol.takeIf {
-                // TODO: Decide something for the case when property type is not computed yet
-                expectedReturnType == null || AbstractTypeChecker.isSubtypeOf(session.typeContext, candidateReturnType, expectedReturnType)
+                when {
+                    candidate.isAcceptableAsAccessorOverride() ->
+                        // TODO: Decide something for the case when property type is not computed yet
+                        expectedReturnType == null ||
+                                AbstractTypeChecker.isSubtypeOf(session.typeContext, candidateReturnType, expectedReturnType)
+                    else -> false
+                }
             }
         }
     }
@@ -214,9 +222,18 @@ class JavaClassUseSiteMemberScope(
                 candidate.valueParameters.single().returnTypeRef.toConeKotlinTypeProbablyFlexible(session, typeParameterStack)
 
             candidateSymbol.takeIf {
-                AbstractTypeChecker.equalTypes(session.typeContext, parameterType, propertyType)
+                candidate.isAcceptableAsAccessorOverride() && AbstractTypeChecker.equalTypes(
+                    session.typeContext, parameterType, propertyType
+                )
             }
         }
+    }
+
+    private fun FirSimpleFunction.isAcceptableAsAccessorOverride(): Boolean {
+        // We don't accept here accessors with type parameters from Kotlin to avoid strange cases like KT-59038
+        // However, we (temporarily, see below) accept accessors from Kotlin in general to keep K1 compatibility in cases like KT-59550
+        // KT-59601: we are going to forbid accessors from Kotlin in general after some investigation and/or deprecation period
+        return isJavaOrEnhancement || typeParameters.isEmpty()
     }
 
     private fun FirPropertySymbol.getBuiltinSpecialPropertyGetterName(): Name? {
@@ -275,14 +292,33 @@ class JavaClassUseSiteMemberScope(
      * Examples:
      * - boolean containsKey(Object key) -> true
      * - boolean containsKey(K key) -> false // Wrong JDK method override, while it's a valid Kotlin built-in override
+     *
+     * There is a case when we shouldn't hide a function even if it overrides builtin member with value parameter erasure:
+     *   if substituted kotlin overridden has the same parameters as current java override. Such situation may happen only in
+     *   case when `Any`/`Object` is used as parameterization of supertype:
+     *
+     * // java
+     * class MySuperMap extends java.util.Map<Object, Object> {
+     *     @Override
+     *     public boolean containsKey(Object key) {...}
+     *
+     *     @Override
+     *     public boolean containsValue(Object key) {...}
+     * }
+     *
+     * In this case, the signature of override, made based on the correct kotlin signature, will be the same (because of { K -> Any, V -> Any }
+     *   substitution for both functions).
+     * And since the list of all such functions is well-known, the only case when this may happen is when value parameter types of kotlin
+     *   overridden are `Any`
      */
     private fun FirNamedFunctionSymbol.shouldBeVisibleAsOverrideOfBuiltInWithErasedValueParameters(): Boolean {
         if (!name.sameAsBuiltinMethodWithErasedValueParameters) return false
-        val candidatesToOverride = supertypeScopeContext.collectMembersGroupedByScope(name, FirScope::processFunctionsByName)
-            .flatMap { (scope, symbols) ->
-                symbols.mapNotNull {
-                    BuiltinMethodsWithSpecialGenericSignature.getOverriddenBuiltinFunctionWithErasedValueParametersInJava(it, scope)
-                }
+        val candidatesToOverride = supertypeScopeContext.collectIntersectionResultsForCallables(name, FirScope::processFunctionsByName)
+            .flatMap { it.overriddenMembers }
+            .filterNot { (member, _) ->
+                member.valueParameterSymbols.all { it.resolvedReturnType.lowerBoundIfFlexible().isAny }
+            }.mapNotNull { (member, scope) ->
+                BuiltinMethodsWithSpecialGenericSignature.getOverriddenBuiltinFunctionWithErasedValueParametersInJava(member, scope)
             }
 
         val jvmDescriptor = fir.computeJvmDescriptor()
@@ -300,8 +336,10 @@ class JavaClassUseSiteMemberScope(
 
     private fun FirNamedFunctionSymbol.createSuspendView(): FirSimpleFunction? {
         val continuationParameter = fir.valueParameters.lastOrNull() ?: return null
+        val owner = classId.toSymbol(session)?.fir as? FirJavaClass ?: return null
         val continuationParameterType = continuationParameter
             .returnTypeRef
+            .resolveIfJavaType(session, owner.javaTypeParameterStack)
             .coneTypeSafe<ConeKotlinType>()
             ?.lowerBoundIfFlexible() as? ConeClassLikeType
             ?: return null
@@ -424,12 +462,20 @@ class JavaClassUseSiteMemberScope(
             it.hasSameJvmDescriptor(functionFromSupertypeWithErasedParameterType) && it.hasErasedParameters() &&
                     javaOverrideChecker.doesReturnTypesHaveSameKind(functionFromSupertypeWithErasedParameterType.fir, it.fir)
         } ?: return false
+        /*
+         * See the comment to shouldBeVisibleAsOverrideOfBuiltInWithErasedValueParameters function
+         * It explains why we should check value parameters for `Any` type
+         */
+        var allParametersAreAny = true
         val renamedDeclaredFunction = buildJavaMethodCopy(originalDeclaredFunction.fir as FirJavaMethod) {
             name = naturalName
             symbol = FirNamedFunctionSymbol(originalDeclaredFunction.callableId)
             this.valueParameters.clear()
             originalDeclaredFunction.fir.valueParameters.zip(overriddenMemberWithErasedValueParameters.fir.valueParameters)
                 .mapTo(this.valueParameters) { (overrideParameter, parameterFromSupertype) ->
+                    if (!parameterFromSupertype.returnTypeRef.coneType.lowerBoundIfFlexible().isAny) {
+                        allParametersAreAny = false
+                    }
                     buildJavaValueParameterCopy(overrideParameter) {
                         this@buildJavaValueParameterCopy.returnTypeRef = parameterFromSupertype.returnTypeRef
                     }
@@ -437,6 +483,10 @@ class JavaClassUseSiteMemberScope(
         }.apply {
             initialSignatureAttr = originalDeclaredFunction.fir
         }.symbol
+
+        if (allParametersAreAny) {
+            return false
+        }
 
         val hasAccidentalOverrideWithDeclaredFunction = explicitlyDeclaredFunctionsWithNaturalName.any {
             overrideChecker.isOverriddenFunction(
@@ -549,6 +599,8 @@ class JavaClassUseSiteMemberScope(
     }
 
     private fun FirPropertySymbol.isOverriddenInClassBy(functionSymbol: FirNamedFunctionSymbol): Boolean {
+        if (rawStatus.visibility == Visibilities.Private) return false
+
         val accessorDescriptors = when (val fir = fir) {
             is FirSyntheticProperty -> {
                 if (fir.getter.delegate.symbol == functionSymbol || fir.setter?.delegate?.symbol == functionSymbol) return true

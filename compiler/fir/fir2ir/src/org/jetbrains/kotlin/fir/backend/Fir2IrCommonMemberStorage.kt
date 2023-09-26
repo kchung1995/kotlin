@@ -7,33 +7,20 @@ package org.jetbrains.kotlin.fir.backend
 
 import org.jetbrains.kotlin.fir.declarations.*
 import org.jetbrains.kotlin.fir.signaturer.FirBasedSignatureComposer
-import org.jetbrains.kotlin.fir.signaturer.FirMangler
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.declarations.impl.IrFactoryImpl
+import org.jetbrains.kotlin.ir.symbols.*
 import org.jetbrains.kotlin.ir.util.IdSignatureComposer
 import org.jetbrains.kotlin.ir.util.SymbolTable
 import java.util.concurrent.ConcurrentHashMap
 
 class Fir2IrCommonMemberStorage(
-    generateSignatures: Boolean,
-    signatureComposerCreator: (() -> IdSignatureComposer)?,
-    manglerCreator: () -> FirMangler
+    signatureComposer: IdSignatureComposer,
+    firMangler: FirMangler
 ) {
-    val signatureComposer: FirBasedSignatureComposer
+    val firSignatureComposer = FirBasedSignatureComposer(firMangler)
 
-    val symbolTable: SymbolTable
-
-    init {
-        val signaturer = if (generateSignatures && signatureComposerCreator != null)
-            signatureComposerCreator()
-        else
-            DescriptorSignatureComposerStub()
-        signatureComposer = FirBasedSignatureComposer(manglerCreator())
-        symbolTable = SymbolTable(
-            signaturer = WrappedDescriptorSignatureComposer(signaturer, signatureComposer),
-            irFactory = IrFactoryImpl
-        )
-    }
+    val symbolTable = SymbolTable(signaturer = signatureComposer, irFactory = IrFactoryImpl)
 
     val classCache: MutableMap<FirRegularClass, IrClass> = mutableMapOf()
 
@@ -45,7 +32,16 @@ class Fir2IrCommonMemberStorage(
 
     val functionCache: ConcurrentHashMap<FirFunction, IrSimpleFunction> = ConcurrentHashMap()
 
-    val propertyCache: ConcurrentHashMap<FirProperty, IrProperty> = ConcurrentHashMap()
+    val constructorCache: ConcurrentHashMap<FirConstructor, IrConstructor> = ConcurrentHashMap()
 
-    val fakeOverridesInClass: MutableMap<IrClass, MutableMap<FirCallableDeclaration, FirCallableDeclaration>> = mutableMapOf()
+    val propertyCache: ConcurrentHashMap<FirProperty, IrProperty> = ConcurrentHashMap()
+    val getterForPropertyCache: ConcurrentHashMap<IrSymbol, IrSimpleFunctionSymbol> = ConcurrentHashMap()
+    val setterForPropertyCache: ConcurrentHashMap<IrSymbol, IrSimpleFunctionSymbol> = ConcurrentHashMap()
+    val backingFieldForPropertyCache: ConcurrentHashMap<IrPropertySymbol, IrFieldSymbol> = ConcurrentHashMap()
+    val propertyForBackingFieldCache: ConcurrentHashMap<IrFieldSymbol, IrPropertySymbol> = ConcurrentHashMap()
+    val delegateVariableForPropertyCache: ConcurrentHashMap<IrLocalDelegatedPropertySymbol, IrVariableSymbol> = ConcurrentHashMap()
+
+    val fakeOverridesInClass: MutableMap<IrClass, MutableMap<Fir2IrDeclarationStorage.FakeOverrideKey, FirCallableDeclaration>> = mutableMapOf()
+
+    val irFakeOverridesForFirFakeOverrideMap: MutableMap<Fir2IrDeclarationStorage.FakeOverrideIdentifier, IrDeclaration> = mutableMapOf()
 }

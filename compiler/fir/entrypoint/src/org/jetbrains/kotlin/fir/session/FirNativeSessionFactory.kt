@@ -13,11 +13,11 @@ import org.jetbrains.kotlin.fir.checkers.registerNativeCheckers
 import org.jetbrains.kotlin.fir.deserialization.ModuleDataProvider
 import org.jetbrains.kotlin.fir.extensions.FirExtensionRegistrar
 import org.jetbrains.kotlin.fir.java.FirProjectSessionProvider
-import org.jetbrains.kotlin.fir.resolve.providers.impl.FirBuiltinSymbolProvider
-import org.jetbrains.kotlin.fir.resolve.providers.impl.FirCloneableSymbolProvider
-import org.jetbrains.kotlin.fir.resolve.providers.impl.FirExtensionSyntheticFunctionInterfaceProvider
+import org.jetbrains.kotlin.fir.resolve.providers.impl.FirBuiltinSyntheticFunctionInterfaceProvider
 import org.jetbrains.kotlin.fir.scopes.FirKotlinScopeProvider
-import org.jetbrains.kotlin.fir.session.FirSessionFactoryHelper.registerDefaultExtraComponentsForModuleBased
+import org.jetbrains.kotlin.fir.session.FirSessionFactoryHelper.registerDefaultComponents
+import org.jetbrains.kotlin.library.isNativeStdlib
+import org.jetbrains.kotlin.library.metadata.impl.KlibResolvedModuleDescriptorsFactoryImpl.Companion.FORWARD_DECLARATIONS_MODULE_NAME
 import org.jetbrains.kotlin.library.metadata.resolver.KotlinResolvedLibrary
 import org.jetbrains.kotlin.name.Name
 
@@ -27,6 +27,7 @@ object FirNativeSessionFactory : FirAbstractSessionFactory() {
         resolvedLibraries: List<KotlinResolvedLibrary>,
         sessionProvider: FirProjectSessionProvider,
         moduleDataProvider: ModuleDataProvider,
+        extensionRegistrars: List<FirExtensionRegistrar>,
         languageVersionSettings: LanguageVersionSettings,
         registerExtraComponents: ((FirSession) -> Unit) = {},
     ): FirSession {
@@ -35,22 +36,30 @@ object FirNativeSessionFactory : FirAbstractSessionFactory() {
             sessionProvider,
             moduleDataProvider,
             languageVersionSettings,
-            registerExtraComponents,
-            createKotlinScopeProvider = { FirKotlinScopeProvider { _, declaredMemberScope, _, _ -> declaredMemberScope } },
-            createProviders = { session, builtinsModuleData, kotlinScopeProvider ->
+            extensionRegistrars,
+            registerExtraComponents = { session ->
+                session.registerDefaultComponents()
+                registerExtraComponents(session)
+            },
+            createKotlinScopeProvider = { FirKotlinScopeProvider() },
+            createProviders = { session, builtinsModuleData, kotlinScopeProvider, syntheticFunctionInterfaceProvider ->
                 val forwardDeclarationsModuleData = BinaryModuleData.createDependencyModuleData(
-                    Name.special("<forward declarations>"),
+                    FORWARD_DECLARATIONS_MODULE_NAME,
                     moduleDataProvider.platform,
                     moduleDataProvider.analyzerServices,
                 ).apply {
                     bindSession(session)
                 }
-                listOf(
-                    KlibBasedSymbolProvider(session, moduleDataProvider, kotlinScopeProvider, resolvedLibraries.map { it.library }),
-                    NativeForwardDeclarationsSymbolProvider(session, forwardDeclarationsModuleData, kotlinScopeProvider, resolvedLibraries),
-                    FirBuiltinSymbolProvider(session, builtinsModuleData, kotlinScopeProvider),
-                    FirExtensionSyntheticFunctionInterfaceProvider(session, builtinsModuleData, kotlinScopeProvider),
-                    FirCloneableSymbolProvider(session, builtinsModuleData, kotlinScopeProvider),
+                val resolvedKotlinLibraries = resolvedLibraries.map { it.library }
+                // KT-61645: stdlib-native must appear before stdlib-common metadata in the dependency list
+                // TODO: Consider not reordering libraries after KT-61430 is fixed, and Gradle plugin determines full order of dependencies.
+                val (stdlib, otherDeps) = resolvedKotlinLibraries.partition { it.isNativeStdlib }
+                val kotlinLibraries = stdlib + otherDeps
+                listOfNotNull(
+                    KlibBasedSymbolProvider(session, moduleDataProvider, kotlinScopeProvider, kotlinLibraries),
+                    NativeForwardDeclarationsSymbolProvider(session, forwardDeclarationsModuleData, kotlinScopeProvider, kotlinLibraries),
+                    FirBuiltinSyntheticFunctionInterfaceProvider(session, builtinsModuleData, kotlinScopeProvider),
+                    syntheticFunctionInterfaceProvider,
                 )
             })
     }
@@ -70,18 +79,18 @@ object FirNativeSessionFactory : FirAbstractSessionFactory() {
             languageVersionSettings,
             null,
             null,
+            null,
             init,
-            registerExtraComponents = { session ->
-                session.registerDefaultExtraComponentsForModuleBased()
-                registerExtraComponents(session)
+            registerExtraComponents = {
+                it.registerDefaultComponents()
+                registerExtraComponents(it)
             },
             registerExtraCheckers = { it.registerNativeCheckers() },
-            createKotlinScopeProvider = { FirKotlinScopeProvider { _, declaredMemberScope, _, _ -> declaredMemberScope } },
-            createProviders = { _, _, symbolProvider, generatedSymbolsProvider, syntheticFunctionInterfaceProvider, dependencies ->
+            createKotlinScopeProvider = { FirKotlinScopeProvider() },
+            createProviders = { _, _, symbolProvider, generatedSymbolsProvider, dependencies ->
                 listOfNotNull(
                     symbolProvider,
                     generatedSymbolsProvider,
-                    syntheticFunctionInterfaceProvider,
                     *dependencies.toTypedArray(),
                 )
             }

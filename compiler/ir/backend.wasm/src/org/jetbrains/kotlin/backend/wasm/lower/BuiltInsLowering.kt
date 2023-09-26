@@ -20,11 +20,13 @@ import org.jetbrains.kotlin.ir.declarations.IrFile
 import org.jetbrains.kotlin.ir.declarations.IrSimpleFunction
 import org.jetbrains.kotlin.ir.expressions.IrCall
 import org.jetbrains.kotlin.ir.expressions.IrExpression
-import org.jetbrains.kotlin.ir.interpreter.toIrConst
+import org.jetbrains.kotlin.ir.util.toIrConst
 import org.jetbrains.kotlin.ir.symbols.IrSimpleFunctionSymbol
 import org.jetbrains.kotlin.ir.types.*
 import org.jetbrains.kotlin.ir.util.*
 import org.jetbrains.kotlin.ir.visitors.transformChildrenVoid
+import org.jetbrains.kotlin.js.config.JSConfigurationKeys
+import org.jetbrains.kotlin.js.config.WasmTarget
 import org.jetbrains.kotlin.name.parentOrNull
 
 class BuiltInsLowering(val context: WasmBackendContext) : FileLoweringPass {
@@ -56,7 +58,13 @@ class BuiltInsLowering(val context: WasmBackendContext) : FileLoweringPass {
             irBuiltins.eqeqSymbol,
             irBuiltins.eqeqeqSymbol -> {
                 fun callRefIsNull(expr: IrExpression): IrCall {
-                    val refIsNull = if (expr.type.erasedUpperBound?.isExternal == true) symbols.externRefIsNull else symbols.refIsNull
+                    if (
+                        context.configuration.get(JSConfigurationKeys.WASM_TARGET, WasmTarget.JS) == WasmTarget.WASI &&
+                        expr.type.erasedUpperBound?.isExternal == true
+                    ) {
+                        error("Unexpected external refs in wasi mode")
+                    }
+                    val refIsNull = if (expr.type.erasedUpperBound?.isExternal == true) symbols.jsRelatedSymbols.externRefIsNull else symbols.refIsNull
                     return builder.irCall(refIsNull).apply { putValueArgument(0, expr) }
                 }
 
@@ -150,26 +158,31 @@ class BuiltInsLowering(val context: WasmBackendContext) : FileLoweringPass {
                 return irCall(call, newSymbol, argumentsAsReceivers = true)
             }
             symbols.reflectionSymbols.getClassData -> {
-                val infoDataCtor = symbols.reflectionSymbols.wasmTypeInfoData.constructors.first()
                 val type = call.getTypeArgument(0)!!
-                val isInterface = type.isInterface()
-                val fqName = type.classFqName!!
-                val fqnShouldBeEmitted =
-                    context.configuration.languageVersionSettings.getFlag(AnalysisFlags.allowFullyQualifiedNameInKClass)
-                val packageName = if (fqnShouldBeEmitted) fqName.parentOrNull()?.asString() ?: "" else ""
-                val typeName = fqName.shortName().asString()
+                val klass = type.classOrNull?.owner ?: error("Invalid type")
 
-                return with(builder) {
-                    val wasmIdGetter = if (type.isInterface()) symbols.wasmInterfaceId else symbols.wasmClassId
-                    val typeId = irCall(wasmIdGetter).also {
-                        it.putTypeArgument(0, type)
-                    }
+                val typeId = builder.irCall(symbols.wasmTypeId).also {
+                    it.putTypeArgument(0, type)
+                }
 
-                    irCallConstructor(infoDataCtor, emptyList()).also {
+                if (!klass.isInterface) {
+                    return builder.irCall(context.wasmSymbols.reflectionSymbols.getTypeInfoTypeDataByPtr).also {
                         it.putValueArgument(0, typeId)
-                        it.putValueArgument(1, isInterface.toIrConst(context.irBuiltIns.booleanType))
-                        it.putValueArgument(2, packageName.toIrConst(context.irBuiltIns.stringType))
-                        it.putValueArgument(3, typeName.toIrConst(context.irBuiltIns.stringType))
+                    }
+                } else {
+                    val infoDataCtor = symbols.reflectionSymbols.wasmTypeInfoData.constructors.first()
+                    val fqName = type.classFqName!!
+                    val fqnShouldBeEmitted =
+                        context.configuration.languageVersionSettings.getFlag(AnalysisFlags.allowFullyQualifiedNameInKClass)
+                    val packageName = if (fqnShouldBeEmitted) fqName.parentOrNull()?.asString() ?: "" else ""
+                    val typeName = fqName.shortName().asString()
+
+                    return with(builder) {
+                        irCallConstructor(infoDataCtor, emptyList()).also {
+                            it.putValueArgument(0, typeId)
+                            it.putValueArgument(1, packageName.toIrConst(context.irBuiltIns.stringType))
+                            it.putValueArgument(2, typeName.toIrConst(context.irBuiltIns.stringType))
+                        }
                     }
                 }
             }
@@ -177,6 +190,8 @@ class BuiltInsLowering(val context: WasmBackendContext) : FileLoweringPass {
                 return EnumIntrinsicsUtils.transformEnumValueOfIntrinsic(call)
             symbols.enumValuesIntrinsic ->
                 return EnumIntrinsicsUtils.transformEnumValuesIntrinsic(call)
+            symbols.enumEntriesIntrinsic ->
+                return EnumIntrinsicsUtils.transformEnumEntriesIntrinsic(call)
         }
 
         return call

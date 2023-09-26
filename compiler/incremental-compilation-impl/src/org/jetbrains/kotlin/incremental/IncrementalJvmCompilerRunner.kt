@@ -22,7 +22,6 @@ import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiFileFactory
 import com.intellij.psi.PsiJavaFile
-import org.jetbrains.annotations.TestOnly
 import org.jetbrains.kotlin.build.DEFAULT_KOTLIN_SOURCE_FILES_EXTENSIONS
 import org.jetbrains.kotlin.build.GeneratedFile
 import org.jetbrains.kotlin.build.GeneratedJvmClass
@@ -30,7 +29,6 @@ import org.jetbrains.kotlin.build.report.*
 import org.jetbrains.kotlin.build.report.metrics.*
 import org.jetbrains.kotlin.cli.common.CLIConfigurationKeys
 import org.jetbrains.kotlin.cli.common.ExitCode
-import org.jetbrains.kotlin.cli.common.arguments.CommonCompilerArguments
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
 import org.jetbrains.kotlin.cli.common.messages.FilteringMessageCollector
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector
@@ -38,25 +36,17 @@ import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
 import org.jetbrains.kotlin.cli.jvm.compiler.EnvironmentConfigFiles
 import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
 import org.jetbrains.kotlin.cli.jvm.config.configureJdkClasspathRoots
-import org.jetbrains.kotlin.config.CompilerConfiguration
-import org.jetbrains.kotlin.config.IncrementalCompilation
-import org.jetbrains.kotlin.config.LanguageVersion
-import org.jetbrains.kotlin.config.Services
-import org.jetbrains.kotlin.config.languageVersionSettings
+import org.jetbrains.kotlin.config.*
 import org.jetbrains.kotlin.incremental.ClasspathChanges.ClasspathSnapshotDisabled
 import org.jetbrains.kotlin.incremental.ClasspathChanges.ClasspathSnapshotEnabled.IncrementalRun.NoChanges
 import org.jetbrains.kotlin.incremental.ClasspathChanges.ClasspathSnapshotEnabled.IncrementalRun.ToBeComputedByIncrementalCompiler
 import org.jetbrains.kotlin.incremental.ClasspathChanges.ClasspathSnapshotEnabled.NotAvailableDueToMissingClasspathSnapshot
 import org.jetbrains.kotlin.incremental.ClasspathChanges.ClasspathSnapshotEnabled.NotAvailableForNonIncrementalRun
 import org.jetbrains.kotlin.incremental.ClasspathChanges.NotAvailableForJSCompiler
-import org.jetbrains.kotlin.incremental.classpathDiff.AccessibleClassSnapshot
+import org.jetbrains.kotlin.incremental.classpathDiff.*
 import org.jetbrains.kotlin.incremental.classpathDiff.ClasspathChangesComputer.computeClasspathChanges
-import org.jetbrains.kotlin.incremental.classpathDiff.ClasspathSnapshotBuildReporter
-import org.jetbrains.kotlin.incremental.classpathDiff.shrinkAndSaveClasspathSnapshot
-import org.jetbrains.kotlin.incremental.classpathDiff.toChangesEither
 import org.jetbrains.kotlin.incremental.components.ExpectActualTracker
 import org.jetbrains.kotlin.incremental.components.LookupTracker
-import org.jetbrains.kotlin.incremental.multiproject.EmptyModulesApiHistory
 import org.jetbrains.kotlin.incremental.multiproject.ModulesApiHistory
 import org.jetbrains.kotlin.incremental.util.BufferingMessageCollector
 import org.jetbrains.kotlin.incremental.util.Either
@@ -69,73 +59,11 @@ import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import java.io.File
 
-@TestOnly
-fun makeIncrementally(
-    cachesDir: File,
-    sourceRoots: Iterable<File>,
-    args: K2JVMCompilerArguments,
-    messageCollector: MessageCollector = MessageCollector.NONE,
-    reporter: ICReporter = DoNothingICReporter
-) {
-    val kotlinExtensions = DEFAULT_KOTLIN_SOURCE_FILES_EXTENSIONS
-    val allExtensions = kotlinExtensions + "java"
-    val rootsWalk = sourceRoots.asSequence().flatMap { it.walk() }
-    val files = rootsWalk.filter(File::isFile)
-    val sourceFiles = files.filter { it.extension.lowercase() in allExtensions }.toList()
-    val buildHistoryFile = File(cachesDir, "build-history.bin")
-    args.javaSourceRoots = sourceRoots.map { it.absolutePath }.toTypedArray()
-    val buildReporter = BuildReporter(icReporter = reporter, buildMetricsReporter = DoNothingBuildMetricsReporter)
-
-    withIC(args) {
-        val useK2 = args.useK2 || LanguageVersion.fromVersionString(args.languageVersion)?.usesK2 == true
-        val compiler =
-            if (useK2 && args.useFirIC && args.useFirLT /* TODO: move LT check into runner */)
-                IncrementalFirJvmCompilerRunner(
-                    cachesDir,
-                    buildReporter,
-                    buildHistoryFile,
-                    outputDirs = null,
-                    EmptyModulesApiHistory,
-                    kotlinExtensions,
-                    ClasspathSnapshotDisabled
-                )
-            else
-                IncrementalJvmCompilerRunner(
-                    cachesDir,
-                    buildReporter,
-                    // Use precise setting in case of non-Gradle build
-                    usePreciseJavaTracking = !useK2, // TODO: add fir-based java classes tracker when available and set this to true (KT-57147)
-                    buildHistoryFile = buildHistoryFile,
-                    outputDirs = null,
-                    modulesApiHistory = EmptyModulesApiHistory,
-                    kotlinSourceFilesExtensions = kotlinExtensions,
-                    classpathChanges = ClasspathSnapshotDisabled
-                )
-        //TODO set properly
-        compiler.compile(sourceFiles, args, messageCollector, changedFiles = null)
-    }
-}
-
-@Suppress("DEPRECATION")
-inline fun <R> withIC(args: CommonCompilerArguments, enabled: Boolean = true, fn: () -> R): R {
-    val isEnabledBackup = IncrementalCompilation.isEnabledForJvm()
-    IncrementalCompilation.setIsEnabledForJvm(enabled)
-
-    try {
-        if (args.incrementalCompilation == null) {
-            args.incrementalCompilation = enabled
-        }
-        return fn()
-    } finally {
-        IncrementalCompilation.setIsEnabledForJvm(isEnabledBackup)
-    }
-}
-
 open class IncrementalJvmCompilerRunner(
     workingDir: File,
-    reporter: BuildReporter,
+    reporter: BuildReporter<GradleBuildTime, GradleBuildPerformanceMetric>,
     private val usePreciseJavaTracking: Boolean,
-    buildHistoryFile: File,
+    buildHistoryFile: File?,
     outputDirs: Collection<File>?,
     private val modulesApiHistory: ModulesApiHistory,
     override val kotlinSourceFilesExtensions: List<String> = DEFAULT_KOTLIN_SOURCE_FILES_EXTENSIONS,
@@ -165,8 +93,6 @@ open class IncrementalJvmCompilerRunner(
     override fun destinationDir(args: K2JVMCompilerArguments): File =
         args.destinationAsFile
 
-    private var dirtyClasspathChanges: Collection<FqName> = emptySet()
-
     private val messageCollector = BufferingMessageCollector()
     private val compilerConfiguration: CompilerConfiguration by lazy {
         val filterMessageCollector = FilteringMessageCollector(messageCollector) { !it.isError }
@@ -183,7 +109,8 @@ open class IncrementalJvmCompilerRunner(
         private val psiFileFactory: PsiFileFactory by lazy {
             val rootDisposable = Disposer.newDisposable()
             val configuration = compilerConfiguration
-            val environment = KotlinCoreEnvironment.createForProduction(rootDisposable, configuration, EnvironmentConfigFiles.JVM_CONFIG_FILES)
+            val environment =
+                KotlinCoreEnvironment.createForProduction(rootDisposable, configuration, EnvironmentConfigFiles.JVM_CONFIG_FILES)
             val project = environment.project
             PsiFileFactory.getInstance(project)
         }
@@ -215,7 +142,7 @@ open class IncrementalJvmCompilerRunner(
     //TODO can't use the same way as for build-history files because abi-snapshot for all dependencies should be stored into last-build
     // and not only changed one
     // (but possibly we dont need to read it all and may be it is possible to update only those who was changed)
-    override fun setupJarDependencies(args: K2JVMCompilerArguments, reporter: BuildReporter): Map<String, AbiSnapshot> {
+    override fun setupJarDependencies(args: K2JVMCompilerArguments, reporter: BuildReporter<GradleBuildTime, GradleBuildPerformanceMetric>): Map<String, AbiSnapshot> {
         //fill abiSnapshots
         val abiSnapshots = HashMap<String, AbiSnapshot>()
         args.classpathAsList
@@ -256,28 +183,34 @@ open class IncrementalJvmCompilerRunner(
         initDirtyFiles(dirtyFiles, changedFiles)
 
         reporter.debug { "Classpath changes info passed from Gradle task: ${classpathChanges::class.simpleName}" }
-        val classpathChanges = when (classpathChanges) {
+        val changedAndImpactedSymbols = when (classpathChanges) {
             // Note: classpathChanges is deserialized, so they are no longer singleton objects and need to be compared using `is` (not `==`)
             is NoChanges -> ChangesEither.Known(emptySet(), emptySet())
-            is ToBeComputedByIncrementalCompiler -> reporter.measure(BuildTime.COMPUTE_CLASSPATH_CHANGES) {
-                reporter.addMetric(BuildPerformanceMetric.COMPUTE_CLASSPATH_CHANGES_EXECUTION_COUNT, 1)
+            is ToBeComputedByIncrementalCompiler -> reporter.measure(GradleBuildTime.COMPUTE_CLASSPATH_CHANGES) {
+                reporter.addMetric(GradleBuildPerformanceMetric.COMPUTE_CLASSPATH_CHANGES_EXECUTION_COUNT, 1)
                 val storeCurrentClasspathSnapshotForReuse =
                     { currentClasspathSnapshotArg: List<AccessibleClassSnapshot>,
                       shrunkCurrentClasspathAgainstPreviousLookupsArg: List<AccessibleClassSnapshot> ->
                         currentClasspathSnapshot = currentClasspathSnapshotArg
                         shrunkCurrentClasspathAgainstPreviousLookups = shrunkCurrentClasspathAgainstPreviousLookupsArg
                     }
-                computeClasspathChanges(
+                val classpathChanges = computeClasspathChanges(
                     classpathChanges.classpathSnapshotFiles,
                     caches.lookupCache,
                     storeCurrentClasspathSnapshotForReuse,
                     ClasspathSnapshotBuildReporter(reporter)
-                ).toChangesEither()
+                )
+                // `classpathChanges` contains changed and impacted symbols on the classpath.
+                // We also need to compute symbols in the current module that are impacted by `classpathChanges`.
+                classpathChanges.toChangeInfoList().getChangedAndImpactedSymbols(listOf(caches.platformCache), reporter).toChangesEither()
             }
             is NotAvailableDueToMissingClasspathSnapshot -> ChangesEither.Unknown(BuildAttribute.CLASSPATH_SNAPSHOT_NOT_FOUND)
             is NotAvailableForNonIncrementalRun -> ChangesEither.Unknown(BuildAttribute.UNKNOWN_CHANGES_IN_GRADLE_INPUTS)
-            is ClasspathSnapshotDisabled -> reporter.measure(BuildTime.IC_ANALYZE_CHANGES_IN_DEPENDENCIES) {
-                if (!withAbiSnapshot && !buildHistoryFile.isFile) {
+            is ClasspathSnapshotDisabled -> reporter.measure(GradleBuildTime.IC_ANALYZE_CHANGES_IN_DEPENDENCIES) {
+                if (buildHistoryFile == null) {
+                    error("The build is configured to use the build-history based IC approach, but doesn't specify the buildHistoryFile")
+                }
+                if (!withAbiSnapshot && buildHistoryFile.isFile != true) {
                     // If the previous build was a Gradle cache hit, the build history file must have been deleted as it is marked as
                     // @LocalState in the Gradle task. Therefore, this compilation will need to run non-incrementally.
                     // (Note that buildHistoryFile is outside workingDir. We don't need to perform the same check for files inside
@@ -287,10 +220,12 @@ open class IncrementalJvmCompilerRunner(
                 if (!lastBuildInfoFile.exists()) {
                     return CompilationMode.Rebuild(BuildAttribute.NO_LAST_BUILD_INFO)
                 }
-                val lastBuildInfo = BuildInfo.read(lastBuildInfoFile, messageCollector) ?: return CompilationMode.Rebuild(BuildAttribute.INVALID_LAST_BUILD_INFO)
+                val lastBuildInfo = BuildInfo.read(lastBuildInfoFile, messageCollector)
+                    ?: return CompilationMode.Rebuild(BuildAttribute.INVALID_LAST_BUILD_INFO)
                 reporter.debug { "Last Kotlin Build info -- $lastBuildInfo" }
                 val scopes = caches.lookupCache.lookupSymbols.map { it.scope.ifBlank { it.name } }.distinct()
 
+                // FIXME The old IC currently doesn't compute impacted symbols
                 getClasspathChanges(
                     args.classpathAsList, changedFiles, lastBuildInfo, modulesApiHistory, reporter, abiSnapshots, withAbiSnapshot,
                     caches.platformCache, scopes
@@ -299,22 +234,18 @@ open class IncrementalJvmCompilerRunner(
             is NotAvailableForJSCompiler -> error("Unexpected type for this code path: ${classpathChanges.javaClass.name}.")
         }
 
-        @Suppress("UNUSED_VARIABLE") // for sealed when
-        val unused = when (classpathChanges) {
+        when (changedAndImpactedSymbols) {
             is ChangesEither.Unknown -> {
-                reporter.info {
-                    "Could not get classpath's changes: ${classpathChanges.reason}"
-                }
-                return CompilationMode.Rebuild(classpathChanges.reason)
+                reporter.info { "Could not get classpath changes: ${changedAndImpactedSymbols.reason}" }
+                return CompilationMode.Rebuild(changedAndImpactedSymbols.reason)
             }
             is ChangesEither.Known -> {
-                dirtyFiles.addByDirtySymbols(classpathChanges.lookupSymbols)
-                dirtyClasspathChanges = classpathChanges.fqNames
-                dirtyFiles.addByDirtyClasses(classpathChanges.fqNames)
+                dirtyFiles.addByDirtySymbols(changedAndImpactedSymbols.lookupSymbols)
+                dirtyFiles.addByDirtyClasses(changedAndImpactedSymbols.fqNames)
             }
         }
 
-        reporter.measure(BuildTime.IC_ANALYZE_CHANGES_IN_JAVA_SOURCES) {
+        reporter.measure(GradleBuildTime.IC_ANALYZE_CHANGES_IN_JAVA_SOURCES) {
             if (!usePreciseJavaTracking) {
                 val javaFilesChanges = javaFilesProcessor!!.process(changedFiles)
                 val affectedJavaSymbols = when (javaFilesChanges) {
@@ -328,10 +259,10 @@ open class IncrementalJvmCompilerRunner(
             }
         }
 
-        val androidLayoutChanges = reporter.measure(BuildTime.IC_ANALYZE_CHANGES_IN_ANDROID_LAYOUTS) {
+        val androidLayoutChanges = reporter.measure(GradleBuildTime.IC_ANALYZE_CHANGES_IN_ANDROID_LAYOUTS) {
             processLookupSymbolsForAndroidLayouts(changedFiles)
         }
-        val removedClassesChanges = reporter.measure(BuildTime.IC_DETECT_REMOVED_CLASSES) {
+        val removedClassesChanges = reporter.measure(GradleBuildTime.IC_DETECT_REMOVED_CLASSES) {
             getRemovedClassesChanges(caches, changedFiles)
         }
 
@@ -340,6 +271,28 @@ open class IncrementalJvmCompilerRunner(
         dirtyFiles.addByDirtyClasses(removedClassesChanges.dirtyClassesFqNames)
         dirtyFiles.addByDirtyClasses(removedClassesChanges.dirtyClassesFqNamesForceRecompile)
         return CompilationMode.Incremental(dirtyFiles)
+    }
+
+    private fun ProgramSymbolSet.toChangeInfoList(): List<ChangeInfo> {
+        val changes = mutableListOf<ChangeInfo>()
+        classes.forEach { classId ->
+            // It's important to set `areSubclassesAffected = true` when we don't know
+            changes.add(ChangeInfo.SignatureChanged(classId.asSingleFqName(), areSubclassesAffected = true))
+        }
+        classMembers.forEach { (classId, members) ->
+            changes.add(ChangeInfo.MembersChanged(classId.asSingleFqName(), members))
+        }
+        packageMembers.forEach { (packageFqName, members) ->
+            changes.add(ChangeInfo.MembersChanged(packageFqName, members))
+        }
+        return changes
+    }
+
+    private fun DirtyData.toChangesEither(): ChangesEither.Known {
+        return ChangesEither.Known(
+            lookupSymbols = dirtyLookupSymbols,
+            fqNames = dirtyClassesFqNames + dirtyClassesFqNamesForceRecompile
+        )
     }
 
     private fun processChangedJava(changedFiles: ChangedFiles.Known, caches: IncrementalJvmCachesManager): BuildAttribute? {
@@ -511,7 +464,7 @@ open class IncrementalJvmCompilerRunner(
 
         // No need to shrink and save classpath snapshot if exitCode != ExitCode.OK as the task will fail anyway
         if (classpathChanges is ClasspathChanges.ClasspathSnapshotEnabled && exitCode == ExitCode.OK) {
-            reporter.measure(BuildTime.SHRINK_AND_SAVE_CURRENT_CLASSPATH_SNAPSHOT_AFTER_COMPILATION) {
+            reporter.measure(GradleBuildTime.SHRINK_AND_SAVE_CURRENT_CLASSPATH_SNAPSHOT_AFTER_COMPILATION) {
                 shrinkAndSaveClasspathSnapshot(
                     compilationWasIncremental = compilationMode is CompilationMode.Incremental, classpathChanges, caches.lookupCache,
                     currentClasspathSnapshot, shrunkCurrentClasspathAgainstPreviousLookups, ClasspathSnapshotBuildReporter(reporter)
@@ -520,15 +473,3 @@ open class IncrementalJvmCompilerRunner(
         }
     }
 }
-
-var K2JVMCompilerArguments.destinationAsFile: File
-    get() = File(destination)
-    set(value) {
-        destination = value.path
-    }
-
-var K2JVMCompilerArguments.classpathAsList: List<File>
-    get() = classpath.orEmpty().split(File.pathSeparator).map(::File)
-    set(value) {
-        classpath = value.joinToString(separator = File.pathSeparator, transform = { it.path })
-    }

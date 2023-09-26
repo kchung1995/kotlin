@@ -19,7 +19,6 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.TransactionGuard
 import com.intellij.openapi.application.TransactionGuardImpl
-import com.intellij.openapi.components.ServiceManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.extensions.ExtensionsArea
 import com.intellij.openapi.fileTypes.PlainTextFileType
@@ -53,7 +52,6 @@ import org.jetbrains.kotlin.cli.common.CliModuleVisibilityManagerImpl
 import org.jetbrains.kotlin.cli.common.CompilerSystemProperties
 import org.jetbrains.kotlin.cli.common.config.ContentRoot
 import org.jetbrains.kotlin.cli.common.config.KotlinSourceRoot
-import org.jetbrains.kotlin.cli.common.config.kotlinSourceRoots
 import org.jetbrains.kotlin.cli.common.environment.setIdeaIoUseFallback
 import org.jetbrains.kotlin.cli.common.extensions.ScriptEvaluationExtension
 import org.jetbrains.kotlin.cli.common.extensions.ShellExtension
@@ -77,9 +75,12 @@ import org.jetbrains.kotlin.extensions.*
 import org.jetbrains.kotlin.extensions.internal.CandidateInterceptor
 import org.jetbrains.kotlin.extensions.internal.InternalNonStableExtensionPoints
 import org.jetbrains.kotlin.extensions.internal.TypeResolutionInterceptor
+import org.jetbrains.kotlin.fir.extensions.FirAnalysisHandlerExtension
 import org.jetbrains.kotlin.fir.extensions.FirExtensionRegistrarAdapter
 import org.jetbrains.kotlin.idea.KotlinFileType
 import org.jetbrains.kotlin.js.translate.extensions.JsSyntheticTranslateExtension
+import org.jetbrains.kotlin.load.java.structure.impl.source.JavaElementSourceFactory
+import org.jetbrains.kotlin.load.java.structure.impl.source.JavaFixedElementSourceFactory
 import org.jetbrains.kotlin.load.kotlin.KotlinBinaryClassCache
 import org.jetbrains.kotlin.load.kotlin.MetadataFinderFactory
 import org.jetbrains.kotlin.load.kotlin.ModuleVisibilityManager
@@ -139,11 +140,28 @@ class KotlinCoreEnvironment private constructor(
                     val fastJarFs = applicationEnvironment.fastJarFileSystem
                     if (fastJarFs == null) {
                         messageCollector?.report(
-                            CompilerMessageSeverity.STRONG_WARNING,
+                            STRONG_WARNING,
                             "Your JDK doesn't seem to support mapped buffer unmapping, so the slower (old) version of JAR FS will be used"
                         )
                         applicationEnvironment.jarFileSystem
-                    } else fastJarFs
+                    } else {
+                        val outputJar = configuration.get(JVMConfigurationKeys.OUTPUT_JAR)
+                        if (outputJar == null) {
+                            fastJarFs
+                        } else {
+                            val contentRoots = configuration.get(CLIConfigurationKeys.CONTENT_ROOTS)
+                            if (contentRoots?.any { it is JvmClasspathRoot && it.file.path == outputJar.path } == true) {
+                                // See KT-61883
+                                messageCollector?.report(
+                                    STRONG_WARNING,
+                                    "JAR from the classpath ${outputJar.path} is reused as output JAR, so the slower (old) version of JAR FS will be used"
+                                )
+                                applicationEnvironment.jarFileSystem
+                            } else {
+                                fastJarFs
+                            }
+                        }
+                    }
                 }
 
                 else -> applicationEnvironment.jarFileSystem
@@ -168,7 +186,7 @@ class KotlinCoreEnvironment private constructor(
             with(project) {
                 registerService(
                     CoreJavaFileManager::class.java,
-                    ServiceManager.getService(this, JavaFileManager::class.java) as CoreJavaFileManager
+                    this.getService(JavaFileManager::class.java) as CoreJavaFileManager
                 )
 
                 registerKotlinLightClassSupport(project)
@@ -193,13 +211,16 @@ class KotlinCoreEnvironment private constructor(
         val project = projectEnvironment.project
         project.registerService(DeclarationProviderFactoryService::class.java, CliDeclarationProviderFactoryService(sourceFiles))
 
-        sourceFiles += createSourceFilesFromSourceRoots(configuration, project, getSourceRootsCheckingForDuplicates())
+        sourceFiles += createSourceFilesFromSourceRoots(
+            configuration, project,
+            getSourceRootsCheckingForDuplicates(configuration, configuration[CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY])
+        )
 
         collectAdditionalSources(project)
 
         sourceFiles.sortBy { it.virtualFile.path }
 
-        val javaFileManager = ServiceManager.getService(project, CoreJavaFileManager::class.java) as KotlinCliJavaFileManagerImpl
+        val javaFileManager = project.getService(CoreJavaFileManager::class.java) as KotlinCliJavaFileManagerImpl
 
         val messageCollector = configuration.get(CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY)
 
@@ -363,6 +384,8 @@ class KotlinCoreEnvironment private constructor(
             }
         }
 
+        configuration.addAll(CLIConfigurationKeys.CONTENT_ROOTS, contentRoots - configuration.getList(CLIConfigurationKeys.CONTENT_ROOTS))
+
         return rootsIndex.addNewIndexForRoots(newRoots)?.let { newIndex ->
             updateClasspathFromRootsIndex(newIndex)
             newIndex.indexedRoots.mapNotNull { (file) ->
@@ -397,20 +420,6 @@ class KotlinCoreEnvironment private constructor(
 
     private fun findJarRoot(file: File): VirtualFile? =
         projectEnvironment.jarFileSystem.findFileByPath("$file${URLUtil.JAR_SEPARATOR}")
-
-    private fun getSourceRootsCheckingForDuplicates(): List<KotlinSourceRoot> {
-        val uniqueSourceRoots = hashSetOf<String>()
-        val result = mutableListOf<KotlinSourceRoot>()
-
-        for (root in configuration.kotlinSourceRoots) {
-            if (!uniqueSourceRoots.add(root.path)) {
-                report(STRONG_WARNING, "Duplicate source root: ${root.path}")
-            }
-            result.add(root)
-        }
-
-        return result
-    }
 
     fun getSourceFiles(): List<KtFile> =
         ProcessSourcesBeforeCompilingExtension.getInstances(project)
@@ -462,6 +471,17 @@ class KotlinCoreEnvironment private constructor(
                 createApplicationEnvironment(
                     parentDisposable, configuration, unitTestMode = true
                 )
+            val projectEnv = ProjectEnvironment(parentDisposable, appEnv, configuration)
+            return KotlinCoreEnvironment(projectEnv, configuration, extensionConfigs)
+        }
+
+        @TestOnly
+        @JvmStatic
+        fun createForParallelTests(
+            parentDisposable: Disposable, initialConfiguration: CompilerConfiguration, extensionConfigs: EnvironmentConfigFiles
+        ): KotlinCoreEnvironment {
+            val configuration = initialConfiguration.copy()
+            val appEnv = getOrCreateApplicationEnvironmentForTests(parentDisposable, configuration)
             val projectEnv = ProjectEnvironment(parentDisposable, appEnv, configuration)
             return KotlinCoreEnvironment(projectEnv, configuration, extensionConfigs)
         }
@@ -659,6 +679,7 @@ class KotlinCoreEnvironment private constructor(
             FirExtensionRegistrarAdapter.registerExtensionPoint(project)
             TypeAttributeTranslatorExtension.registerExtensionPoint(project)
             AssignResolutionAltererExtension.registerExtensionPoint(project)
+            FirAnalysisHandlerExtension.registerExtensionPoint(project)
         }
 
         internal fun registerExtensionsFromPlugins(project: MockProject, configuration: CompilerConfiguration) {
@@ -736,6 +757,7 @@ class KotlinCoreEnvironment private constructor(
         @JvmStatic
         fun registerProjectServices(project: MockProject) {
             with(project) {
+                registerService(JavaElementSourceFactory::class.java, JavaFixedElementSourceFactory::class.java)
                 registerService(KotlinJavaPsiFacade::class.java, KotlinJavaPsiFacade(this))
                 registerService(ModuleAnnotationsResolver::class.java, CliModuleAnnotationsResolver())
             }

@@ -5,47 +5,69 @@
 
 package org.jetbrains.kotlin.fir.serialization
 
-import org.jetbrains.kotlin.backend.common.serialization.metadata.buildKlibPackageFragment
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.config.LanguageVersionSettings
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.declarations.*
-import org.jetbrains.kotlin.fir.declarations.utils.classId
 import org.jetbrains.kotlin.fir.packageFqName
 import org.jetbrains.kotlin.fir.resolve.ScopeSession
+import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
+import org.jetbrains.kotlin.library.metadata.buildKlibPackageFragment
 import org.jetbrains.kotlin.metadata.ProtoBuf
-import org.jetbrains.kotlin.metadata.deserialization.BinaryVersion
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.serialization.SerializableStringTable
 
 fun serializeSingleFirFile(
     file: FirFile, session: FirSession, scopeSession: ScopeSession,
+    actualizedExpectDeclarations: Set<FirDeclaration>?,
     serializerExtension: FirKLibSerializerExtension,
     languageVersionSettings: LanguageVersionSettings,
+    produceHeaderKlib: Boolean = false,
 ): ProtoBuf.PackageFragment {
     val approximator = TypeApproximatorForMetadataSerializer(session)
-    val packageSerializer = FirElementSerializer.createTopLevel(session, scopeSession, serializerExtension, approximator,
-                                                                languageVersionSettings)
+    val packageSerializer = FirElementSerializer.createTopLevel(
+        session, scopeSession, serializerExtension,
+        approximator,
+        languageVersionSettings,
+        produceHeaderKlib
+    )
 
     // TODO: typealiases (see klib serializer)
     // TODO: split package fragment (see klib serializer)
     // TODO: handle incremental/monolothic (see klib serializer) - maybe externally
 
-    val packageProto = packageSerializer.packagePartProto(file.packageFqName, listOf(file)).build()
+    val packageProto = packageSerializer.packagePartProto(file.packageFqName, listOf(file), actualizedExpectDeclarations).build()
 
-    fun List<FirDeclaration>.makeClassesProtoWithNested(): List<Pair<ProtoBuf.Class, Int>> =
-        // TODO: filter out expects
-        filterIsInstance<FirClass>().sortedBy { it.classId.asFqNameString() }.flatMap {
-            val classSerializer = FirElementSerializer.create(session, scopeSession, it, serializerExtension, null,
-                approximator, languageVersionSettings)
-            val index = classSerializer.stringTable.getFqNameIndex(it)
-            listOf(classSerializer.classProto(it).build() to index) + it.declarations.makeClassesProtoWithNested()
+    val classesProto = mutableListOf<Pair<ProtoBuf.Class, Int>>()
+
+    fun List<FirClassSymbol<*>>.makeClassesProtoWithNested() {
+        val classSymbols = this
+            .filter {
+                it.fir.isNotExpectOrShouldBeSerialized(actualizedExpectDeclarations) &&
+                        it.fir.isNotPrivateOrShouldBeSerialized(produceHeaderKlib)
+            }
+            .sortedBy { it.classId.asFqNameString() }
+        for (symbol in classSymbols) {
+            val klass = symbol.fir
+            val classSerializer = FirElementSerializer.create(
+                session, scopeSession, klass, serializerExtension, null,
+                approximator, languageVersionSettings, produceHeaderKlib
+            )
+            val index = classSerializer.stringTable.getFqNameIndex(klass)
+
+            classesProto += classSerializer.classProto(klass).build() to index
+            classSerializer.computeNestedClassifiersForClass(symbol).filterIsInstance<FirClassSymbol<*>>().makeClassesProtoWithNested()
         }
+    }
 
-    val classesProto = file.declarations.makeClassesProtoWithNested()
+    serializerExtension.processFile(file) {
+        file.declarations.mapNotNull { it.symbol as? FirClassSymbol<*> }.makeClassesProtoWithNested()
+    }
 
     val hasTopLevelDeclarations = file.declarations.any {
-        it is FirProperty || it is FirSimpleFunction || it is FirTypeAlias
+        it is FirMemberDeclaration && it.isNotExpectOrShouldBeSerialized(actualizedExpectDeclarations) &&
+                it.isNotPrivateOrShouldBeSerialized(produceHeaderKlib) &&
+                (it is FirProperty || it is FirSimpleFunction || it is FirTypeAlias)
     }
 
     return buildKlibPackageFragment(
@@ -57,12 +79,6 @@ fun serializeSingleFirFile(
     )
 }
 
-open class FirKLibSerializerExtension(
-    override val session: FirSession,
-    override val metadataVersion: BinaryVersion,
-    override val stringTable: FirElementAwareSerializableStringTable
-) : FirSerializerExtension()
-
-class FirElementAwareSerializableStringTable() : FirElementAwareStringTable, SerializableStringTable() {
-    override fun getLocalClassIdReplacement(firClass: FirClass): ClassId? = ClassId.topLevel(StandardNames.FqNames.any.toSafe())
+class FirElementAwareSerializableStringTable : FirElementAwareStringTable, SerializableStringTable() {
+    override fun getLocalClassIdReplacement(firClass: FirClass): ClassId = ClassId.topLevel(StandardNames.FqNames.any.toSafe())
 }

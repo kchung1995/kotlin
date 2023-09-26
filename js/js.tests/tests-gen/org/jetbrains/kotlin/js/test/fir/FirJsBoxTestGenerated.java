@@ -247,6 +247,12 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
         }
 
         @Test
+        @TestMetadata("charNoBoxing.kt")
+        public void testCharNoBoxing() throws Exception {
+            runTest("js/js.translator/testData/box/char/charNoBoxing.kt");
+        }
+
+        @Test
         @TestMetadata("charRanges.kt")
         public void testCharRanges() throws Exception {
             runTest("js/js.translator/testData/box/char/charRanges.kt");
@@ -326,6 +332,12 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
         @TestMetadata("objectInCompanionObject.kt")
         public void testObjectInCompanionObject() throws Exception {
             runTest("js/js.translator/testData/box/classObject/objectInCompanionObject.kt");
+        }
+
+        @Test
+        @TestMetadata("objectLazyInitialized.kt")
+        public void testObjectLazyInitialized() throws Exception {
+            runTest("js/js.translator/testData/box/classObject/objectLazyInitialized.kt");
         }
 
         @Test
@@ -621,6 +633,12 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
         }
 
         @Test
+        @TestMetadata("superCallInsideLambda.kt")
+        public void testSuperCallInsideLambda() throws Exception {
+            runTest("js/js.translator/testData/box/closure/superCallInsideLambda.kt");
+        }
+
+        @Test
         @TestMetadata("withManyClosuresInNestedFunctionsAndObjects.kt")
         public void testWithManyClosuresInNestedFunctionsAndObjects() throws Exception {
             runTest("js/js.translator/testData/box/closure/withManyClosuresInNestedFunctionsAndObjects.kt");
@@ -855,6 +873,12 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
         }
 
         @Test
+        @TestMetadata("boxingUnboxingInsideTheSuspendFunction.kt")
+        public void testBoxingUnboxingInsideTheSuspendFunction() throws Exception {
+            runTest("js/js.translator/testData/box/coroutines/boxingUnboxingInsideTheSuspendFunction.kt");
+        }
+
+        @Test
         @TestMetadata("debugStatement.kt")
         public void testDebugStatement() throws Exception {
             runTest("js/js.translator/testData/box/coroutines/debugStatement.kt");
@@ -930,6 +954,18 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
         @TestMetadata("suspendFunctionalInterface.kt")
         public void testSuspendFunctionalInterface() throws Exception {
             runTest("js/js.translator/testData/box/coroutines/suspendFunctionalInterface.kt");
+        }
+
+        @Test
+        @TestMetadata("suspendMethodWithSuperCall.kt")
+        public void testSuspendMethodWithSuperCall() throws Exception {
+            runTest("js/js.translator/testData/box/coroutines/suspendMethodWithSuperCall.kt");
+        }
+
+        @Test
+        @TestMetadata("tryFinally.kt")
+        public void testTryFinally() throws Exception {
+            runTest("js/js.translator/testData/box/coroutines/tryFinally.kt");
         }
     }
 
@@ -1218,6 +1254,22 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
         @TestMetadata("tostring.kt")
         public void testTostring() throws Exception {
             runTest("js/js.translator/testData/box/dataClass/tostring.kt");
+        }
+    }
+
+    @Nested
+    @TestMetadata("js/js.translator/testData/box/dce")
+    @TestDataPath("$PROJECT_ROOT")
+    public class Dce {
+        @Test
+        public void testAllFilesPresentInDce() throws Exception {
+            KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("js/js.translator/testData/box/dce"), Pattern.compile("^([^_](.+))\\.kt$"), null, TargetBackend.JS_IR, true);
+        }
+
+        @Test
+        @TestMetadata("removeUnusedOverride.kt")
+        public void testRemoveUnusedOverride() throws Exception {
+            runTest("js/js.translator/testData/box/dce/removeUnusedOverride.kt");
         }
     }
 
@@ -1687,6 +1739,12 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
         }
 
         @Test
+        @TestMetadata("hashCode.kt")
+        public void testHashCode() throws Exception {
+            runTest("js/js.translator/testData/box/dynamic/hashCode.kt");
+        }
+
+        @Test
         @TestMetadata("identityEquals.kt")
         public void testIdentityEquals() throws Exception {
             runTest("js/js.translator/testData/box/dynamic/identityEquals.kt");
@@ -1726,6 +1784,12 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
         @TestMetadata("iterator.kt")
         public void testIterator() throws Exception {
             runTest("js/js.translator/testData/box/dynamic/iterator.kt");
+        }
+
+        @Test
+        @TestMetadata("lambdaParameterInlining.kt")
+        public void testLambdaParameterInlining() throws Exception {
+            runTest("js/js.translator/testData/box/dynamic/lambdaParameterInlining.kt");
         }
 
         @Test
@@ -1984,6 +2048,24 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
             }
 
             @Test
+            @TestMetadata("eagerInitializationGlobal1.kt")
+            public void testEagerInitializationGlobal1() throws Exception {
+                runTest("js/js.translator/testData/box/esModules/crossModuleRefPerFile/eagerInitializationGlobal1.kt");
+            }
+
+            @Test
+            @TestMetadata("eagerInitializationGlobal2.kt")
+            public void testEagerInitializationGlobal2() throws Exception {
+                runTest("js/js.translator/testData/box/esModules/crossModuleRefPerFile/eagerInitializationGlobal2.kt");
+            }
+
+            @Test
+            @TestMetadata("eagerInitializationGlobal3.kt")
+            public void testEagerInitializationGlobal3() throws Exception {
+                runTest("js/js.translator/testData/box/esModules/crossModuleRefPerFile/eagerInitializationGlobal3.kt");
+            }
+
+            @Test
             @TestMetadata("inheritance.kt")
             public void testInheritance() throws Exception {
                 runTest("js/js.translator/testData/box/esModules/crossModuleRefPerFile/inheritance.kt");
@@ -2178,6 +2260,12 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
             }
 
             @Test
+            @TestMetadata("exportClassWithInitBlock.kt")
+            public void testExportClassWithInitBlock() throws Exception {
+                runTest("js/js.translator/testData/box/esModules/export/exportClassWithInitBlock.kt");
+            }
+
+            @Test
             @TestMetadata("exportEnumClass.kt")
             public void testExportEnumClass() throws Exception {
                 runTest("js/js.translator/testData/box/esModules/export/exportEnumClass.kt");
@@ -2232,6 +2320,12 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
             }
 
             @Test
+            @TestMetadata("exportInterfaceWithoutClases.kt")
+            public void testExportInterfaceWithoutClases() throws Exception {
+                runTest("js/js.translator/testData/box/esModules/export/exportInterfaceWithoutClases.kt");
+            }
+
+            @Test
             @TestMetadata("exportNestedClass.kt")
             public void testExportNestedClass() throws Exception {
                 runTest("js/js.translator/testData/box/esModules/export/exportNestedClass.kt");
@@ -2253,6 +2347,12 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
             @TestMetadata("exportTopLevelProperty.kt")
             public void testExportTopLevelProperty() throws Exception {
                 runTest("js/js.translator/testData/box/esModules/export/exportTopLevelProperty.kt");
+            }
+
+            @Test
+            @TestMetadata("fileNameClash.kt")
+            public void testFileNameClash() throws Exception {
+                runTest("js/js.translator/testData/box/esModules/export/fileNameClash.kt");
             }
 
             @Test
@@ -2376,6 +2476,12 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
             }
 
             @Test
+            @TestMetadata("perFileExportedApi.kt")
+            public void testPerFileExportedApi() throws Exception {
+                runTest("js/js.translator/testData/box/esModules/jsExport/perFileExportedApi.kt");
+            }
+
+            @Test
             @TestMetadata("recursiveExport.kt")
             public void testRecursiveExport() throws Exception {
                 runTest("js/js.translator/testData/box/esModules/jsExport/recursiveExport.kt");
@@ -2455,6 +2561,12 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
             @TestMetadata("interfaces.kt")
             public void testInterfaces() throws Exception {
                 runTest("js/js.translator/testData/box/esModules/jsModule/interfaces.kt");
+            }
+
+            @Test
+            @TestMetadata("jsExternalInheritorsOnly.kt")
+            public void testJsExternalInheritorsOnly() throws Exception {
+                runTest("js/js.translator/testData/box/esModules/jsModule/jsExternalInheritorsOnly.kt");
             }
 
             @Test
@@ -2707,6 +2819,12 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
         }
 
         @Test
+        @TestMetadata("exportClassWithInitBlock.kt")
+        public void testExportClassWithInitBlock() throws Exception {
+            runTest("js/js.translator/testData/box/export/exportClassWithInitBlock.kt");
+        }
+
+        @Test
         @TestMetadata("exportClassWithInternal.kt")
         public void testExportClassWithInternal() throws Exception {
             runTest("js/js.translator/testData/box/export/exportClassWithInternal.kt");
@@ -2776,6 +2894,12 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
         @TestMetadata("exportInterface.kt")
         public void testExportInterface() throws Exception {
             runTest("js/js.translator/testData/box/export/exportInterface.kt");
+        }
+
+        @Test
+        @TestMetadata("exportInterfaceWithoutClases.kt")
+        public void testExportInterfaceWithoutClases() throws Exception {
+            runTest("js/js.translator/testData/box/export/exportInterfaceWithoutClases.kt");
         }
 
         @Test
@@ -3228,12 +3352,6 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
             }
 
             @Test
-            @TestMetadata("assignToDotQualifiedWithSideEffect.kt")
-            public void testAssignToDotQualifiedWithSideEffect() throws Exception {
-                runTest("js/js.translator/testData/box/expression/evaluationOrder/assignToDotQualifiedWithSideEffect.kt");
-            }
-
-            @Test
             @TestMetadata("booleanAndOr.kt")
             public void testBooleanAndOr() throws Exception {
                 runTest("js/js.translator/testData/box/expression/evaluationOrder/booleanAndOr.kt");
@@ -3387,12 +3505,6 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
             @TestMetadata("orOrWithSideEffect.kt")
             public void testOrOrWithSideEffect() throws Exception {
                 runTest("js/js.translator/testData/box/expression/evaluationOrder/orOrWithSideEffect.kt");
-            }
-
-            @Test
-            @TestMetadata("reassignmentLhsCaching.kt")
-            public void testReassignmentLhsCaching() throws Exception {
-                runTest("js/js.translator/testData/box/expression/evaluationOrder/reassignmentLhsCaching.kt");
             }
 
             @Test
@@ -5043,6 +5155,12 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
         }
 
         @Test
+        @TestMetadata("classInheritsJsNameFromOtherModule.kt")
+        public void testClassInheritsJsNameFromOtherModule() throws Exception {
+            runTest("js/js.translator/testData/box/inheritance/classInheritsJsNameFromOtherModule.kt");
+        }
+
+        @Test
         @TestMetadata("complexInitializationOrder.kt")
         public void testComplexInitializationOrder() throws Exception {
             runTest("js/js.translator/testData/box/inheritance/complexInitializationOrder.kt");
@@ -5052,6 +5170,12 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
         @TestMetadata("definitionOrder.kt")
         public void testDefinitionOrder() throws Exception {
             runTest("js/js.translator/testData/box/inheritance/definitionOrder.kt");
+        }
+
+        @Test
+        @TestMetadata("delegatingToSecondaryCtor.kt")
+        public void testDelegatingToSecondaryCtor() throws Exception {
+            runTest("js/js.translator/testData/box/inheritance/delegatingToSecondaryCtor.kt");
         }
 
         @Test
@@ -5070,6 +5194,12 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
         @TestMetadata("fromNestedNativeClass.kt")
         public void testFromNestedNativeClass() throws Exception {
             runTest("js/js.translator/testData/box/inheritance/fromNestedNativeClass.kt");
+        }
+
+        @Test
+        @TestMetadata("inheritExtensionsWithSameNames.kt")
+        public void testInheritExtensionsWithSameNames() throws Exception {
+            runTest("js/js.translator/testData/box/inheritance/inheritExtensionsWithSameNames.kt");
         }
 
         @Test
@@ -5364,6 +5494,12 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
         @TestMetadata("extensionWithManyArguments.kt")
         public void testExtensionWithManyArguments() throws Exception {
             runTest("js/js.translator/testData/box/inline/extensionWithManyArguments.kt");
+        }
+
+        @Test
+        @TestMetadata("externalInlineWithSuppress.kt")
+        public void testExternalInlineWithSuppress() throws Exception {
+            runTest("js/js.translator/testData/box/inline/externalInlineWithSuppress.kt");
         }
 
         @Test
@@ -6844,6 +6980,34 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
     }
 
     @Nested
+    @TestMetadata("js/js.translator/testData/box/jsAstOptimizations")
+    @TestDataPath("$PROJECT_ROOT")
+    public class JsAstOptimizations {
+        @Test
+        public void testAllFilesPresentInJsAstOptimizations() throws Exception {
+            KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("js/js.translator/testData/box/jsAstOptimizations"), Pattern.compile("^([^_](.+))\\.kt$"), null, TargetBackend.JS_IR, true);
+        }
+
+        @Test
+        @TestMetadata("deadCodeElimination.kt")
+        public void testDeadCodeElimination() throws Exception {
+            runTest("js/js.translator/testData/box/jsAstOptimizations/deadCodeElimination.kt");
+        }
+
+        @Test
+        @TestMetadata("inlineEmptyFunction.kt")
+        public void testInlineEmptyFunction() throws Exception {
+            runTest("js/js.translator/testData/box/jsAstOptimizations/inlineEmptyFunction.kt");
+        }
+
+        @Test
+        @TestMetadata("tempVarDeclOnAssignment.kt")
+        public void testTempVarDeclOnAssignment() throws Exception {
+            runTest("js/js.translator/testData/box/jsAstOptimizations/tempVarDeclOnAssignment.kt");
+        }
+    }
+
+    @Nested
     @TestMetadata("js/js.translator/testData/box/jsCode")
     @TestDataPath("$PROJECT_ROOT")
     public class JsCode {
@@ -8180,6 +8344,24 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
         @TestMetadata("overloadExtension.kt")
         public void testOverloadExtension() throws Exception {
             runTest("js/js.translator/testData/box/nameClashes/overloadExtension.kt");
+        }
+
+        @Test
+        @TestMetadata("overloadMethodsWithSameParameterPrivateTypeName.kt")
+        public void testOverloadMethodsWithSameParameterPrivateTypeName() throws Exception {
+            runTest("js/js.translator/testData/box/nameClashes/overloadMethodsWithSameParameterPrivateTypeName.kt");
+        }
+
+        @Test
+        @TestMetadata("overloadMethodsWithSameParameterTypeName.kt")
+        public void testOverloadMethodsWithSameParameterTypeName() throws Exception {
+            runTest("js/js.translator/testData/box/nameClashes/overloadMethodsWithSameParameterTypeName.kt");
+        }
+
+        @Test
+        @TestMetadata("promiseThen.kt")
+        public void testPromiseThen() throws Exception {
+            runTest("js/js.translator/testData/box/nameClashes/promiseThen.kt");
         }
 
         @Test
@@ -9827,6 +10009,18 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
         }
 
         @Test
+        @TestMetadata("createInstance.kt")
+        public void testCreateInstance() throws Exception {
+            runTest("js/js.translator/testData/box/reflection/createInstance.kt");
+        }
+
+        @Test
+        @TestMetadata("createInstanceByInstance.kt")
+        public void testCreateInstanceByInstance() throws Exception {
+            runTest("js/js.translator/testData/box/reflection/createInstanceByInstance.kt");
+        }
+
+        @Test
         @TestMetadata("external.kt")
         public void testExternal() throws Exception {
             runTest("js/js.translator/testData/box/reflection/external.kt");
@@ -10712,6 +10906,12 @@ public class FirJsBoxTestGenerated extends AbstractFirJsBoxTest {
         @TestMetadata("propertySuperAccess.kt")
         public void testPropertySuperAccess() throws Exception {
             runTest("js/js.translator/testData/box/superCall/propertySuperAccess.kt");
+        }
+
+        @Test
+        @TestMetadata("superCallInPrivateMethod.kt")
+        public void testSuperCallInPrivateMethod() throws Exception {
+            runTest("js/js.translator/testData/box/superCall/superCallInPrivateMethod.kt");
         }
 
         @Test

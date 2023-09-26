@@ -51,7 +51,7 @@ internal class KtFirSyntheticJavaPropertySymbol(
 
     override val initializer: KtInitializerValue? by cached { firSymbol.getKtConstantInitializer(analysisSession.firResolveSession) }
 
-    override val modality: Modality get() = withValidityAssertion { firSymbol.modality ?: firSymbol.invalidModalityError() }
+    override val modality: Modality get() = withValidityAssertion { firSymbol.modality }
     override val visibility: Visibility get() = withValidityAssertion { firSymbol.visibility }
 
     override val annotationsList by cached {
@@ -83,6 +83,9 @@ internal class KtFirSyntheticJavaPropertySymbol(
         get() = withValidityAssertion {
             firSymbol.setterSymbol?.let { builder.callableBuilder.buildPropertyAccessorSymbol(it) } as? KtPropertySetterSymbol
         }
+
+    override val backingFieldSymbol: KtBackingFieldSymbol?
+        get() = null
 
     override val isFromPrimaryConstructor: Boolean get() = withValidityAssertion { false }
     override val isOverride: Boolean get() = withValidityAssertion { firSymbol.isOverride }

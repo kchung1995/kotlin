@@ -11,7 +11,7 @@ val embeddableTestRuntime by configurations.creating {
 }
 
 dependencies {
-    allTestsRuntime(commonDependency("junit"))
+    allTestsRuntime(libs.junit4)
     allTestsRuntime(intellijCore())
     testApi(project(":kotlin-scripting-jvm-host-unshaded"))
     testApi(projectTests(":compiler:tests-common"))
@@ -43,7 +43,6 @@ tasks.withType<org.jetbrains.kotlin.gradle.dsl.KotlinCompile<*>> {
 projectTest(parallel = true) {
     dependsOn(":dist")
     workingDir = rootDir
-    systemProperty("kotlin.script.test.base.compiler.arguments", "-Xuse-old-backend")
 }
 
 // This doesn;t work now due to conflicts between embeddable compiler contents and intellij sdk modules
@@ -54,14 +53,10 @@ projectTest(parallel = true) {
 //    classpath = embeddableTestRuntime
 //}
 
-projectTest(taskName = "testWithIr", parallel = true) {
+projectTest(taskName = "testWithK1", parallel = true) {
     dependsOn(":dist")
     workingDir = rootDir
-    systemProperty("kotlin.script.base.compiler.arguments", "-Xuse-ir")
-}
-
-projectTest(taskName = "testWithK2", parallel = true) {
-    dependsOn(":dist")
-    workingDir = rootDir
-    systemProperty("kotlin.script.base.compiler.arguments", "-Xuse-k2")
+    doFirst {
+        systemProperty("kotlin.script.base.compiler.arguments", "-language-version 1.9")
+    }
 }

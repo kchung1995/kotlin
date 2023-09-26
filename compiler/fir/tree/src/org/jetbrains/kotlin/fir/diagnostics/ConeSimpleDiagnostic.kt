@@ -15,6 +15,8 @@ import org.jetbrains.kotlin.name.Name
 
 class ConeSimpleDiagnostic(override val reason: String, val kind: DiagnosticKind = DiagnosticKind.Other) : ConeDiagnostic
 
+class ConeSyntaxDiagnostic(override val reason: String) : ConeDiagnostic
+
 class ConeNotAnnotationContainer(val text: String) : ConeDiagnostic {
     override val reason: String get() = "Strange annotated expression: $text"
 }
@@ -33,6 +35,10 @@ class ConeCannotInferTypeParameterType(
 class ConeCannotInferValueParameterType(
     val valueParameter: FirValueParameterSymbol,
     override val reason: String = "Cannot infer type for parameter ${valueParameter.name}"
+) : ConeDiagnostic
+
+class ConeCannotInferReceiverParameterType(
+    override val reason: String = "Cannot infer type for receiver parameter"
 ) : ConeDiagnostic
 
 class ConeTypeVariableTypeIsNotInferred(
@@ -69,8 +75,19 @@ class ConeAmbiguousFunctionTypeKinds(val kinds: List<FunctionTypeKind>) : ConeDi
         get() = "There are multiple function kinds for functional type ref"
 }
 
+object ConeUnsupportedClassLiteralsWithEmptyLhs : ConeDiagnostic {
+    override val reason: String get() = "No receiver in class literal"
+}
+
+object ConeNoConstructorError : ConeDiagnostic {
+    override val reason: String get() = "This type does not have a constructor"
+}
+
+object ConeMissingConstructorKeyword : ConeDiagnostic {
+    override val reason: String get() = "Use the 'constructor' keyword after the modifiers of the primary constructor."
+}
+
 enum class DiagnosticKind {
-    Syntax,
     ExpressionExpected,
     NotLoopLabel,
     JumpOutsideLoop,

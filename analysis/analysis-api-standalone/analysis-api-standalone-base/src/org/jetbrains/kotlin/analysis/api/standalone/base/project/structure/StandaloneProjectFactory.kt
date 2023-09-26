@@ -7,24 +7,39 @@ package org.jetbrains.kotlin.analysis.api.standalone.base.project.structure
 
 import com.intellij.codeInsight.ExternalAnnotationsManager
 import com.intellij.codeInsight.InferredAnnotationsManager
+import com.intellij.core.CoreApplicationEnvironment
 import com.intellij.core.CoreJavaFileManager
 import com.intellij.core.CorePackageIndex
 import com.intellij.ide.highlighter.JavaFileType
 import com.intellij.mock.MockProject
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.components.ServiceManager
+import com.intellij.openapi.extensions.PluginDescriptor
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.PackageIndex
+import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
-import com.intellij.psi.PsiDirectory
-import com.intellij.psi.PsiFileSystemItem
-import com.intellij.psi.PsiJavaFile
+import com.intellij.openapi.vfs.impl.jar.CoreJarFileSystem
+import com.intellij.psi.*
 import com.intellij.psi.impl.file.impl.JavaFileManager
+import com.intellij.psi.impl.smartPointers.PsiClassReferenceTypePointerFactory
+import com.intellij.psi.impl.smartPointers.SmartPointerManagerImpl
+import com.intellij.psi.impl.smartPointers.SmartTypePointerManagerImpl
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.ProjectScope
 import com.intellij.util.io.URLUtil.JAR_PROTOCOL
 import com.intellij.util.io.URLUtil.JAR_SEPARATOR
+import org.jetbrains.kotlin.analysis.api.impl.base.java.source.JavaElementSourceWithSmartPointerFactory
+import org.jetbrains.kotlin.analysis.api.impl.base.references.HLApiReferenceProviderService
+import org.jetbrains.kotlin.analysis.api.impl.base.util.LibraryUtils
+import org.jetbrains.kotlin.analysis.api.resolve.extensions.KtResolveExtensionProvider
+import org.jetbrains.kotlin.analysis.decompiler.psi.BuiltInsVirtualFileProvider
+import org.jetbrains.kotlin.analysis.decompiler.psi.BuiltInsVirtualFileProviderCliImpl
+import org.jetbrains.kotlin.analysis.decompiler.stub.file.ClsKotlinBinaryClassCache
+import org.jetbrains.kotlin.analysis.decompiler.stub.file.DummyFileAttributeService
+import org.jetbrains.kotlin.analysis.decompiler.stub.file.FileAttributeService
 import org.jetbrains.kotlin.analysis.project.structure.*
+import org.jetbrains.kotlin.analysis.providers.impl.KotlinFakeClsStubsCache
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector
 import org.jetbrains.kotlin.cli.jvm.compiler.*
 import org.jetbrains.kotlin.cli.jvm.index.JavaRoot
@@ -36,25 +51,105 @@ import org.jetbrains.kotlin.cli.jvm.modules.CliJavaModuleResolver
 import org.jetbrains.kotlin.cli.jvm.modules.CoreJrtFileSystem
 import org.jetbrains.kotlin.cli.jvm.modules.JavaModuleGraph
 import org.jetbrains.kotlin.config.*
+import org.jetbrains.kotlin.load.java.structure.impl.source.JavaElementSourceFactory
 import org.jetbrains.kotlin.load.kotlin.MetadataFinderFactory
 import org.jetbrains.kotlin.load.kotlin.VirtualFileFinderFactory
+import org.jetbrains.kotlin.psi.KotlinReferenceProvidersService
 import org.jetbrains.kotlin.resolve.ModuleAnnotationsResolver
+import org.jetbrains.kotlin.resolve.jvm.KotlinJavaPsiFacade
 import org.jetbrains.kotlin.resolve.jvm.modules.JavaModuleResolver
 import org.jetbrains.kotlin.utils.addIfNotNull
 import org.jetbrains.kotlin.utils.addToStdlib.popLast
+import org.picocontainer.PicoContainer
 import java.nio.file.Path
+import java.nio.file.Paths
 
 object StandaloneProjectFactory {
     fun createProjectEnvironment(
         projectDisposable: Disposable,
         applicationDisposable: Disposable,
+        unitTestMode: Boolean = false,
         compilerConfiguration: CompilerConfiguration = CompilerConfiguration(),
+        classLoader: ClassLoader = MockProject::class.java.classLoader,
     ): KotlinCoreProjectEnvironment {
-        val applicationEnvironment =
+        val applicationEnvironment = if (unitTestMode)
             KotlinCoreEnvironment.getOrCreateApplicationEnvironmentForTests(applicationDisposable, compilerConfiguration)
+        else
+            KotlinCoreEnvironment.getOrCreateApplicationEnvironmentForProduction(applicationDisposable, compilerConfiguration)
 
-        return KotlinCoreProjectEnvironment(projectDisposable, applicationEnvironment).apply {
-            registerJavaPsiFacade(project)
+        registerApplicationExtensionPoints(applicationEnvironment, applicationDisposable)
+
+        registerApplicationServices(applicationEnvironment)
+
+        return object : KotlinCoreProjectEnvironment(projectDisposable, applicationEnvironment) {
+            init {
+                registerProjectServices(project)
+                registerJavaPsiFacade(project)
+            }
+
+            override fun createProject(parent: PicoContainer, parentDisposable: Disposable): MockProject {
+                return object : MockProject(parent, parentDisposable) {
+                    @Throws(ClassNotFoundException::class)
+                    override fun <T> loadClass(className: String, pluginDescriptor: PluginDescriptor): Class<T> {
+                        @Suppress("UNCHECKED_CAST")
+                        return Class.forName(className, true, classLoader) as Class<T>
+                    }
+                }
+            }
+        }
+    }
+
+    private fun registerApplicationServices(applicationEnvironment: KotlinCoreApplicationEnvironment) {
+        val application = applicationEnvironment.application
+        if (application.getServiceIfCreated(KotlinFakeClsStubsCache::class.java) != null) {
+            // application services already registered by som other threads, tests
+            return
+        }
+        KotlinCoreEnvironment.underApplicationLock {
+            if (application.getServiceIfCreated(KotlinFakeClsStubsCache::class.java) != null) {
+                // application services already registered by som other threads, tests
+                return
+            }
+            application.apply {
+                registerService(KotlinFakeClsStubsCache::class.java, KotlinFakeClsStubsCache::class.java)
+                registerService(ClsKotlinBinaryClassCache::class.java)
+                registerService(
+                    BuiltInsVirtualFileProvider::class.java,
+                    BuiltInsVirtualFileProviderCliImpl(applicationEnvironment.jarFileSystem as CoreJarFileSystem)
+                )
+                registerService(FileAttributeService::class.java, DummyFileAttributeService::class.java)
+            }
+        }
+    }
+
+    private fun registerProjectServices(project: MockProject) {
+        @Suppress("UnstableApiUsage")
+        CoreApplicationEnvironment.registerExtensionPoint(
+            project.extensionArea,
+            KtResolveExtensionProvider.EP_NAME.name,
+            KtResolveExtensionProvider::class.java
+        )
+
+        project.apply {
+            registerService(KotlinReferenceProvidersService::class.java, HLApiReferenceProviderService::class.java)
+        }
+    }
+
+    private fun registerApplicationExtensionPoints(
+        applicationEnvironment: KotlinCoreApplicationEnvironment,
+        applicationDisposable: Disposable,
+    ) {
+        val applicationArea = applicationEnvironment.application.extensionArea
+
+        if (applicationArea.hasExtensionPoint(ClassTypePointerFactory.EP_NAME)) return
+        KotlinCoreEnvironment.underApplicationLock {
+            if (applicationArea.hasExtensionPoint(ClassTypePointerFactory.EP_NAME)) return@underApplicationLock
+            CoreApplicationEnvironment.registerApplicationExtensionPoint(
+                ClassTypePointerFactory.EP_NAME,
+                ClassTypePointerFactory::class.java
+            )
+            applicationArea.getExtensionPoint(ClassTypePointerFactory.EP_NAME)
+                .registerExtension(PsiClassReferenceTypePointerFactory(), applicationDisposable)
         }
     }
 
@@ -62,7 +157,7 @@ object StandaloneProjectFactory {
         with(project) {
             registerService(
                 CoreJavaFileManager::class.java,
-                ServiceManager.getService(this, JavaFileManager::class.java) as CoreJavaFileManager
+                this.getService(JavaFileManager::class.java) as CoreJavaFileManager
             )
 
             registerService(ExternalAnnotationsManager::class.java, MockExternalAnnotationsManager())
@@ -75,19 +170,33 @@ object StandaloneProjectFactory {
 
     fun registerServicesForProjectEnvironment(
         environment: KotlinCoreProjectEnvironment,
-        projectStructureProvider: ProjectStructureProvider,
-        modules: List<KtModule>,
-        sourceFiles: List<PsiFileSystemItem>,
+        projectStructureProvider: KtStaticProjectStructureProvider,
         languageVersionSettings: LanguageVersionSettings = latestLanguageVersionSettings,
         jdkHome: Path? = null,
     ) {
         val project = environment.project
 
         KotlinCoreEnvironment.registerProjectExtensionPoints(project.extensionArea)
-        KotlinCoreEnvironment.registerProjectServices(project)
+        with(project) {
+            registerService(SmartTypePointerManager::class.java, SmartTypePointerManagerImpl::class.java)
+            registerService(SmartPointerManager::class.java, SmartPointerManagerImpl::class.java)
+            registerService(JavaElementSourceFactory::class.java, JavaElementSourceWithSmartPointerFactory::class.java)
 
+            registerService(KotlinJavaPsiFacade::class.java, KotlinJavaPsiFacade(this))
+            registerService(ModuleAnnotationsResolver::class.java, CliModuleAnnotationsResolver())
+        }
+
+        val modules = projectStructureProvider.allKtModules
         project.registerService(ProjectStructureProvider::class.java, projectStructureProvider)
-        initialiseVirtualFileFinderServices(environment, modules, sourceFiles, languageVersionSettings, jdkHome)
+        project.registerService(KotlinModuleDependentsProvider::class.java, KtStaticModuleDependentsProvider(modules))
+
+        initialiseVirtualFileFinderServices(
+            environment,
+            modules,
+            projectStructureProvider.allSourceFiles,
+            languageVersionSettings,
+            jdkHome,
+        )
     }
 
     private fun initialiseVirtualFileFinderServices(
@@ -160,6 +269,18 @@ object StandaloneProjectFactory {
         project.registerService(VirtualFileFinderFactory::class.java, finderFactory)
     }
 
+    fun getDefaultJdkModulePaths(
+        project: Project,
+        jdkHome: Path?,
+    ): List<Path> {
+        val javaFileManager = project.getService(JavaFileManager::class.java) as KotlinCliJavaFileManagerImpl
+        val javaModuleFinder = CliJavaModuleFinder(jdkHome?.toFile(), null, javaFileManager, project, null)
+        val javaModuleGraph = JavaModuleGraph(javaModuleFinder)
+
+        val javaRoots = getDefaultJdkModuleRoots(javaModuleFinder, javaModuleGraph)
+        return javaRoots.map { getBinaryPath(it.file) }
+    }
+
     /**
      * Computes the [JavaRoot]s of the JDK's default modules.
      *
@@ -203,17 +324,37 @@ object StandaloneProjectFactory {
 
     fun getAllBinaryRoots(
         modules: List<KtModule>,
-        environment: KotlinCoreProjectEnvironment
+        environment: KotlinCoreProjectEnvironment,
     ): List<JavaRoot> = withAllTransitiveDependencies(modules)
         .filterIsInstance<KtBinaryModule>()
         .flatMap { it.getJavaRoots(environment) }
 
+    fun createSearchScopeByLibraryRoots(
+        roots: Collection<Path>,
+        environment: KotlinCoreProjectEnvironment,
+    ): GlobalSearchScope {
+        if (roots.isEmpty()) return GlobalSearchScope.EMPTY_SCOPE
+        val virtualFiles = getVirtualFilesForLibraryRootsRecursively(roots, environment)
+        return GlobalSearchScope.filesScope(environment.project, virtualFiles)
+    }
+
+    fun getVirtualFilesForLibraryRootsRecursively(
+        roots: Collection<Path>,
+        environment: KotlinCoreProjectEnvironment,
+    ): Collection<VirtualFile> {
+        val virtualFilesByRoots = getVirtualFilesForLibraryRoots(roots, environment)
+        return buildList {
+            addAll(virtualFilesByRoots)
+            virtualFilesByRoots.flatMapTo(this) { LibraryUtils.getAllVirtualFilesFromRoot(it, includeRoot = true) }
+        }
+    }
+
     fun getVirtualFilesForLibraryRoots(
         roots: Collection<Path>,
-        environment: KotlinCoreProjectEnvironment
+        environment: KotlinCoreProjectEnvironment,
     ): List<VirtualFile> {
         return roots.mapNotNull { path ->
-            val pathString = path.toAbsolutePath().toString()
+            val pathString = FileUtil.toSystemIndependentName(path.toAbsolutePath().toString())
             when {
                 pathString.endsWith(JAR_PROTOCOL) -> {
                     environment.environment.jarFileSystem.findFileByPath(pathString + JAR_SEPARATOR)
@@ -227,7 +368,7 @@ object StandaloneProjectFactory {
                     VirtualFileManager.getInstance().findFileByNioPath(path)
                 }
             }
-        }
+        }.distinct()
     }
 
     private fun withAllTransitiveDependencies(ktModules: List<KtModule>): List<KtModule> {
@@ -261,7 +402,9 @@ object StandaloneProjectFactory {
     private fun KtBinaryModule.getJavaRoots(
         environment: KotlinCoreProjectEnvironment,
     ): List<JavaRoot> {
-        return getVirtualFilesForLibraryRoots(getBinaryRoots(), environment).map { root -> JavaRoot(root, JavaRoot.RootType.BINARY)}
+        return getVirtualFilesForLibraryRoots(getBinaryRoots(), environment).map { root ->
+            JavaRoot(root, JavaRoot.RootType.BINARY)
+        }
     }
 
     private fun adjustModulePath(pathString: String): String {
@@ -273,11 +416,34 @@ object StandaloneProjectFactory {
             // e.g., "/path/to/jdk/home!/modules/java.base". (JDK home path + JAR separator + actual file path)
             // To work with that JRT handler, a hacky workaround here is to add "modules" before the module name so that it can
             // find the actual file path.
-            // See [LLFirJavaFacadeForBinaries#getBinaryPath] for a similar hack.
+            // See [LLFirJavaFacadeForBinaries#getBinaryPath] and [StandaloneProjectFactory#getBinaryPath] for a similar hack.
             val (libHomePath, pathInImage) = CoreJrtFileSystem.splitPath(pathString)
             libHomePath + JAR_SEPARATOR + "modules/$pathInImage"
         } else
             pathString
+    }
+
+    // From [LLFirJavaFacadeForBinaries#getBinaryPath]
+    private fun getBinaryPath(virtualFile: VirtualFile): Path {
+        val path = virtualFile.path
+        return when {
+            ".$JAR_PROTOCOL$JAR_SEPARATOR" in path ->
+                Paths.get(path.substringBefore(JAR_SEPARATOR))
+            JAR_SEPARATOR in path && "modules/" in path -> {
+                // CoreJrtFileSystem.CoreJrtHandler#findFile, which uses Path#resolve, finds a virtual file path to the file itself,
+                // e.g., "/path/to/jdk/home!/modules/java.base/java/lang/Object.class". (JDK home path + JAR separator + actual file path)
+                // URLs loaded from JDK, though, point to module names in a JRT protocol format,
+                // e.g., "jrt:///path/to/jdk/home!/java.base" (JRT protocol prefix + JDK home path + JAR separator + module name)
+                // After splitting at the JAR separator, it is regarded as a root directory "/java.base".
+                // To work with LibraryPathFilter, a hacky workaround here is to remove "modules/" from actual file path.
+                // e.g. "/path/to/jdk/home!/java.base/java/lang/Object.class", which, from Path viewpoint, belongs to "/java.base",
+                // after splitting at the JAR separator, in a similar way.
+                // See [StandaloneProjectFactory#getAllBinaryRoots] for a similar hack.
+                Paths.get(path.replace("modules/", ""))
+            }
+            else ->
+                Paths.get(path)
+        }
     }
 
     fun createPackagePartsProvider(

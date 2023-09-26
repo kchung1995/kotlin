@@ -69,12 +69,6 @@ fun List<FirAnnotation>.nonSourceAnnotations(session: FirSession): List<FirAnnot
 fun FirAnnotationContainer.nonSourceAnnotations(session: FirSession): List<FirAnnotation> =
     annotations.nonSourceAnnotations(session)
 
-@Suppress("NOTHING_TO_INLINE")
-inline fun FirProperty.hasJvmFieldAnnotation(session: FirSession): Boolean = annotations.any { it.isJvmFieldAnnotation(session) }
-
-fun FirAnnotation.isJvmFieldAnnotation(session: FirSession): Boolean =
-    toAnnotationClassId(session) == StandardClassIds.Annotations.JvmField
-
 fun FirAnnotation.useSiteTargetsFromMetaAnnotation(session: FirSession): Set<AnnotationUseSiteTarget> {
     return toAnnotationClass(session)
         ?.annotations
@@ -178,22 +172,16 @@ fun List<FirAnnotation>.getAnnotationsByClassId(classId: ClassId, session: FirSe
     }
 }
 
-inline fun <T> List<FirAnnotation>.mapAnnotationsWithClassIdTo(
-    classId: ClassId,
-    destination: MutableCollection<T>,
-    func: (FirAnnotation) -> T
-) {
-    for (annotation in this) {
-        if (annotation.annotationTypeRef.coneTypeSafe<ConeClassLikeType>()?.lookupTag?.classId == classId) {
-            destination.add(func(annotation))
-        }
+fun List<FirAnnotation>.getAnnotationByClassIds(classIds: Collection<ClassId>, session: FirSession): FirAnnotation? {
+    return firstOrNull {
+        it.annotationTypeRef.coneTypeSafe<ConeClassLikeType>()?.fullyExpandedType(session)?.lookupTag?.classId in classIds
     }
 }
 
 fun FirExpression.unwrapVarargValue(): List<FirExpression> {
     return when (this) {
         is FirVarargArgumentsExpression -> arguments
-        is FirArrayOfCall -> arguments
+        is FirArrayLiteral -> arguments
         else -> listOf(this)
     }
 }
@@ -215,9 +203,8 @@ fun FirAnnotation.findArgumentByName(name: Name): FirExpression? {
 
 fun FirAnnotation.getBooleanArgument(name: Name): Boolean? = getPrimitiveArgumentValue(name)
 fun FirAnnotation.getStringArgument(name: Name): String? = getPrimitiveArgumentValue(name)
-fun FirAnnotation.getIntArgument(name: Name): Int? = getPrimitiveArgumentValue(name)
 fun FirAnnotation.getStringArrayArgument(name: Name): List<String>? {
-    val argument = findArgumentByName(name) as? FirArrayOfCall ?: return null
+    val argument = findArgumentByName(name) as? FirArrayLiteral ?: return null
     return argument.arguments.mapNotNull { (it as? FirConstExpression<*>)?.value as? String }
 }
 
@@ -233,15 +220,7 @@ fun FirAnnotation.getKClassArgument(name: Name): ConeKotlinType? {
 }
 
 fun FirGetClassCall.getTargetType(): ConeKotlinType? {
-    return typeRef.coneType.typeArguments.getOrNull(0)?.type
-}
-
-fun FirAnnotationContainer.getJvmNameFromAnnotation(session: FirSession, target: AnnotationUseSiteTarget? = null): String? {
-    val annotationCalls = getAnnotationsByClassId(StandardClassIds.Annotations.JvmName, session)
-    return annotationCalls.firstNotNullOfOrNull { call ->
-        call.getStringArgument(StandardClassIds.Annotations.ParameterNames.jvmNameName)
-            ?.takeIf { target == null || call.useSiteTarget == target }
-    }
+    return resolvedType.typeArguments.getOrNull(0)?.type
 }
 
 val FirAnnotation.resolved: Boolean

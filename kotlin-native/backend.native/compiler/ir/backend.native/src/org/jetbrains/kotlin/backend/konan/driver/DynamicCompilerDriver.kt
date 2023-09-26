@@ -45,6 +45,7 @@ internal class DynamicCompilerDriver : CompilerDriver() {
                         CompilerOutputKind.DYNAMIC_CACHE -> produceBinary(engine, config, environment)
                         CompilerOutputKind.STATIC_CACHE -> produceBinary(engine, config, environment)
                         CompilerOutputKind.PRELIMINARY_CACHE -> TODO()
+                        CompilerOutputKind.TEST_BUNDLE -> produceBundle(engine, config, environment)
                     }
                 }
             }
@@ -89,7 +90,7 @@ internal class DynamicCompilerDriver : CompilerDriver() {
 
     private fun produceKlib(engine: PhaseEngine<PhaseContext>, config: KonanConfig, environment: KotlinCoreEnvironment) {
         val serializerOutput = if (environment.configuration.getBoolean(CommonConfigurationKeys.USE_FIR))
-            serializeKLibK2(engine, environment)
+            serializeKLibK2(engine, config, environment)
         else
             serializeKlibK1(engine, config, environment)
         serializerOutput?.let { engine.writeKlib(it) }
@@ -97,15 +98,27 @@ internal class DynamicCompilerDriver : CompilerDriver() {
 
     private fun serializeKLibK2(
             engine: PhaseEngine<PhaseContext>,
+            config: KonanConfig,
             environment: KotlinCoreEnvironment
     ): SerializerOutput? {
         val frontendOutput = engine.runFirFrontend(environment)
         if (frontendOutput is FirOutput.ShouldNotGenerateCode) return null
         require(frontendOutput is FirOutput.Full)
 
-        val fir2IrOutput = engine.runFir2Ir(frontendOutput)
-//        engine.runK2SpecialBackendChecks(fir2IrOutput)  // TODO After fix of KT-56018 try uncommenting this line
-        return engine.runFirSerializer(fir2IrOutput)
+        return if (config.metadataKlib) {
+            engine.runFirSerializer(frontendOutput)
+        } else {
+            val fir2IrOutput = engine.runFir2Ir(frontendOutput)
+
+            val headerKlibPath = config.headerKlibPath
+            if (!headerKlibPath.isNullOrEmpty()) {
+                val headerKlib = engine.runFir2IrSerializer(FirSerializerInput(fir2IrOutput, produceHeaderKlib = true))
+                engine.writeKlib(headerKlib, headerKlibPath)
+            }
+
+            engine.runK2SpecialBackendChecks(fir2IrOutput)
+            engine.runFir2IrSerializer(FirSerializerInput(fir2IrOutput))
+        }
     }
 
     private fun serializeKlibK1(
@@ -118,6 +131,10 @@ internal class DynamicCompilerDriver : CompilerDriver() {
             null
         } else {
             engine.runPsiToIr(frontendOutput, isProducingLibrary = true) as PsiToIrOutput.ForKlib
+        }
+        if (!config.headerKlibPath.isNullOrEmpty()) {
+            val headerKlib = engine.runSerializer(frontendOutput.moduleDescriptor, psiToIrOutput, produceHeaderKlib = true)
+            engine.writeKlib(headerKlib, config.headerKlibPath)
         }
         return engine.runSerializer(frontendOutput.moduleDescriptor, psiToIrOutput)
     }
@@ -148,6 +165,26 @@ internal class DynamicCompilerDriver : CompilerDriver() {
             llvmModule?.let { LLVMDisposeModule(it) }
             LLVMContextDispose(llvmContext)
         }
+    }
+
+    /**
+     * Produce a bundle that is a directory with code and resources.
+     * It consists of
+     * - Info.plist
+     * - Binary without an entry point.
+     *
+     * See https://developer.apple.com/library/archive/documentation/CoreFoundation/Conceptual/CFBundles/AboutBundles/AboutBundles.html
+     */
+    private fun produceBundle(engine: PhaseEngine<PhaseContext>, config: KonanConfig, environment: KotlinCoreEnvironment) {
+        require(config.target.family.isAppleFamily)
+        require(config.produce == CompilerOutputKind.TEST_BUNDLE)
+
+        val frontendOutput = engine.runFrontend(config, environment) ?: return
+        engine.runPhase(CreateTestBundlePhase, frontendOutput)
+        val psiToIrOutput = engine.runPsiToIr(frontendOutput, isProducingLibrary = false)
+        require(psiToIrOutput is PsiToIrOutput.ForBackend)
+        val backendContext = createBackendContext(config, frontendOutput, psiToIrOutput)
+        engine.runBackend(backendContext, psiToIrOutput.irModule)
     }
 
     private fun createBackendContext(

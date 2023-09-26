@@ -1,6 +1,15 @@
-// !DIAGNOSTICS: -UNUSED_EXPRESSION -UNUSED_VARIABLE -UNREACHABLE_CODE -CAN_BE_VAL
+// !DIAGNOSTICS: -UNUSED_EXPRESSION
 // SKIP_TXT
 // WITH_EXTENDED_CHECKERS
+
+/*
+ * KOTLIN DIAGNOSTICS NOT LINKED SPEC TEST (POSITIVE)
+ *
+ * SECTIONS: dfa
+ * NUMBER: 6
+ * DESCRIPTION: Raw data flow analysis test
+ * HELPERS: classes, enumClasses, interfaces, objects, typealiases, properties, functions
+ */
 
 // FILE: other_types.kt
 
@@ -174,7 +183,7 @@ fun case_10() {
     val a = Class()
     val b = null
 
-    if (a.prop_4 === b || true) {
+    if (<!FORBIDDEN_IDENTITY_EQUALS_WARNING!>a.prop_4 === b<!> || true) {
         if (a.prop_4 != null) {
             a.prop_4
             a.prop_4.equals(null)
@@ -235,7 +244,7 @@ fun case_12(x: TypealiasNullableString, y: TypealiasNullableString, z1: Nothing?
 
 // TESTCASE NUMBER: 13
 fun case_13(x: EmptyClass12_48?, z: Nothing?) =
-    if (x == z || <!SENSELESS_COMPARISON!>x === z<!> && <!SENSELESS_COMPARISON!>x == z<!>) {
+    if (x == z || <!SENSELESS_COMPARISON!>x === z<!> && <!SENSELESS_COMPARISON!>x <!UNREACHABLE_CODE!>== z<!><!>) {
         throw Exception()
     } else {
         <!DEBUG_INFO_EXPRESSION_TYPE("othertypes.EmptyClass12_48? & othertypes.EmptyClass12_48")!>x<!>
@@ -280,7 +289,7 @@ fun case_14() {
 // TESTCASE NUMBER: 15
 fun case_15(x: TypealiasNullableString) {
     val y = null
-    val z = if (x === null || <!SENSELESS_COMPARISON!>y == x<!> && <!SENSELESS_COMPARISON!>x === y<!> || <!SENSELESS_COMPARISON!>null === x<!>) "" else {
+    val <!UNUSED_VARIABLE!>z<!> = if (x === null || <!SENSELESS_COMPARISON!>y == x<!> && <!SENSELESS_COMPARISON!>x <!UNREACHABLE_CODE!>=== y<!><!> || <!SENSELESS_COMPARISON!>null === x<!>) "" else {
         <!DEBUG_INFO_EXPRESSION_TYPE("TypealiasNullableString & kotlin.String")!>x<!>
         <!DEBUG_INFO_EXPRESSION_TYPE("TypealiasNullableString & kotlin.String")!>x<!>.equals(null)
         <!DEBUG_INFO_EXPRESSION_TYPE("TypealiasNullableString & kotlin.String")!>x<!>.propT
@@ -299,14 +308,14 @@ fun case_16() {
     val x: TypealiasNullableNothing = null
     val y: Nothing? = null
 
-    if (x !== y) {
+    if (<!SENSELESS_COMPARISON!>x !== y<!>) {
         <!DEBUG_INFO_EXPRESSION_TYPE("TypealiasNullableNothing & kotlin.Nothing")!>x<!>
-        <!DEBUG_INFO_EXPRESSION_TYPE("TypealiasNullableNothing & kotlin.Nothing")!>x<!>.hashCode()
+        <!UNREACHABLE_CODE!><!DEBUG_INFO_EXPRESSION_TYPE("TypealiasNullableNothing & kotlin.Nothing")!>x<!>.hashCode()<!>
     }
 }
 
 // TESTCASE NUMBER: 17
-val case_17 = if (nullableIntProperty === implicitNullableNothingProperty) 0 else {
+val case_17 = if (<!FORBIDDEN_IDENTITY_EQUALS_WARNING!>nullableIntProperty === implicitNullableNothingProperty<!>) 0 else {
     <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Int? & kotlin.Int")!>nullableIntProperty<!>
     <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Int? & kotlin.Int")!>nullableIntProperty<!>.equals(null)
     <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Int? & kotlin.Int")!>nullableIntProperty<!>.propT
@@ -404,7 +413,7 @@ fun case_20(x: Boolean, y: Nothing?) {
 
 // TESTCASE NUMBER: 21
 fun case_21() {
-    if (EnumClassWithNullableProperty.A.prop_1 !== implicitNullableNothingProperty) {
+    if (<!FORBIDDEN_IDENTITY_EQUALS_WARNING!>EnumClassWithNullableProperty.A.prop_1 !== implicitNullableNothingProperty<!>) {
         EnumClassWithNullableProperty.A.prop_1
         EnumClassWithNullableProperty.A.prop_1.equals(null)
         EnumClassWithNullableProperty.A.prop_1.propT
@@ -436,9 +445,9 @@ fun case_22(a: (() -> Unit)?) {
 
 // TESTCASE NUMBER: 23
 fun case_23(a: ((Float) -> Int?)?, b: Float?, z: Nothing?) {
-    if (a != z && b !== z && <!SENSELESS_COMPARISON!>b !== z<!>) {
+    if (a != z && <!FORBIDDEN_IDENTITY_EQUALS_WARNING!>b !== z<!> && <!FORBIDDEN_IDENTITY_EQUALS_WARNING, SENSELESS_COMPARISON!>b !== z<!>) {
         val x = <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Int?")!>a(<!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Float? & kotlin.Float")!>b<!>)<!>
-        if (x != z || <!SENSELESS_COMPARISON!>x !== implicitNullableNothingProperty<!>) {
+        if (x != z || <!FORBIDDEN_IDENTITY_EQUALS_WARNING, SENSELESS_COMPARISON!>x !== implicitNullableNothingProperty<!>) {
             <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Int?")!>x<!>
             <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Int?")!>x<!><!UNSAFE_CALL!>.<!>equals(null)
             <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Int?")!>x<!>.propT
@@ -507,11 +516,11 @@ fun case_25(b: Boolean, z: Nothing?) {
 
 // TESTCASE NUMBER: 26
 fun case_26(a: ((Float) -> Int?)?, b: Float?) {
-    var z = null
+    <!CAN_BE_VAL!>var<!> z = null
 
     if (a != z == true && b != implicitNullableNothingProperty == true) {
         val x = <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Int?")!>a(<!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Float? & kotlin.Float")!>b<!>)<!>
-        if (x != implicitNullableNothingProperty == true || <!SENSELESS_COMPARISON!>z !== x<!>) {
+        if (x != implicitNullableNothingProperty == true || <!FORBIDDEN_IDENTITY_EQUALS_WARNING, SENSELESS_COMPARISON!>z !== x<!>) {
             <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Int? & kotlin.Int")!>x<!>
             <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Int? & kotlin.Int")!>x<!>.equals(null)
             <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Int? & kotlin.Int")!>x<!>.propT
@@ -576,7 +585,7 @@ fun case_29(x: Boolean) {
     if (false || false || false || false || y !== v) {
         val t = <!DEBUG_INFO_EXPRESSION_TYPE("<anonymous>?")!><!UNSAFE_IMPLICIT_INVOKE_CALL!>y<!>()<!>
 
-        if (<!EQUALITY_NOT_APPLICABLE_WARNING!>z !== t<!> || false) {
+        if (z !== t || false) {
             <!DEBUG_INFO_EXPRESSION_TYPE("<anonymous>?")!>t<!><!UNSAFE_CALL!>.<!>a
             <!DEBUG_INFO_EXPRESSION_TYPE("<anonymous>?")!>t<!><!UNSAFE_CALL!>.<!>equals(null)
             <!DEBUG_INFO_EXPRESSION_TYPE("<anonymous>?")!>t<!>.propT
@@ -612,7 +621,7 @@ fun case_30(a: ((Float) -> Int?)?, b: Float?) {
 
 // TESTCASE NUMBER: 31
 fun case_31(z1: Boolean?, z: Nothing?) {
-    if (false || EnumClassWithNullableProperty.A.prop_1 != z && z1 !== z && z1) {
+    if (false || EnumClassWithNullableProperty.A.prop_1 != z && <!FORBIDDEN_IDENTITY_EQUALS_WARNING!>z1 !== z<!> && z1) {
         EnumClassWithNullableProperty.A.prop_1
         EnumClassWithNullableProperty.A.prop_1<!UNSAFE_CALL!>.<!>equals(null)
         EnumClassWithNullableProperty.A.prop_1.propT
@@ -645,13 +654,13 @@ fun case_32(a: DeepObject.A.B.C.D.E.F.G.J?) =
 
 // TESTCASE NUMBER: 33
 fun case_33(a: ((Float) -> Int?)?, b: Float?, c: Boolean?) {
-    var z = null
+    <!CAN_BE_VAL!>var<!> z = null
 
     if (true && a == z == true || b == null == true) {
 
     } else {
         val x = <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Int?")!><!UNSAFE_IMPLICIT_INVOKE_CALL!>a<!>(<!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Float? & kotlin.Float")!>b<!>)<!>
-        if (x == z == true && <!SENSELESS_COMPARISON!>x === z<!> || (c != z && !c)) {
+        if (x == z == true && <!FORBIDDEN_IDENTITY_EQUALS_WARNING, SENSELESS_COMPARISON!>x === z<!> || (c != z && !c)) {
 
         } else {
             <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Int?")!>x<!>
@@ -674,9 +683,9 @@ fun case_33(a: ((Float) -> Int?)?, b: Float?, c: Boolean?) {
  * ISSUES: KT-28329
  */
 fun case_34(z1: Boolean?) {
-    var z = null
+    <!CAN_BE_VAL!>var<!> z = null
 
-    if (true && true && true && true && EnumClassWithNullableProperty.A.prop_1 != implicitNullableNothingProperty && <!SENSELESS_COMPARISON!>EnumClassWithNullableProperty.A.prop_1 !== null<!> && <!SENSELESS_COMPARISON!>EnumClassWithNullableProperty.A.prop_1 !== z<!> || z1 != implicitNullableNothingProperty || z1!! && true && true) {
+    if (true && true && true && true && EnumClassWithNullableProperty.A.prop_1 != implicitNullableNothingProperty && <!FORBIDDEN_IDENTITY_EQUALS_WARNING, SENSELESS_COMPARISON!>EnumClassWithNullableProperty.A.prop_1 !== null<!> && <!FORBIDDEN_IDENTITY_EQUALS_WARNING, SENSELESS_COMPARISON!>EnumClassWithNullableProperty.A.prop_1 !== z<!> || z1 != implicitNullableNothingProperty || z1!! && <!UNREACHABLE_CODE!>true<!> && <!UNREACHABLE_CODE!>true<!>) {
 
     } else {
         EnumClassWithNullableProperty.A.prop_1
@@ -709,11 +718,11 @@ fun case_35(a: DeepObject.A.B.C.D.E.F.G.J?) {
  * UNEXPECTED BEHAVIOUR
  */
 fun case_36(x: Any) {
-    var z = null
+    <!CAN_BE_VAL!>var<!> z = null
 
     if (<!SENSELESS_COMPARISON!>x == z<!>) {
         <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Any & kotlin.Nothing")!>x<!>
-        <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Any & kotlin.Nothing")!>x<!>.<!NEW_INFERENCE_NO_INFORMATION_FOR_PARAMETER!>java<!>
+        <!UNREACHABLE_CODE!><!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Any & kotlin.Nothing")!>x<!>.<!NEW_INFERENCE_NO_INFORMATION_FOR_PARAMETER!>java<!><!>
     }
 }
 
@@ -732,11 +741,11 @@ fun case_37(x: Nothing?, y: Nothing?) {
 fun case_38() {
     val z = null
 
-    <!NEW_INFERENCE_NO_INFORMATION_FOR_PARAMETER!>if (<!SENSELESS_COMPARISON!>Object.prop_2 != z<!>)
+    if (<!SENSELESS_COMPARISON!>Object.prop_2 != z<!>)
     else {
         Object.prop_2
-        Object.prop_2.java
-    }<!>
+        <!UNREACHABLE_CODE!>Object.prop_2.<!NEW_INFERENCE_NO_INFORMATION_FOR_PARAMETER!>java<!><!>
+    }
 }
 
 // TESTCASE NUMBER: 39
@@ -750,7 +759,7 @@ fun case_39(x: Char?) {
 // TESTCASE NUMBER: 40
 fun case_40() {
     val x: Unit? = null
-    var z = null
+    <!CAN_BE_VAL!>var<!> z = null
 
     if (x == implicitNullableNothingProperty || <!SENSELESS_COMPARISON!>z === x<!>) {
         <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Unit?")!>x<!>
@@ -819,7 +828,7 @@ fun case_44(x: TypealiasNullableString<!REDUNDANT_NULLABLE!>?<!>, z1: Nothing?) 
 // TESTCASE NUMBER: 45
 fun case_45() {
     val a = Class()
-    var z: Nothing? = null
+    <!CAN_BE_VAL!>var<!> z: Nothing? = null
 
     if (a.prop_4 != z || true) {
         if (a.prop_4 == null) {
@@ -832,7 +841,7 @@ fun case_45() {
 // TESTCASE NUMBER: 46
 fun case_46(x: TypealiasNullableString<!REDUNDANT_NULLABLE!>?<!>, y: TypealiasNullableString) {
     val t: TypealiasNullableString = null
-    var z: Nothing? = null
+    <!CAN_BE_VAL!>var<!> z: Nothing? = null
 
     if (x != nullableNothingProperty) {
 
@@ -886,7 +895,7 @@ class Case49 {
 
 fun case_49() {
     val a = Case49()
-    var z = null
+    <!CAN_BE_VAL!>var<!> z = null
 
     if (a.x === z) {
         a.x
@@ -898,7 +907,7 @@ fun case_49() {
 fun case_50(x: TypealiasNullableString) {
     val z1 = null
     val z2 = null
-    val t = if (x != z1 && <!SENSELESS_COMPARISON!>z2 !== x<!>) "" else {
+    val <!UNUSED_VARIABLE!>t<!> = if (x != z1 && <!SENSELESS_COMPARISON!>z2 !== x<!>) "" else {
         <!DEBUG_INFO_EXPRESSION_TYPE("TypealiasNullableString")!>x<!>
         <!DEBUG_INFO_EXPRESSION_TYPE("TypealiasNullableString")!>x<!>.hashCode()
     }
@@ -909,14 +918,14 @@ fun case_51() {
     val x: TypealiasNullableNothing = null
     val z: Nothing? = null
 
-    if (x === z || <!SENSELESS_COMPARISON!>z == x<!> && <!SENSELESS_COMPARISON!>x == z<!> || false || false || false) {
+    if (<!SENSELESS_COMPARISON!>x === z<!> || <!SENSELESS_COMPARISON!>z <!UNREACHABLE_CODE!>==<!> x<!> && <!SENSELESS_COMPARISON, UNREACHABLE_CODE!>x == z<!> || false || false || false) {
         <!DEBUG_INFO_EXPRESSION_TYPE("TypealiasNullableNothing")!>x<!>
         <!DEBUG_INFO_EXPRESSION_TYPE("TypealiasNullableNothing")!>x<!>.hashCode()
     }
 }
 
 // TESTCASE NUMBER: 52
-val case_52 = if (nullableIntProperty !== nullableNothingProperty && <!SENSELESS_COMPARISON!>nullableNothingProperty != nullableIntProperty<!>) 0 else {
+val case_52 = if (<!FORBIDDEN_IDENTITY_EQUALS_WARNING!>nullableIntProperty !== nullableNothingProperty<!> && <!SENSELESS_COMPARISON!>nullableNothingProperty != nullableIntProperty<!>) 0 else {
     <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Int?")!>nullableIntProperty<!>
     <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Int?")!>nullableIntProperty<!>.hashCode()
 }
@@ -989,11 +998,11 @@ fun case_56() {
  * UNEXPECTED BEHAVIOUR
  */
 fun case_57(a: (() -> Unit)) {
-    var z = null
+    <!CAN_BE_VAL!>var<!> z = null
 
     if (<!SENSELESS_COMPARISON!>a == z<!>) {
         <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Function0<kotlin.Unit> & kotlin.Nothing")!>a<!>
-        <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Function0<kotlin.Unit> & kotlin.Nothing")!>a<!>.<!NEW_INFERENCE_NO_INFORMATION_FOR_PARAMETER!>java<!>
+        <!UNREACHABLE_CODE!><!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Function0<kotlin.Unit> & kotlin.Nothing")!>a<!>.<!NEW_INFERENCE_NO_INFORMATION_FOR_PARAMETER!>java<!><!>
     }
 }
 
@@ -1002,7 +1011,7 @@ fun case_57(a: (() -> Unit)) {
  * UNEXPECTED BEHAVIOUR
  */
 fun case_58(a: ((Float) -> Int?)?, b: Float?, z: Nothing?) {
-    if (a === z && b == z || z == a && z === b) {
+    if (a === z && b == z || z == a && <!FORBIDDEN_IDENTITY_EQUALS_WARNING!>z === b<!>) {
         <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Function1<kotlin.Float, kotlin.Int?>?")!>a<!>
         <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Float?")!>b<!>
         if (a != z) {
@@ -1081,7 +1090,7 @@ fun case_61(x: Any?) {
 
 // TESTCASE NUMBER: 62
 fun case_62(x: Any?) {
-    var z = null
+    <!CAN_BE_VAL!>var<!> z = null
     if (x is Number? && x is Int? && x != z) {
         <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Any? & kotlin.Int")!>x<!>
         <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Any? & kotlin.Int")!>x<!>.equals(null)
@@ -1195,7 +1204,7 @@ fun case_66(x: Any?, z1: Nothing?, z2: Nothing?, b: Boolean) {
 
 // TESTCASE NUMBER: 67
 fun case_67(x: Any?) {
-    var z = null
+    <!CAN_BE_VAL!>var<!> z = null
 
     if (x is ClassLevel1? && x is ClassLevel2? && x is ClassLevel3?) {
         if (x is ClassLevel4? && x != (fun (): Nothing? { return z })() && x is ClassLevel5?) {
@@ -1289,7 +1298,7 @@ fun case_70(x: Any?) {
  */
 fun case_71(t: Any?) {
     val z1 = null
-    var z2 = z1
+    <!CAN_BE_VAL!>var<!> z2 = z1
 
     if (t is Interface1?) {
         if (t is Interface2?) {
@@ -1313,9 +1322,9 @@ fun case_71(t: Any?) {
  * ISSUES: KT-28362, KT-27032, KT-35668
  */
 fun case_72(t: Any?, z1: Nothing?) {
-    var z2 = null
+    <!CAN_BE_VAL!>var<!> z2 = null
 
-    if (t is Interface1? && t != z1 ?: z2 && t is Interface2?) {
+    if (t is Interface1? && t != z1 <!UNREACHABLE_CODE!>?:<!> z2 && t is Interface2?) {
         <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Any? & Interface1? & Interface2?")!>t<!>
         <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Any? & Interface1? & Interface2?")!>t<!><!UNSAFE_CALL!>.<!>itest1()
         <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Any? & Interface1? & Interface2?")!>t<!><!UNSAFE_CALL!>.<!>itest2()
@@ -1400,7 +1409,7 @@ fun case_75(t: Any?, z: Nothing?) {
 }
 
 // TESTCASE NUMBER: 76
-fun case_76(a: Any?, b: Int = if (a !is Number? === true || a !is Int? == true || a != null == false == true) 0 else <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Any? & kotlin.Int")!>a<!>) {
+fun case_76(a: Any?, b: Int = if (<!DEPRECATED_IDENTITY_EQUALS!>a !is Number? === true<!> || a !is Int? == true || a != null == false == true) 0 else <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Any? & kotlin.Int")!>a<!>) {
     <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Any?")!>a<!>
     <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Int")!>b<!>
     <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Int")!>b<!>.equals(null)

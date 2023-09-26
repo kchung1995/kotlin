@@ -5,7 +5,6 @@
 
 package org.jetbrains.kotlin.cli.common.arguments
 
-import org.jetbrains.kotlin.cli.common.CompilerSystemProperties
 import org.jetbrains.kotlin.cli.common.arguments.K2JsArgumentConstants.*
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector
@@ -295,6 +294,34 @@ class K2JSCompilerArguments : CommonCompilerArguments() {
             field = value
         }
 
+    @Argument(
+        value = "-Xir-dce-dump-reachability-info-to-file",
+        valueDescription = "<path>",
+        description = "Dump declarations' reachability info collected during performing DCE to a file. " +
+                "The format will be chosen automatically based on the file extension. " +
+                "Supported output formats include JSON for .json, JS const initialized with a plain object containing information for .js, " +
+                "and plain text for all other file types."
+    )
+    var irDceDumpReachabilityInfoToFile: String? = null
+        set(value) {
+            checkFrozen()
+            field = value
+        }
+
+    @Argument(
+        value = "-Xir-dump-declaration-ir-sizes-to-file",
+        valueDescription = "<path>",
+        description = "Dump the IR size of each declaration to a file. " +
+                "The format will be chosen automatically depending on the file extension. " +
+                "Supported output formats include JSON for .json, JS const initialized with a plain object containing information for .js, " +
+                "and plain text for all other file types."
+    )
+    var irDceDumpDeclarationIrSizesToFile: String? = null
+        set(value) {
+            checkFrozen()
+            field = value
+        }
+
     @Argument(value = "-Xir-property-lazy-initialization", description = "Perform lazy initialization for properties")
     var irPropertyLazyInitialization = true
         set(value) {
@@ -540,11 +567,18 @@ class K2JSCompilerArguments : CommonCompilerArguments() {
             field = if (value.isNullOrEmpty()) null else value
         }
 
-    @Argument(value = "-Xpartial-linkage", description = "Allow unlinked symbols")
-    var partialLinkage = false
+    @Argument(value = "-Xpartial-linkage", valueDescription = "{enable|disable}", description = "Use partial linkage mode")
+    var partialLinkageMode: String? = null
         set(value) {
             checkFrozen()
-            field = value
+            field = if (value.isNullOrEmpty()) null else value
+        }
+
+    @Argument(value = "-Xpartial-linkage-loglevel", valueDescription = "{info|warning|error}", description = "Partial linkage compile-time log level")
+    var partialLinkageLogLevel: String? = null
+        set(value) {
+            checkFrozen()
+            field = if (value.isNullOrEmpty()) null else value
         }
 
     @Argument(value = "-Xwasm", description = "Use experimental WebAssembly compiler backend")
@@ -589,11 +623,38 @@ class K2JSCompilerArguments : CommonCompilerArguments() {
             field = value
         }
 
+    @Argument(value = "-Xwasm-target", description = "Set up Wasm target (wasm-js or wasm-wasi)")
+    var wasmTarget: String? = null
+        set(value) {
+            checkFrozen()
+            field = if (value.isNullOrEmpty()) null else value
+        }
+
+    @Argument(
+        value = "-Xwasm-use-traps-instead-of-exceptions",
+        description = "Trap instead of throwing exceptions"
+    )
+    var wasmUseTrapsInsteadOfExceptions = false
+        set(value) {
+            checkFrozen()
+            field = value
+        }
+
     @Argument(
         value = "-Xforce-deprecated-legacy-compiler-usage",
         description = "The flag is used only for our inner infrastructure. It will be removed soon, so it's unsafe to use it nowadays."
     )
     var forceDeprecatedLegacyCompilerUsage = false
+        set(value) {
+            checkFrozen()
+            field = value
+        }
+
+    @Argument(
+        value = "-Xoptimize-generated-js",
+        description = "Perform additional optimizations on the generated JS code"
+    )
+    var optimizeGeneratedJs = true
         set(value) {
             checkFrozen()
             field = value
@@ -612,6 +673,13 @@ class K2JSCompilerArguments : CommonCompilerArguments() {
         collector.deprecationWarn(enableJsScripting, false, "-Xenable-js-scripting")
         collector.deprecationWarn(irBaseClassInMetadata, false, "-Xir-base-class-in-metadata")
         collector.deprecationWarn(irNewIr2Js, true, "-Xir-new-ir2js")
+
+        if (irPerFile && moduleKind != MODULE_ES) {
+            collector.report(
+                CompilerMessageSeverity.ERROR,
+                "Per-file compilation can't be used with any `moduleKind` except `es` (ECMAScript Modules)"
+            )
+        }
 
         return super.configureAnalysisFlags(collector, languageVersion).also {
             it[allowFullyQualifiedNameInKClass] = wasm && wasmKClassFqn //Only enabled WASM BE supports this flag
@@ -647,6 +715,8 @@ class K2JSCompilerArguments : CommonCompilerArguments() {
             }
         }
     }
+
+    override fun copyOf(): Freezable = copyK2JSCompilerArguments(this, K2JSCompilerArguments())
 }
 
 fun K2JSCompilerArguments.isPreIrBackendDisabled(): Boolean =

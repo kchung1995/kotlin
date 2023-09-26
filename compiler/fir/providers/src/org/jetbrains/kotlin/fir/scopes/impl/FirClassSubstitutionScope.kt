@@ -10,14 +10,13 @@ import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.FirSessionComponent
 import org.jetbrains.kotlin.fir.caches.*
 import org.jetbrains.kotlin.fir.declarations.*
-import org.jetbrains.kotlin.fir.declarations.synthetic.FirSyntheticProperty
 import org.jetbrains.kotlin.fir.declarations.utils.visibility
 import org.jetbrains.kotlin.fir.dispatchReceiverClassLookupTagOrNull
 import org.jetbrains.kotlin.fir.originalForSubstitutionOverride
 import org.jetbrains.kotlin.fir.resolve.ScopeSessionKey
 import org.jetbrains.kotlin.fir.resolve.substitution.ConeSubstitutor
 import org.jetbrains.kotlin.fir.resolve.substitution.chain
-import org.jetbrains.kotlin.fir.scopes.FakeOverrideSubstitution
+import org.jetbrains.kotlin.fir.scopes.CallableCopySubstitution
 import org.jetbrains.kotlin.fir.scopes.FirTypeScope
 import org.jetbrains.kotlin.fir.scopes.ProcessorAction
 import org.jetbrains.kotlin.fir.symbols.ConeClassLikeLookupTag
@@ -25,8 +24,10 @@ import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.*
 import org.jetbrains.kotlin.fir.symbols.lazyResolveToPhase
 import org.jetbrains.kotlin.fir.types.*
+import org.jetbrains.kotlin.fir.utils.exceptions.withFirEntry
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.utils.addToStdlib.runIf
+import org.jetbrains.kotlin.utils.exceptions.errorWithAttachment
 
 class FirClassSubstitutionScope(
     private val session: FirSession,
@@ -36,7 +37,8 @@ class FirClassSubstitutionScope(
     private val dispatchReceiverTypeForSubstitutedMembers: ConeClassLikeType,
     private val skipPrivateMembers: Boolean,
     private val makeExpect: Boolean = false,
-    private val derivedClassLookupTag: ConeClassLikeLookupTag
+    private val derivedClassLookupTag: ConeClassLikeLookupTag,
+    private val origin: FirDeclarationOrigin.SubstitutionOverride,
 ) : FirTypeScope() {
 
     private val substitutionOverrideCache = session.substitutionOverrideStorage.substitutionOverrideCacheByScope.getValue(key, null)
@@ -67,14 +69,17 @@ class FirClassSubstitutionScope(
         processDirectOverriddenCallablesWithBaseScope: FirTypeScope.(D, ((D, FirTypeScope) -> ProcessorAction)) -> ProcessorAction,
         originalInCache: (D) -> Boolean
     ): ProcessorAction {
-        val original = callableSymbol.originalForSubstitutionOverride?.takeIf { originalInCache(it) }
-            ?: return useSiteMemberScope.processDirectOverriddenCallablesWithBaseScope(callableSymbol, processor)
+        val original = callableSymbol.originalForSubstitutionOverride
 
-        if (original != callableSymbol) {
-            if (!processor(original, useSiteMemberScope)) return ProcessorAction.STOP
+        return when {
+            original == null || !originalInCache(original) -> {
+                useSiteMemberScope.processDirectOverriddenCallablesWithBaseScope(callableSymbol, processor)
+            }
+            else -> when {
+                !processor(original, useSiteMemberScope) -> ProcessorAction.STOP
+                else -> ProcessorAction.NONE
+            }
         }
-
-        return useSiteMemberScope.processDirectOverriddenCallablesWithBaseScope(original, processor)
     }
 
     override fun processPropertiesByName(name: Name, processor: (FirVariableSymbol<*>) -> Unit) {
@@ -122,9 +127,8 @@ class FirClassSubstitutionScope(
 
         val symbolForOverride = FirFakeOverrideGenerator.createSymbolForSubstitutionOverride(original, newOwnerClassId)
 
-        val (newTypeParameters, newDispatchReceiverType, newReceiverType, newReturnType, newSubstitutor, fakeOverrideSubstitution) = createSubstitutedData(
-            member, symbolForOverride
-        )
+        val (newTypeParameters, newDispatchReceiverType, newReceiverType, newReturnType, newSubstitutor, callableCopySubstitution) =
+            createSubstitutedData(member, symbolForOverride)
         val newParameterTypes = member.valueParameters.map {
             it.returnTypeRef.coneType.substitute(newSubstitutor)
         }
@@ -137,7 +141,7 @@ class FirClassSubstitutionScope(
             newReturnType == null &&
             newParameterTypes.all { it == null } &&
             newTypeParameters === member.typeParameters &&
-            fakeOverrideSubstitution == null &&
+            callableCopySubstitution == null &&
             newContextReceiverTypes.all { it == null }
         ) {
             if (original.dispatchReceiverType?.substitute(substitutor) != null) {
@@ -148,6 +152,7 @@ class FirClassSubstitutionScope(
                     derivedClassLookupTag = derivedClassLookupTag,
                     newDispatchReceiverType ?: dispatchReceiverTypeForSubstitutedMembers,
                     isExpect = makeExpect,
+                    origin = origin,
                 )
             }
             return original
@@ -164,13 +169,14 @@ class FirClassSubstitutionScope(
             member,
             derivedClassLookupTag,
             newDispatchReceiverType ?: dispatchReceiverTypeForSubstitutedMembers,
+            origin,
             newReceiverType,
             newContextReceiverTypes,
             newReturnType,
             newParameterTypes,
             newTypeParameters as List<FirTypeParameter>,
             makeExpect,
-            fakeOverrideSubstitution
+            callableCopySubstitution
         )
     }
 
@@ -180,7 +186,7 @@ class FirClassSubstitutionScope(
         val constructor = original.fir
 
         val symbolForOverride = FirConstructorSymbol(original.callableId)
-        val (newTypeParameters, _, _, newReturnType, newSubstitutor, fakeOverrideSubstitution) =
+        val (newTypeParameters, _, _, newReturnType, newSubstitutor, callableCopySubstitution) =
             createSubstitutedData(constructor, symbolForOverride)
 
         // If constructor has a dispatch receiver, it should be an inner class' constructor.
@@ -209,7 +215,7 @@ class FirClassSubstitutionScope(
             session,
             constructor,
             derivedClassLookupTag,
-            FirDeclarationOrigin.SubstitutionOverride,
+            origin,
             newDispatchReceiverType,
             // Constructors' return types are expected to be non-flexible (i.e., non raw)
             newReturnType?.lowerBoundIfFlexible(),
@@ -217,7 +223,7 @@ class FirClassSubstitutionScope(
             newContextReceiverTypes,
             newTypeParameters,
             makeExpect,
-            fakeOverrideSubstitution
+            callableCopySubstitution
         ).symbol
     }
 
@@ -229,9 +235,8 @@ class FirClassSubstitutionScope(
 
         val symbolForOverride = FirFakeOverrideGenerator.createSymbolForSubstitutionOverride(original, newOwnerClassId)
 
-        val (newTypeParameters, newDispatchReceiverType, newReceiverType, newReturnType, _, fakeOverrideSubstitution) = createSubstitutedData(
-            member, symbolForOverride
-        )
+        val (newTypeParameters, newDispatchReceiverType, newReceiverType, newReturnType, _, callableCopySubstitutionForTypeUpdater) =
+            createSubstitutedData(member, symbolForOverride)
 
         val newContextReceiverTypes = member.contextReceivers.map {
             it.typeRef.coneType.substitute(substitutor)
@@ -240,7 +245,7 @@ class FirClassSubstitutionScope(
         if (newReceiverType == null &&
             newReturnType == null &&
             newTypeParameters === member.typeParameters &&
-            fakeOverrideSubstitution == null &&
+            callableCopySubstitutionForTypeUpdater == null &&
             newContextReceiverTypes.all { it == null }
         ) {
             if (original.dispatchReceiverType?.substitute(substitutor) != null) {
@@ -250,6 +255,7 @@ class FirClassSubstitutionScope(
                     member,
                     derivedClassLookupTag = derivedClassLookupTag,
                     newDispatchReceiverType ?: dispatchReceiverTypeForSubstitutedMembers,
+                    origin,
                     isExpect = makeExpect,
                 )
             }
@@ -263,12 +269,13 @@ class FirClassSubstitutionScope(
             member,
             derivedClassLookupTag,
             newDispatchReceiverType ?: dispatchReceiverTypeForSubstitutedMembers,
+            origin,
             newReceiverType,
             newContextReceiverTypes,
             newReturnType,
             newTypeParameters as List<FirTypeParameter>,
             makeExpect,
-            fakeOverrideSubstitution
+            callableCopySubstitutionForTypeUpdater
         )
     }
 
@@ -278,16 +285,20 @@ class FirClassSubstitutionScope(
         val receiverType: ConeKotlinType?,
         val returnType: ConeKotlinType?,
         val substitutor: ConeSubstitutor,
-        val fakeOverrideSubstitution: FakeOverrideSubstitution?
+        val callableCopySubstitution: CallableCopySubstitution?
     )
 
     private fun createSubstitutedData(member: FirCallableDeclaration, symbolForOverride: FirBasedSymbol<*>): SubstitutedData {
+        val memberOwnerClassLookupTag =
+            if (member is FirConstructor) (member.returnTypeRef.coneType as ConeClassLikeType).lookupTag
+            else member.dispatchReceiverClassLookupTagOrNull()
         val (newTypeParameters, substitutor) = FirFakeOverrideGenerator.createNewTypeParametersAndSubstitutor(
             session,
             member as FirTypeParameterRefsOwner,
             symbolForOverride,
             substitutor,
-            forceTypeParametersRecreation = dispatchReceiverTypeForSubstitutedMembers.lookupTag != member.dispatchReceiverClassLookupTagOrNull()
+            origin,
+            forceTypeParametersRecreation = dispatchReceiverTypeForSubstitutedMembers.lookupTag != memberOwnerClassLookupTag
         )
 
         val receiverType = member.receiverParameter?.typeRef?.coneType
@@ -296,7 +307,7 @@ class FirClassSubstitutionScope(
         val newDispatchReceiverType = dispatchReceiverTypeForSubstitutedMembers.substitute(substitutor)
 
         val returnType = member.returnTypeRef.coneTypeSafe<ConeKotlinType>()
-        val fakeOverrideSubstitution = runIf(returnType == null) { FakeOverrideSubstitution(substitutor, member.symbol) }
+        val callableCopySubstitution = runIf(returnType == null) { CallableCopySubstitution(substitutor, member.symbol) }
         val newReturnType = returnType?.substitute(substitutor)
         return SubstitutedData(
             newTypeParameters,
@@ -304,7 +315,7 @@ class FirClassSubstitutionScope(
             newReceiverType,
             newReturnType,
             substitutor,
-            fakeOverrideSubstitution
+            callableCopySubstitution
         )
     }
 
@@ -318,50 +329,7 @@ class FirClassSubstitutionScope(
         // TODO: do we have fields with implicit type?
         val newReturnType = returnType?.substitute() ?: return original
 
-        return FirFakeOverrideGenerator.createSubstitutionOverrideField(session, member, derivedClassLookupTag, newReturnType)
-    }
-
-    fun createSubstitutionOverrideSyntheticProperty(original: FirSyntheticPropertySymbol): FirSyntheticPropertySymbol {
-        if (substitutor == ConeSubstitutor.Empty) return original
-        original.lazyResolveToPhase(FirResolvePhase.TYPES)
-        val member = original.fir as FirSyntheticProperty
-        if (skipPrivateMembers && member.visibility == Visibilities.Private) return original
-
-        val returnType = member.returnTypeRef.coneTypeSafe<ConeKotlinType>()
-        val fakeOverrideSubstitution = runIf(returnType == null) { FakeOverrideSubstitution(substitutor, original) }
-        val newReturnType = returnType?.substitute()
-
-        val newGetterParameterTypes = member.getter.valueParameters.map {
-            it.returnTypeRef.coneType.substitute()
-        }
-        val newSetterParameterTypes = member.setter?.valueParameters?.map {
-            it.returnTypeRef.coneType.substitute()
-        }.orEmpty()
-
-        val newContextReceiverTypes = member.contextReceivers.map {
-            it.typeRef.coneType.substitute()
-        }
-
-        if (original.dispatchReceiverType?.substitute(substitutor) == null &&
-            newReturnType == null &&
-            newGetterParameterTypes.all { it == null } &&
-            newSetterParameterTypes.all { it == null }
-        ) {
-            return original
-        }
-
-        return FirFakeOverrideGenerator.createSubstitutionOverrideSyntheticProperty(
-            session,
-            member,
-            derivedClassLookupTag,
-            original,
-            substitutor.substituteOrSelf(dispatchReceiverTypeForSubstitutedMembers) as ConeSimpleKotlinType?,
-            newContextReceiverTypes,
-            newReturnType,
-            newGetterParameterTypes,
-            newSetterParameterTypes,
-            fakeOverrideSubstitution
-        )
+        return FirFakeOverrideGenerator.createSubstitutionOverrideField(session, member, derivedClassLookupTag, newReturnType, origin)
     }
 
     override fun processDeclaredConstructors(processor: (FirConstructorSymbol) -> Unit) {
@@ -400,8 +368,9 @@ class FirSubstitutionOverrideStorage(val session: FirSession) : FirSessionCompon
                 when (original) {
                     is FirPropertySymbol -> scope.createSubstitutionOverrideProperty(original)
                     is FirFieldSymbol -> scope.createSubstitutionOverrideField(original)
-                    is FirSyntheticPropertySymbol -> scope.createSubstitutionOverrideSyntheticProperty(original)
-                    else -> error("symbol $original is not overridable")
+                    else -> errorWithAttachment("symbol ${original::class.java} is not overridable") {
+                        withFirEntry("original", original.fir)
+                    }
                 }
             }
     }

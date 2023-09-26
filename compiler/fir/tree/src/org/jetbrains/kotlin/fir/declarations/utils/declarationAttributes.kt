@@ -12,9 +12,7 @@ import org.jetbrains.kotlin.fir.declarations.impl.FirDefaultPropertyBackingField
 import org.jetbrains.kotlin.fir.declarations.impl.FirDefaultPropertyGetter
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.references.impl.FirPropertyFromParameterResolvedNamedReference
-import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
-import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
-import org.jetbrains.kotlin.fir.symbols.impl.FirValueParameterSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.*
 import org.jetbrains.kotlin.fir.symbols.lazyResolveToPhase
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.name.Name
@@ -22,6 +20,7 @@ import org.jetbrains.kotlin.name.Name
 private object IsFromVarargKey : FirDeclarationDataKey()
 private object IsReferredViaField : FirDeclarationDataKey()
 private object IsFromPrimaryConstructor : FirDeclarationDataKey()
+private object ComponentFunctionSymbolKey : FirDeclarationDataKey()
 private object SourceElementKey : FirDeclarationDataKey()
 private object ModuleNameKey : FirDeclarationDataKey()
 private object DanglingTypeConstraintsKey : FirDeclarationDataKey()
@@ -29,6 +28,7 @@ private object DanglingTypeConstraintsKey : FirDeclarationDataKey()
 var FirProperty.isFromVararg: Boolean? by FirDeclarationDataRegistry.data(IsFromVarargKey)
 var FirProperty.isReferredViaField: Boolean? by FirDeclarationDataRegistry.data(IsReferredViaField)
 var FirProperty.fromPrimaryConstructor: Boolean? by FirDeclarationDataRegistry.data(IsFromPrimaryConstructor)
+var FirProperty.componentFunctionSymbol: FirNamedFunctionSymbol? by FirDeclarationDataRegistry.data(ComponentFunctionSymbolKey)
 var FirClassLikeDeclaration.sourceElement: SourceElement? by FirDeclarationDataRegistry.data(SourceElementKey)
 var FirRegularClass.moduleName: String? by FirDeclarationDataRegistry.data(ModuleNameKey)
 
@@ -49,12 +49,6 @@ var <T> T.danglingTypeConstraints: List<DanglingTypeConstraint>?
 
 // ----------------------------------- Utils -----------------------------------
 
-val FirMemberDeclaration.containerSource: SourceElement?
-    get() = when (this) {
-        is FirCallableDeclaration -> containerSource
-        is FirClassLikeDeclaration -> sourceElement
-    }
-
 val FirProperty.hasExplicitBackingField: Boolean
     get() = backingField != null && backingField !is FirDefaultPropertyBackingField
 
@@ -69,10 +63,6 @@ fun FirProperty.getExplicitBackingField(): FirBackingField? {
     }
 }
 
-fun FirPropertySymbol.getExplicitBackingField(): FirBackingField? {
-    return fir.getExplicitBackingField()
-}
-
 val FirProperty.canNarrowDownGetterType: Boolean
     get() {
         val backingFieldHasDifferentType = backingField != null && backingField?.returnTypeRef?.coneType != returnTypeRef.coneType
@@ -85,12 +75,13 @@ val FirPropertySymbol.canNarrowDownGetterType: Boolean
 // See [BindingContext.BACKING_FIELD_REQUIRED]
 val FirProperty.hasBackingField: Boolean
     get() {
-        if (isAbstract) return false
+        if (isAbstract || isExpect) return false
         if (delegate != null) return false
         if (hasExplicitBackingField) return true
+        if (symbol is FirSyntheticPropertySymbol) return false
         if (isStatic) return false // For Enum.entries
         when (origin) {
-            FirDeclarationOrigin.SubstitutionOverride -> return false
+            is FirDeclarationOrigin.SubstitutionOverride -> return false
             FirDeclarationOrigin.IntersectionOverride -> return false
             FirDeclarationOrigin.Delegated -> return false
             else -> {

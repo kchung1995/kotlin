@@ -119,11 +119,6 @@ public class MultiPlatformIntegrationTestGenerated extends AbstractMultiPlatform
         runTest("compiler/testData/multiplatform/optionalExpectation/");
     }
 
-    @TestMetadata("optionalExpectationIncorrectUse")
-    public void testOptionalExpectationIncorrectUse() throws Exception {
-        runTest("compiler/testData/multiplatform/optionalExpectationIncorrectUse/");
-    }
-
     @TestMetadata("simple")
     public void testSimple() throws Exception {
         runTest("compiler/testData/multiplatform/simple/");
@@ -365,9 +360,27 @@ public class MultiPlatformIntegrationTestGenerated extends AbstractMultiPlatform
             KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/testData/multiplatform/defaultArguments"), Pattern.compile("^([^\\.]+)$"), null, true);
         }
 
+        @TestMetadata("methodDefaultArgsViaTypealias")
+        public void testMethodDefaultArgsViaTypealias() throws Exception {
+            runTest("compiler/testData/multiplatform/defaultArguments/methodDefaultArgsViaTypealias/");
+        }
+
         @TestMetadata("useDefaultArgumentsInDependency")
         public void testUseDefaultArgumentsInDependency() throws Exception {
             runTest("compiler/testData/multiplatform/defaultArguments/useDefaultArgumentsInDependency/");
+        }
+
+        @TestMetadata("compiler/testData/multiplatform/defaultArguments/methodDefaultArgsViaTypealias")
+        @TestDataPath("$PROJECT_ROOT")
+        @RunWith(JUnit3RunnerWithInners.class)
+        public static class MethodDefaultArgsViaTypealias extends AbstractMultiPlatformIntegrationTest {
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            public void testAllFilesPresentInMethodDefaultArgsViaTypealias() throws Exception {
+                KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/testData/multiplatform/defaultArguments/methodDefaultArgsViaTypealias"), Pattern.compile("^([^\\.]+)$"), null, true);
+            }
         }
 
         @TestMetadata("compiler/testData/multiplatform/defaultArguments/useDefaultArgumentsInDependency")
@@ -431,6 +444,16 @@ public class MultiPlatformIntegrationTestGenerated extends AbstractMultiPlatform
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
 
+        @TestMetadata("actualTypealiasToNothing")
+        public void testActualTypealiasToNothing() throws Exception {
+            runTest("compiler/testData/multiplatform/implTypeAlias/actualTypealiasToNothing/");
+        }
+
+        @TestMetadata("actualTypealiasToNullableType")
+        public void testActualTypealiasToNullableType() throws Exception {
+            runTest("compiler/testData/multiplatform/implTypeAlias/actualTypealiasToNullableType/");
+        }
+
         public void testAllFilesPresentInImplTypeAlias() throws Exception {
             KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/testData/multiplatform/implTypeAlias"), Pattern.compile("^([^\\.]+)$"), null, true);
         }
@@ -448,6 +471,32 @@ public class MultiPlatformIntegrationTestGenerated extends AbstractMultiPlatform
         @TestMetadata("nestedClassesViaTypeAlias")
         public void testNestedClassesViaTypeAlias() throws Exception {
             runTest("compiler/testData/multiplatform/implTypeAlias/nestedClassesViaTypeAlias/");
+        }
+
+        @TestMetadata("compiler/testData/multiplatform/implTypeAlias/actualTypealiasToNothing")
+        @TestDataPath("$PROJECT_ROOT")
+        @RunWith(JUnit3RunnerWithInners.class)
+        public static class ActualTypealiasToNothing extends AbstractMultiPlatformIntegrationTest {
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            public void testAllFilesPresentInActualTypealiasToNothing() throws Exception {
+                KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/testData/multiplatform/implTypeAlias/actualTypealiasToNothing"), Pattern.compile("^([^\\.]+)$"), null, true);
+            }
+        }
+
+        @TestMetadata("compiler/testData/multiplatform/implTypeAlias/actualTypealiasToNullableType")
+        @TestDataPath("$PROJECT_ROOT")
+        @RunWith(JUnit3RunnerWithInners.class)
+        public static class ActualTypealiasToNullableType extends AbstractMultiPlatformIntegrationTest {
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            public void testAllFilesPresentInActualTypealiasToNullableType() throws Exception {
+                KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/testData/multiplatform/implTypeAlias/actualTypealiasToNullableType"), Pattern.compile("^([^\\.]+)$"), null, true);
+            }
         }
 
         @TestMetadata("compiler/testData/multiplatform/implTypeAlias/discriminateHeaderClassInFavorOfTypeAlias")
@@ -643,19 +692,6 @@ public class MultiPlatformIntegrationTestGenerated extends AbstractMultiPlatform
 
         public void testAllFilesPresentInOptionalExpectation() throws Exception {
             KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/testData/multiplatform/optionalExpectation"), Pattern.compile("^([^\\.]+)$"), null, true);
-        }
-    }
-
-    @TestMetadata("compiler/testData/multiplatform/optionalExpectationIncorrectUse")
-    @TestDataPath("$PROJECT_ROOT")
-    @RunWith(JUnit3RunnerWithInners.class)
-    public static class OptionalExpectationIncorrectUse extends AbstractMultiPlatformIntegrationTest {
-        private void runTest(String testDataFilePath) throws Exception {
-            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
-        }
-
-        public void testAllFilesPresentInOptionalExpectationIncorrectUse() throws Exception {
-            KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/testData/multiplatform/optionalExpectationIncorrectUse"), Pattern.compile("^([^\\.]+)$"), null, true);
         }
     }
 

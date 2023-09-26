@@ -6,17 +6,18 @@
 package org.jetbrains.kotlin.ir.generator.print
 
 import com.squareup.kotlinpoet.*
+import org.jetbrains.kotlin.generators.tree.ImplementationKind
+import org.jetbrains.kotlin.generators.tree.TypeKind
 import org.jetbrains.kotlin.ir.generator.BASE_PACKAGE
 import org.jetbrains.kotlin.ir.generator.elementTransformerType
 import org.jetbrains.kotlin.ir.generator.elementVisitorType
 import org.jetbrains.kotlin.ir.generator.model.*
-import org.jetbrains.kotlin.ir.generator.util.TypeKind
+import org.jetbrains.kotlin.generators.tree.TypeRefWithNullability
 import org.jetbrains.kotlin.ir.generator.util.tryParameterizedBy
 import java.io.File
 
 fun printElements(generationPath: File, model: Model) = sequence {
     for (element in model.elements) {
-        if (element.suppressPrint) continue
 
         val elementName = element.toPoet()
         val selfParametrizedElementName = element.toPoetSelfParameterized()
@@ -28,11 +29,11 @@ fun printElements(generationPath: File, model: Model) = sequence {
         }.apply {
             addModifiers(
                 when (element.kind) {
-                    Element.Kind.SealedClass -> listOf(KModifier.SEALED)
-                    Element.Kind.SealedInterface -> listOf(KModifier.SEALED)
-                    Element.Kind.AbstractClass -> listOf(KModifier.ABSTRACT)
-                    Element.Kind.FinalClass -> listOf(KModifier.FINAL)
-                    Element.Kind.OpenClass -> listOf(KModifier.OPEN)
+                    ImplementationKind.SealedClass -> listOf(KModifier.SEALED)
+                    ImplementationKind.SealedInterface -> listOf(KModifier.SEALED)
+                    ImplementationKind.AbstractClass -> listOf(KModifier.ABSTRACT)
+                    ImplementationKind.FinalClass -> listOf(KModifier.FINAL)
+                    ImplementationKind.OpenClass -> listOf(KModifier.OPEN)
                     else -> emptyList()
                 }
             )
@@ -161,7 +162,11 @@ fun printElements(generationPath: File, model: Model) = sequence {
                             if (child.nullable) append("?")
                             when (child) {
                                 is SingleField -> append(".%N(%N, %N)")
-                                is ListField -> append(".forEach { it.%N(%N, %N) }")
+                                is ListField -> {
+                                    append(".forEach { it")
+                                    if ((child.elementType as? TypeRefWithNullability)?.nullable == true) append("?")
+                                    append(".%N(%N, %N) }")
+                                }
                             }
                         }, child.name, acceptMethodName, visitorParam, dataParam)
                     }
@@ -261,7 +266,7 @@ fun printElements(generationPath: File, model: Model) = sequence {
             element.generationCallback?.invoke(this)
         }.build()
 
-        yield(printTypeCommon(generationPath, elementName.packageName, elementType))
+        yield(printTypeCommon(generationPath, elementName.packageName, elementType, element.additionalImports))
     }
 }
 

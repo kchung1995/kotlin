@@ -7,6 +7,7 @@
 package org.jetbrains.kotlin.gradle.plugin.mpp
 
 import com.android.build.gradle.api.BaseVariant
+import org.gradle.api.Action
 import org.gradle.api.file.FileCollection
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.TaskProvider
@@ -29,6 +30,14 @@ open class KotlinJvmAndroidCompilation @Inject internal constructor(
     override val compilerOptions: HasCompilerOptions<KotlinJvmCompilerOptions> =
         compilation.compilerOptions.castCompilerOptionsType()
 
+    fun compilerOptions(configure: KotlinJvmCompilerOptions.() -> Unit) {
+        compilerOptions.configure(configure)
+    }
+
+    fun compilerOptions(configure: Action<KotlinJvmCompilerOptions>) {
+        configure.execute(compilerOptions.options)
+    }
+
     internal val testedVariantArtifacts: Property<FileCollection> =
         compilation.project.objects.property(FileCollection::class.java)
 
@@ -49,11 +58,4 @@ open class KotlinJvmAndroidCompilation @Inject internal constructor(
     val compileJavaTaskProvider: TaskProvider<out JavaCompile>
         get() = androidVariant.getJavaTaskProvider()
 
-    override val relatedConfigurationNames: List<String>
-        get() = compilation.relatedConfigurationNames + listOf(
-            "${androidVariant.name}ApiElements",
-            "${androidVariant.name}RuntimeElements",
-            androidVariant.compileConfiguration.name,
-            androidVariant.runtimeConfiguration.name
-        )
 }

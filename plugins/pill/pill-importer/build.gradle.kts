@@ -16,7 +16,8 @@ dependencies {
     compileOnly(kotlin("stdlib", embeddedKotlinVersion))
     compileOnly(gradleApi())
     compileOnly(gradleKotlinDsl())
-    compileOnly("gradle.plugin.com.github.johnrengelman:shadow:${rootProject.extra["versions.shadow"]}")
+    compileOnly(libs.shadow.gradlePlugin)
+    compileOnly(libs.jdom2)
 }
 
 sourceSets {
@@ -25,7 +26,7 @@ sourceSets {
 }
 
 fun runPillTask(taskName: String) {
-    val jarFile = configurations.archives.artifacts.single { it.type == "jar" }.file
+    val jarFile = configurations.archives.get().artifacts.single { it.type == "jar" }.file
     val cl = URLClassLoader(arrayOf(jarFile.toURI().toURL()), (object {}).javaClass.classLoader)
 
     val pillImporterClass = Class.forName("org.jetbrains.kotlin.pill.PillImporter", true, cl)
@@ -51,10 +52,3 @@ val unpill by tasks.creating {
     dependsOn(jar)
     doLast { runPillTask("unpill") }
 }
-
-// 1.9 level breaks Kotlin Gradle plugins via changes in enums (KT-48872)
-tasks.withType<KotlinCompilationTask<*>>().configureEach {
-    compilerOptions.apiVersion.value(KotlinVersion.KOTLIN_1_8).finalizeValueOnRead()
-    compilerOptions.languageVersion.value(KotlinVersion.KOTLIN_1_8).finalizeValueOnRead()
-}
-

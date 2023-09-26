@@ -8,8 +8,12 @@ package org.jetbrains.kotlin.analysis.api.standalone.fir.test
 import com.intellij.mock.MockApplication
 import com.intellij.mock.MockProject
 import com.intellij.openapi.vfs.impl.jar.CoreJarFileSystem
+import org.jetbrains.kotlin.analysis.api.KtAnalysisApiInternals
+import org.jetbrains.kotlin.analysis.api.lifetime.KtLifetimeTokenProvider
+import org.jetbrains.kotlin.analysis.api.standalone.KtAlwaysAccessibleLifetimeTokenProvider
 import org.jetbrains.kotlin.analysis.api.standalone.base.project.structure.KtStaticModuleProvider
-import org.jetbrains.kotlin.analysis.decompiled.light.classes.ClsJavaStubByVirtualFileCache
+import org.jetbrains.kotlin.analysis.api.standalone.base.project.structure.LLFirStandaloneLibrarySymbolProviderFactory
+import org.jetbrains.kotlin.analysis.low.level.api.fir.project.structure.LLFirLibrarySymbolProviderFactory
 import org.jetbrains.kotlin.analysis.project.structure.KtBinaryModule
 import org.jetbrains.kotlin.analysis.project.structure.ProjectStructureProvider
 import org.jetbrains.kotlin.analysis.providers.KotlinPsiDeclarationProviderFactory
@@ -18,21 +22,25 @@ import org.jetbrains.kotlin.analysis.test.framework.services.environmentManager
 import org.jetbrains.kotlin.analysis.test.framework.test.configurators.AnalysisApiTestServiceRegistrar
 import org.jetbrains.kotlin.test.services.TestServices
 
-object StandaloneModeTestServiceRegistrar : AnalysisApiTestServiceRegistrar() {
+@OptIn(KtAnalysisApiInternals::class)
+public object StandaloneModeTestServiceRegistrar : AnalysisApiTestServiceRegistrar() {
     override fun registerProjectExtensionPoints(project: MockProject, testServices: TestServices) {
     }
 
     override fun registerProjectServices(project: MockProject, testServices: TestServices) {
+        project.apply {
+            registerService(KtLifetimeTokenProvider::class.java, KtAlwaysAccessibleLifetimeTokenProvider::class.java)
+            registerService(LLFirLibrarySymbolProviderFactory::class.java, LLFirStandaloneLibrarySymbolProviderFactory::class.java)
+        }
     }
 
     override fun registerProjectModelServices(project: MockProject, testServices: TestServices) {
-        val projectStructureProvider = project.getService(ProjectStructureProvider::class.java)
+        val projectStructureProvider = ProjectStructureProvider.getInstance(project)
         val binaryModules =
-            (projectStructureProvider as? KtStaticModuleProvider)?.projectStructure?.allKtModules()?.filterIsInstance<KtBinaryModule>()
+            (projectStructureProvider as? KtStaticModuleProvider)?.allKtModules?.filterIsInstance<KtBinaryModule>()
                 ?: emptyList()
         val projectEnvironment = testServices.environmentManager.getProjectEnvironment()
         project.apply {
-            registerService(ClsJavaStubByVirtualFileCache::class.java, ClsJavaStubByVirtualFileCache())
             registerService(
                 KotlinPsiDeclarationProviderFactory::class.java,
                 KotlinStaticPsiDeclarationProviderFactory(

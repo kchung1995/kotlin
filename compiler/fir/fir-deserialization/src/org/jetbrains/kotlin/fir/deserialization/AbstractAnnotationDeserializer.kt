@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2020 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -18,7 +18,7 @@ import org.jetbrains.kotlin.fir.resolve.ScopeSession
 import org.jetbrains.kotlin.fir.resolve.defaultType
 import org.jetbrains.kotlin.fir.resolve.scope
 import org.jetbrains.kotlin.fir.resolve.toSymbol
-import org.jetbrains.kotlin.fir.scopes.FakeOverrideTypeCalculator
+import org.jetbrains.kotlin.fir.scopes.CallableCopyTypeCalculator
 import org.jetbrains.kotlin.fir.scopes.getDeclaredConstructors
 import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
 import org.jetbrains.kotlin.fir.symbols.lazyDeclarationResolver
@@ -164,6 +164,15 @@ abstract class AbstractAnnotationDeserializer(
     ): List<FirAnnotation> {
         return emptyList()
     }
+    open fun loadAnnotationPropertyDefaultValue(
+        containerSource: DeserializedContainerSource?,
+        propertyProto: ProtoBuf.Property,
+        expectedPropertyType: FirTypeRef,
+        nameResolver: NameResolver,
+        typeTable: TypeTable
+    ): FirExpression? {
+        return null
+    }
 
     abstract fun loadTypeAnnotations(typeProto: ProtoBuf.Type, nameResolver: NameResolver): List<FirAnnotation>
 
@@ -178,7 +187,7 @@ abstract class AbstractAnnotationDeserializer(
         val classId = nameResolver.getClassId(proto.id)
         return buildAnnotation {
             annotationTypeRef = buildResolvedTypeRef {
-                type = classId.toLookupTag().constructClassType(emptyArray(), isNullable = false)
+                type = classId.toLookupTag().constructClassType(ConeTypeProjection.EMPTY_ARRAY, isNullable = false)
             }
             session.lazyDeclarationResolver.disableLazyResolveContractChecksInside {
                 this.argumentMapping = createArgumentMapping(proto, classId, nameResolver)
@@ -203,13 +212,17 @@ abstract class AbstractAnnotationDeserializer(
                 val symbol = lookupTag.toSymbol(session)
                 val firAnnotationClass = (symbol as? FirRegularClassSymbol)?.fir ?: return@lazy null
 
-                val classScope =
-                    firAnnotationClass.defaultType()
-                        .scope(session, ScopeSession(), FakeOverrideTypeCalculator.DoNothing, requiredPhase = null)
-                        ?: error("Null scope for $classId")
+                val classScope = firAnnotationClass.defaultType().scope(
+                    useSiteSession = session,
+                    scopeSession = ScopeSession(),
+                    callableCopyTypeCalculator = CallableCopyTypeCalculator.DoNothing,
+                    requiredMembersPhase = null,
+                ) ?: error("Null scope for $classId")
 
-                val constructor =
-                    classScope.getDeclaredConstructors().singleOrNull()?.fir ?: error("No single constructor found for $classId")
+                val constructor = classScope.getDeclaredConstructors()
+                    .singleOrNull()
+                    ?.fir
+                    ?: error("No single constructor found for $classId")
 
                 constructor.valueParameters.associateBy { it.name }
             }
@@ -258,16 +271,14 @@ abstract class AbstractAnnotationDeserializer(
                 val classId = nameResolver.getClassId(value.classId)
                 val lookupTag = classId.toLookupTag()
                 val referencedType = lookupTag.constructType(emptyArray(), isNullable = false)
-                val resolvedTypeRef = buildResolvedTypeRef {
-                    type = StandardClassIds.KClass.constructClassLikeType(arrayOf(referencedType), false)
-                }
+                val resolvedType = StandardClassIds.KClass.constructClassLikeType(arrayOf(referencedType), false)
                 argumentList = buildUnaryArgumentList(
                     buildClassReferenceExpression {
                         classTypeRef = buildResolvedTypeRef { type = referencedType }
-                        typeRef = resolvedTypeRef
+                        coneTypeOrNull = resolvedType
                     }
                 )
-                typeRef = resolvedTypeRef
+                coneTypeOrNull = resolvedType
             }
             ENUM -> buildPropertyAccessExpression {
                 val classId = nameResolver.getClassId(value.classId)
@@ -287,18 +298,16 @@ abstract class AbstractAnnotationDeserializer(
                     name = entryName
                 }
                 if (enumEntrySymbol != null) {
-                    typeRef = enumEntrySymbol.returnTypeRef
+                    coneTypeOrNull = enumEntrySymbol.returnTypeRef.coneTypeOrNull
                 }
             }
             ARRAY -> {
                 val expectedArrayElementType = expectedType()?.arrayElementType() ?: session.builtinTypes.anyType.type
-                buildArrayOfCall {
+                buildArrayLiteral {
                     argumentList = buildArgumentList {
                         value.arrayElementList.mapTo(arguments) { resolveValue(it, nameResolver) { expectedArrayElementType } }
                     }
-                    typeRef = buildResolvedTypeRef {
-                        type = expectedArrayElementType.createArrayType()
-                    }
+                    coneTypeOrNull = expectedArrayElementType.createArrayType()
                 }
             }
 
@@ -307,6 +316,6 @@ abstract class AbstractAnnotationDeserializer(
     }
 
     private fun <T> const(kind: ConstantValueKind<T>, value: T, typeRef: FirResolvedTypeRef): FirConstExpression<T> {
-        return buildConstExpression(null, kind, value, setType = true).apply { this.replaceTypeRef(typeRef) }
+        return buildConstExpression(null, kind, value, setType = true).apply { this.replaceConeTypeOrNull(typeRef.coneType) }
     }
 }

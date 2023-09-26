@@ -37,19 +37,22 @@ import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtCodeFragment
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtScript
-import org.jetbrains.kotlin.resolve.*
+import org.jetbrains.kotlin.resolve.BindingContext
+import org.jetbrains.kotlin.resolve.BindingTrace
+import org.jetbrains.kotlin.resolve.BindingTraceFilter
+import org.jetbrains.kotlin.resolve.DelegatingBindingTrace
 import org.jetbrains.kotlin.resolve.deprecation.DeprecationResolver
 import org.jetbrains.kotlin.resolve.diagnostics.Diagnostics
 import org.jetbrains.kotlin.resolve.diagnostics.OnDemandSuppressCache
 import org.jetbrains.kotlin.resolve.jvm.JvmClassName
 import org.jetbrains.kotlin.resolve.jvm.JvmCompilerDeserializationConfiguration
+import org.jetbrains.kotlin.resolve.jvm.diagnostics.ErrorsJvm
 import org.jetbrains.kotlin.resolve.jvm.diagnostics.JvmDeclarationOrigin
 import org.jetbrains.kotlin.resolve.jvm.diagnostics.JvmDeclarationOriginKind.*
 import org.jetbrains.kotlin.serialization.deserialization.DeserializationConfiguration
 import org.jetbrains.kotlin.storage.LockBasedStorageManager
 import org.jetbrains.kotlin.types.KotlinType
 import org.jetbrains.kotlin.types.TypeApproximator
-import org.jetbrains.kotlin.utils.metadataVersion
 import org.jetbrains.org.objectweb.asm.Type
 import java.io.File
 
@@ -176,7 +179,8 @@ class GenerationState private constructor(
         }
     }
 
-    val languageVersionSettings = configuration.languageVersionSettings
+    val config = JvmBackendConfig(configuration)
+    val languageVersionSettings = config.languageVersionSettings
 
     val inlineCache: InlineCache = InlineCache()
 
@@ -216,7 +220,7 @@ class GenerationState private constructor(
         }
     }
 
-    val extraJvmDiagnosticsTrace: BindingTrace =
+    private val extraJvmDiagnosticsTrace: BindingTrace =
         DelegatingBindingTrace(
             originalFrontendBindingContext, "For extra diagnostics in ${this::class.java}", false,
             customSuppressCache = if (isIrBackend) OnDemandSuppressCache(originalFrontendBindingContext) else null,
@@ -229,37 +233,6 @@ class GenerationState private constructor(
     val collectedExtraJvmDiagnostics: Diagnostics = LazyJvmDiagnostics {
         duplicateSignatureFactory?.reportDiagnostics()
         extraJvmDiagnosticsTrace.bindingContext.diagnostics
-    }
-
-    val useOldManglingSchemeForFunctionsWithInlineClassesInSignatures =
-        configuration.getBoolean(JVMConfigurationKeys.USE_OLD_INLINE_CLASSES_MANGLING_SCHEME) ||
-                languageVersionSettings.languageVersion.run { major == 1 && minor < 4 }
-
-    val target = configuration.get(JVMConfigurationKeys.JVM_TARGET) ?: JvmTarget.DEFAULT
-    val runtimeStringConcat =
-        if (target.majorVersion >= JvmTarget.JVM_9.majorVersion)
-            configuration.get(JVMConfigurationKeys.STRING_CONCAT) ?: JvmStringConcat.INDY_WITH_CONSTANTS
-        else JvmStringConcat.INLINE
-
-    val samConversionsScheme = run {
-        val fromConfig = configuration.get(JVMConfigurationKeys.SAM_CONVERSIONS)
-        if (fromConfig != null && target >= fromConfig.minJvmTarget)
-            fromConfig
-        else if (
-            target >= JvmClosureGenerationScheme.INDY.minJvmTarget &&
-            languageVersionSettings.supportsFeature(LanguageFeature.SamWrapperClassesAreSynthetic)
-        )
-            JvmClosureGenerationScheme.INDY
-        else
-            JvmClosureGenerationScheme.CLASS
-    }
-
-    val lambdasScheme = configuration.get(JVMConfigurationKeys.LAMBDAS).let { fromConfig ->
-        if (fromConfig == null || target < fromConfig.minJvmTarget) {
-            if (languageVersionSettings.supportsFeature(LanguageFeature.LightweightLambdas) && target >= JvmClosureGenerationScheme.INDY.minJvmTarget)
-                JvmClosureGenerationScheme.INDY
-            else JvmClosureGenerationScheme.CLASS
-        } else fromConfig
     }
 
     val moduleName: String = moduleName ?: JvmCodegenUtil.getModuleName(module)
@@ -275,27 +248,18 @@ class GenerationState private constructor(
         classBuilderMode,
         this.moduleName,
         languageVersionSettings,
-        useOldManglingSchemeForFunctionsWithInlineClassesInSignatures,
-        target,
+        config.useOldManglingSchemeForFunctionsWithInlineClassesInSignatures,
+        config.target,
         isIrBackend
     )
-    val canReplaceStdlibRuntimeApiBehavior = languageVersionSettings.apiVersion <= ApiVersion.parse(KotlinVersion.CURRENT.toString())!!
-    val intrinsics: IntrinsicMethods = IntrinsicMethods(target, canReplaceStdlibRuntimeApiBehavior)
-    val generateOptimizedCallableReferenceSuperClasses =
-        languageVersionSettings.apiVersion >= ApiVersion.KOTLIN_1_4 &&
-                !configuration.getBoolean(JVMConfigurationKeys.NO_OPTIMIZED_CALLABLE_REFERENCES)
-    val useKotlinNothingValueException =
-        languageVersionSettings.apiVersion >= ApiVersion.KOTLIN_1_4 &&
-                !configuration.getBoolean(JVMConfigurationKeys.NO_KOTLIN_NOTHING_VALUE_EXCEPTION)
-
-    // In 1.6, `typeOf` became stable and started to rely on a few internal stdlib functions which were missing before 1.6.
-    val stableTypeOf = languageVersionSettings.apiVersion >= ApiVersion.KOTLIN_1_6
+    val intrinsics: IntrinsicMethods =
+        IntrinsicMethods(languageVersionSettings.apiVersion <= ApiVersion.parse(KotlinVersion.CURRENT.toString())!!)
 
     val samWrapperClasses: SamWrapperClasses = SamWrapperClasses(this)
-    val globalInlineContext: GlobalInlineContext = GlobalInlineContext(diagnostics)
+    val globalInlineContext: GlobalInlineContext = GlobalInlineContext()
     val mappingsClassesForWhenByEnum: MappingsClassesForWhenByEnum = MappingsClassesForWhenByEnum(this)
     val jvmRuntimeTypes: JvmRuntimeTypes = JvmRuntimeTypes(
-        module, languageVersionSettings, generateOptimizedCallableReferenceSuperClasses
+        module, languageVersionSettings, config.generateOptimizedCallableReferenceSuperClasses
     )
     val factory: ClassFileFactory
     private var duplicateSignatureFactory: BuilderFactoryForDuplicateSignatureDiagnostics? = null
@@ -312,43 +276,10 @@ class GenerationState private constructor(
         var resultType: KotlinType? = null
     }
 
-    val isCallAssertionsDisabled: Boolean = configuration.getBoolean(JVMConfigurationKeys.DISABLE_CALL_ASSERTIONS)
-    val isReceiverAssertionsDisabled: Boolean =
-        configuration.getBoolean(JVMConfigurationKeys.DISABLE_RECEIVER_ASSERTIONS) ||
-                !languageVersionSettings.supportsFeature(LanguageFeature.NullabilityAssertionOnExtensionReceiver)
-    val isParamAssertionsDisabled: Boolean = configuration.getBoolean(JVMConfigurationKeys.DISABLE_PARAM_ASSERTIONS)
-    val assertionsMode: JVMAssertionsMode = configuration.get(JVMConfigurationKeys.ASSERTIONS_MODE, JVMAssertionsMode.DEFAULT)
-    val isInlineDisabled: Boolean = configuration.getBoolean(CommonConfigurationKeys.DISABLE_INLINE)
-    val useTypeTableInSerializer: Boolean = configuration.getBoolean(JVMConfigurationKeys.USE_TYPE_TABLE)
-    val unifiedNullChecks: Boolean =
-        languageVersionSettings.apiVersion >= ApiVersion.KOTLIN_1_4 &&
-                !configuration.getBoolean(JVMConfigurationKeys.NO_UNIFIED_NULL_CHECKS)
-    val generateSmapCopyToAnnotation: Boolean = !configuration.getBoolean(JVMConfigurationKeys.NO_SOURCE_DEBUG_EXTENSION)
-    val functionsWithInlineClassReturnTypesMangled: Boolean =
-        languageVersionSettings.supportsFeature(LanguageFeature.MangleClassMembersReturningInlineClasses)
-    val shouldValidateIr = configuration.getBoolean(JVMConfigurationKeys.VALIDATE_IR)
-    val shouldValidateBytecode = configuration.getBoolean(JVMConfigurationKeys.VALIDATE_BYTECODE)
-
     val rootContext: CodegenContext<*> = RootContext(this)
 
-    val classFileVersion: Int = run {
-        val minorVersion = if (configuration.getBoolean(JVMConfigurationKeys.ENABLE_JVM_PREVIEW)) 0xffff else 0
-        (minorVersion shl 16) + target.majorVersion
-    }
-
-    val generateParametersMetadata: Boolean = configuration.getBoolean(JVMConfigurationKeys.PARAMETERS_METADATA)
-
-    val shouldInlineConstVals = languageVersionSettings.supportsFeature(LanguageFeature.InlineConstVals)
-
-    val jvmDefaultMode = languageVersionSettings.getFlag(JvmAnalysisFlags.jvmDefaultMode)
-
-    val disableOptimization = configuration.get(JVMConfigurationKeys.DISABLE_OPTIMIZATION, false)
-
-    val metadataVersion = configuration.metadataVersion()
-
-    val abiStability = configuration.get(JVMConfigurationKeys.ABI_STABILITY)
-
-    val noNewJavaAnnotationTargets = configuration.getBoolean(JVMConfigurationKeys.NO_NEW_JAVA_ANNOTATION_TARGETS)
+    val jvmDefaultMode: JvmDefaultMode
+        get() = config.jvmDefaultMode
 
     val globalSerializationBindings = JvmSerializationBindings()
     var mapInlineClass: (ClassDescriptor) -> Type = { descriptor -> typeMapper.mapType(descriptor.defaultType) }
@@ -361,13 +292,17 @@ class GenerationState private constructor(
 
     var multiFieldValueClassUnboxInfo: (ClassDescriptor) -> MultiFieldValueClassUnboxInfo? = { null }
 
+    var reportDuplicateClassNameError: (JvmDeclarationOrigin, String, String) -> Unit = { origin, internalName, duplicateClasses ->
+        origin.element?.let {
+            diagnostics.report(ErrorsJvm.DUPLICATE_CLASS_NAMES.on(it, internalName, duplicateClasses))
+        }
+    }
+
     val typeApproximator: TypeApproximator? =
         if (languageVersionSettings.supportsFeature(LanguageFeature.NewInference))
             TypeApproximator(module.builtIns, languageVersionSettings)
         else
             null
-
-    val oldInnerClassesLogic = configuration.getBoolean(JVMConfigurationKeys.OLD_INNER_CLASSES_LOGIC)
 
     init {
         this.interceptedBuilderFactory = builderFactory
@@ -380,17 +315,17 @@ class GenerationState private constructor(
                 },
                 {
                     // In IR backend, we have more precise information about classes and methods we are going to generate,
-                    // and report signature conflict errors in JvmSignatureClashTracker.
+                    // and report signature conflict errors in JvmSignatureClashDetector.
                     if (isIrBackend)
                         it
                     else
                         BuilderFactoryForDuplicateSignatureDiagnostics(
                             it, bindingContext, diagnostics, this.moduleName, languageVersionSettings,
-                            useOldManglingSchemeForFunctionsWithInlineClassesInSignatures,
+                            config.useOldManglingSchemeForFunctionsWithInlineClassesInSignatures,
                             shouldGenerate = { origin -> !shouldOnlyCollectSignatures(origin) },
                         ).apply { duplicateSignatureFactory = this }
                 },
-                { BuilderFactoryForDuplicateClassNameDiagnostics(it, diagnostics) },
+                { BuilderFactoryForDuplicateClassNameDiagnostics(it, this) },
                 {
                     configuration.get(JVMConfigurationKeys.DECLARATIONS_JSON_PATH)
                         ?.let { destination -> SignatureDumpingBuilderFactory(it, File(destination)) } ?: it

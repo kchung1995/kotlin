@@ -6,16 +6,23 @@
 package org.jetbrains.kotlin.gradle.android
 
 import org.gradle.api.JavaVersion
+import org.gradle.api.logging.LogLevel
 import org.gradle.util.GradleVersion
 import org.jetbrains.kotlin.gradle.Kapt3BaseIT
 import org.jetbrains.kotlin.gradle.testbase.*
 import org.junit.jupiter.api.DisplayName
 import java.io.File
+import kotlin.io.path.appendText
 
 @DisplayName("android with kapt3 external dependencies tests")
 @AndroidGradlePluginTests
-class Kapt3AndroidExternalIT : Kapt3BaseIT() {
+open class Kapt3AndroidExternalIT : Kapt3BaseIT() {
+
+    // Deprecated and doesn't work with Gradle 8 + AGP 8, so keeping max Gradle version as 7.6
+    // For example: https://github.com/JakeWharton/butterknife/issues/1686
     @DisplayName("kapt works with butterknife")
+    @GradleTestVersions(maxVersion = TestVersions.Gradle.G_7_6)
+    @AndroidTestVersions(maxVersion = TestVersions.AGP.AGP_74)
     @GradleAndroidTest
     fun testButterKnife(
         gradleVersion: GradleVersion,
@@ -140,6 +147,13 @@ class Kapt3AndroidExternalIT : Kapt3BaseIT() {
             // TODO: remove the `if` when we drop support for [TestVersions.AGP.AGP_42]
             buildJdk = if (jdkVersion.version >= JavaVersion.VERSION_11) jdkVersion.location else File(System.getProperty("jdk11Home"))
         ) {
+            // Remove the once minimal supported AGP version will be 8.1.0: https://issuetracker.google.com/issues/260059413
+            gradleProperties.appendText(
+                """
+                |kotlin.jvm.target.validation.mode=warning
+                """.trimMargin()
+            )
+
             build(
                 "assembleDebug", "assembleAndroidTest",
             ) {
@@ -194,6 +208,36 @@ class Kapt3AndroidExternalIT : Kapt3BaseIT() {
         ) {
             build("kaptDebugKotlin") {
                 assertKaptSuccessful()
+            }
+        }
+    }
+
+    @DisplayName("KT-61622: common sources are attached in MPP + Android project")
+    @GradleAndroidTest
+    fun testMppAndroidKapt(
+        gradleVersion: GradleVersion,
+        agpVersion: String,
+        jdkVersion: JdkVersions.ProvidedJdk,
+    ) {
+        project(
+            "mpp-android-kapt".withPrefix,
+            gradleVersion,
+            buildOptions = defaultBuildOptions.copy(androidVersion = agpVersion, logLevel = LogLevel.DEBUG),
+            buildJdk = jdkVersion.location
+        ) {
+            build(":shared:compileDebugKotlinAndroid") {
+                assertTasksExecuted(
+                    ":shared:kaptGenerateStubsDebugKotlinAndroid",
+                    ":shared:kaptDebugKotlinAndroid",
+                    ":shared:compileDebugKotlinAndroid",
+                )
+
+                val sourcesDir = subProject("shared").kotlinSourcesDir("commonMain")
+                assertCompilerArguments(
+                    ":shared:kaptGenerateStubsDebugKotlinAndroid",
+                    sourcesDir.resolve("hilt/error/sampleapp/Annotations.kt").toAbsolutePath().toString(),
+                    sourcesDir.resolve("hilt/error/sampleapp/CommonMainViewModel.kt").toAbsolutePath().toString(),
+                )
             }
         }
     }

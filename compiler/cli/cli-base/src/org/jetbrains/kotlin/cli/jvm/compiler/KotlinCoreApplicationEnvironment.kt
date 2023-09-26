@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2019 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 package org.jetbrains.kotlin.cli.jvm.compiler
@@ -10,12 +10,14 @@ import com.intellij.codeInsight.runner.JavaMainMethodProvider
 import com.intellij.core.JavaCoreApplicationEnvironment
 import com.intellij.ide.highlighter.JavaClassFileType
 import com.intellij.lang.MetaLanguage
+import com.intellij.mock.MockApplication
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFileSystem
 import com.intellij.psi.FileContextProvider
 import com.intellij.psi.augment.PsiAugmentProvider
+import com.intellij.psi.codeStyle.JavaFileCodeStyleFacadeFactory
 import com.intellij.psi.impl.smartPointers.SmartPointerAnchorProvider
 import com.intellij.psi.meta.MetaDataContributor
 import org.jetbrains.kotlin.cli.jvm.compiler.IdeaExtensionPoints.registerVersionSpecificAppExtensionPoints
@@ -24,15 +26,33 @@ import org.jetbrains.kotlin.cli.jvm.modules.CoreJrtFileSystem
 
 class KotlinCoreApplicationEnvironment private constructor(
     parentDisposable: Disposable, unitTestMode: Boolean
-) :
-    JavaCoreApplicationEnvironment(parentDisposable, unitTestMode) {
+) : JavaCoreApplicationEnvironment(parentDisposable, unitTestMode) {
 
     init {
+        registerApplicationService(JavaFileCodeStyleFacadeFactory::class.java, DummyJavaFileCodeStyleFacadeFactory())
         registerFileType(JavaClassFileType.INSTANCE, "sig");
     }
 
     override fun createJrtFileSystem(): VirtualFileSystem {
         return CoreJrtFileSystem()
+    }
+
+    override fun createApplication(parentDisposable: Disposable): MockApplication {
+        val mock = super.createApplication(parentDisposable)
+
+        /**
+         * We can't use just [unitTestMode] from constructor, because at this moment
+         * the corresponding property is not yet initialized, so [unitTestMode] is effectively always false,
+         * because this function called from super class constructor
+         */
+        return if (mock.isUnitTestMode) {
+            object : MockApplication(parentDisposable) {
+                override fun isUnitTestMode(): Boolean = true
+                override fun isWriteAccessAllowed(): Boolean = false
+            }
+        } else {
+            mock
+        }
     }
 
     private var fastJarFileSystemField: FastJarFileSystem? = null

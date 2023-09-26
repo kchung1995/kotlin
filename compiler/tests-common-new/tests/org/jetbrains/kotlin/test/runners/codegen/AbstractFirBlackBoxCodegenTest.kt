@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2020 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -14,6 +14,10 @@ import org.jetbrains.kotlin.test.builders.configureFirHandlersStep
 import org.jetbrains.kotlin.test.directives.JvmEnvironmentConfigurationDirectives.USE_PSI_CLASS_FILES_READING
 import org.jetbrains.kotlin.test.directives.ConfigurationDirectives.WITH_STDLIB
 import org.jetbrains.kotlin.test.FirParser
+import org.jetbrains.kotlin.test.backend.ir.CodegenWithIrFakeOverrideGeneratorSuppressor
+import org.jetbrains.kotlin.test.backend.ir.IrDiagnosticsHandler
+import org.jetbrains.kotlin.test.builders.configureIrHandlersStep
+import org.jetbrains.kotlin.test.directives.CodegenTestDirectives.ENABLE_IR_FAKE_OVERRIDE_GENERATION
 import org.jetbrains.kotlin.test.directives.LanguageSettingsDirectives
 import org.jetbrains.kotlin.test.directives.configureFirParser
 import org.jetbrains.kotlin.test.frontend.fir.Fir2IrResultsConverter
@@ -65,16 +69,17 @@ abstract class AbstractFirBlackBoxCodegenTestBase(
                 )
             }
 
+            configureIrHandlersStep {
+                useHandlers(::IrDiagnosticsHandler)
+            }
+
             useAfterAnalysisCheckers(
                 ::FirMetaInfoDiffSuppressor
             )
 
             configureDumpHandlersForCodegenTest()
 
-            forTestsMatching(
-                "compiler/fir/fir2ir/testData/codegen/box/properties/backingField/*" or
-                        "compiler/fir/fir2ir/testData/codegen/boxWithStdLib/properties/backingField/*"
-            ) {
+            forTestsMatching("compiler/testData/codegen/box/properties/backingField/*") {
                 defaultDirectives {
                     LanguageSettingsDirectives.LANGUAGE with "+ExplicitBackingFields"
                 }
@@ -87,3 +92,16 @@ open class AbstractFirLightTreeBlackBoxCodegenTest : AbstractFirBlackBoxCodegenT
 
 @FirPsiCodegenTest
 open class AbstractFirPsiBlackBoxCodegenTest : AbstractFirBlackBoxCodegenTestBase(FirParser.Psi)
+
+open class AbstractFirLightTreeBlackBoxCodegenWithIrFakeOverrideGeneratorTest : AbstractFirLightTreeBlackBoxCodegenTest() {
+    override fun configure(builder: TestConfigurationBuilder) {
+        super.configure(builder)
+        with(builder) {
+            defaultDirectives {
+                +ENABLE_IR_FAKE_OVERRIDE_GENERATION
+            }
+
+            useAfterAnalysisCheckers(::CodegenWithIrFakeOverrideGeneratorSuppressor)
+        }
+    }
+}

@@ -8,6 +8,8 @@ package org.jetbrains.kotlin.fir.serialization
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.declarations.*
 import org.jetbrains.kotlin.fir.expressions.FirAnnotation
+import org.jetbrains.kotlin.fir.serialization.constant.ConstValueProvider
+import org.jetbrains.kotlin.fir.serialization.constant.ConstValueProviderInternals
 import org.jetbrains.kotlin.fir.types.ConeErrorType
 import org.jetbrains.kotlin.fir.types.ConeFlexibleType
 import org.jetbrains.kotlin.metadata.ProtoBuf
@@ -22,7 +24,21 @@ abstract class FirSerializerExtension {
 
     abstract val metadataVersion: BinaryVersion
 
-    val annotationSerializer by lazy { FirAnnotationSerializer(session, stringTable) }
+    val annotationSerializer by lazy { FirAnnotationSerializer(session, stringTable, constValueProvider) }
+
+    protected abstract val constValueProvider: ConstValueProvider?
+    protected abstract val additionalAnnotationsProvider: FirAdditionalMetadataAnnotationsProvider?
+
+    @OptIn(ConstValueProviderInternals::class)
+    internal inline fun <T> processFile(firFile: FirFile, crossinline action: () -> T): T {
+        val previousFile = constValueProvider?.processingFirFile
+        constValueProvider?.processingFirFile = firFile
+        return try {
+            action()
+        } finally {
+            constValueProvider?.processingFirFile = previousFile
+        }
+    }
 
     open fun shouldUseTypeTable(): Boolean = false
     open fun shouldUseNormalizedVisibility(): Boolean = false
@@ -70,24 +86,28 @@ abstract class FirSerializerExtension {
     open fun serializeFlexibleType(type: ConeFlexibleType, lowerProto: ProtoBuf.Type.Builder, upperProto: ProtoBuf.Type.Builder) {
     }
 
-    open fun serializeTypeAnnotation(annotation: FirAnnotation, proto: ProtoBuf.Type.Builder) {
+    open fun serializeTypeAnnotations(annotations: List<FirAnnotation>, proto: ProtoBuf.Type.Builder) {
     }
 
     open fun serializeTypeParameter(typeParameter: FirTypeParameter, proto: ProtoBuf.TypeParameter.Builder) {
     }
 
     open fun serializeTypeAlias(typeAlias: FirTypeAlias, proto: ProtoBuf.TypeAlias.Builder) {
+        for (annotation in typeAlias.nonSourceAnnotations(session)) {
+            proto.addAnnotation(annotationSerializer.serializeAnnotation(annotation))
+        }
+    }
+
+    fun hasAdditionalAnnotations(declaration: FirDeclaration): Boolean {
+        return additionalAnnotationsProvider?.hasGeneratedAnnotationsFor(declaration) ?: false
+    }
+
+    // TODO: add usages
+    fun getAnnotationsGeneratedByPlugins(declaration: FirDeclaration): List<FirAnnotation> {
+        return additionalAnnotationsProvider?.findGeneratedAnnotationsFor(declaration) ?: emptyList()
     }
 
     open fun serializeErrorType(type: ConeErrorType, builder: ProtoBuf.Type.Builder) {
-        throw IllegalStateException("Cannot serialize error type: $type")
+        error("Cannot serialize error type: $type")
     }
-
-    open val customClassMembersProducer: ClassMembersProducer?
-        get() = null
-
-    interface ClassMembersProducer {
-        fun getCallableMembers(klass: FirClass): Collection<FirCallableDeclaration>
-    }
-
 }

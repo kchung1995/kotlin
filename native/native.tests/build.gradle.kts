@@ -1,11 +1,7 @@
-import org.jetbrains.kotlin.ideaExt.idea
-
 plugins {
     kotlin("jvm")
     id("jps-compatible")
 }
-
-project.configureJvmToolchain(JdkMajorVersion.JDK_11_0)
 
 dependencies {
     testImplementation(kotlinStdlib())
@@ -18,47 +14,43 @@ dependencies {
     testImplementation(projectTests(":compiler:tests-common-new"))
     testImplementation(projectTests(":compiler:test-infrastructure"))
     testImplementation(projectTests(":generators:test-generator"))
+    testImplementation(project(":compiler:ir.serialization.native"))
     testImplementation(project(":native:kotlin-native-utils"))
     testImplementation(project(":native:executors"))
-    testApiJUnit5()
+    testImplementation(project(":kotlin-util-klib-abi"))
+    testImplementation(projectTests(":kotlin-util-klib-abi"))
+    testApi(platform(libs.junit.bom))
+    testImplementation(libs.junit.jupiter.api)
+    testRuntimeOnly(libs.junit.jupiter.engine)
+    testImplementation(commonDependency("org.jetbrains.kotlinx", "kotlinx-metadata-klib"))
     testImplementation(commonDependency("org.jetbrains.kotlinx", "kotlinx-coroutines-core")) { isTransitive = false }
 
-    testRuntimeOnly(commonDependency("org.jetbrains.intellij.deps:trove4j"))
     testRuntimeOnly(commonDependency("org.jetbrains.intellij.deps.fastutil:intellij-deps-fastutil"))
 }
-
-val generationRoot = projectDir.resolve("tests-gen")
 
 sourceSets {
     "main" { none() }
     "test" {
         projectDefault()
-        java.srcDirs(generationRoot.name)
+        generatedTestDir()
     }
 }
 
-if (kotlinBuildProperties.isInJpsBuildIdeaSync) {
-    apply(plugin = "idea")
-    idea {
-        module.generatedSourceDirs.addAll(listOf(generationRoot))
-    }
-}
+testsJar {}
 
 // Tasks that run different sorts of tests. Most frequent use case: running specific tests at TeamCity.
 val infrastructureTest = nativeTest("infrastructureTest", "infrastructure")
-val codegenBoxTest = nativeTest("codegenBoxTest", "codegen")
-val codegenK2BoxTest = nativeTest("codegenK2BoxTest", "codegenK2")
-val stdlibTest = nativeTest("stdlibTest", "stdlib")
-val stdlibK2Test = nativeTest("stdlibK2Test", "stdlibK2")
-val kotlinTestLibraryTest = nativeTest("kotlinTestLibraryTest", "kotlin-test")
-val kotlinTestK2LibraryTest = nativeTest("kotlinTestK2LibraryTest", "kotlin-testK2")
-val klibAbiTest = nativeTest("klibAbiTest", "klib-abi")
-val klibBinaryCompatibilityTest = nativeTest("klibBinaryCompatibilityTest", "klib-binary-compatibility")
+val codegenBoxTest = nativeTest("codegenBoxTest", "codegen & !frontend-fir")
+val codegenBoxK2Test = nativeTest("codegenBoxK2Test", "codegen & frontend-fir")
+val stdlibTest = nativeTest("stdlibTest", "stdlib & !frontend-fir")
+val stdlibK2Test = nativeTest("stdlibK2Test", "stdlib & frontend-fir")
+val kotlinTestLibraryTest = nativeTest("kotlinTestLibraryTest", "kotlin-test & !frontend-fir")
+val kotlinTestLibraryK2Test = nativeTest("kotlinTestLibraryK2Test", "kotlin-test & frontend-fir")
+val partialLinkageTest = nativeTest("partialLinkageTest", "partial-linkage")
 val cinteropTest = nativeTest("cinteropTest", "cinterop")
 val debuggerTest = nativeTest("debuggerTest", "debugger")
 val cachesTest = nativeTest("cachesTest", "caches")
-val k1libContentsTest = nativeTest("k1libContentsTest", "k1libContents")
-val k2libContentsTest = nativeTest("k2libContentsTest", "k2libContents")
+val klibTest = nativeTest("klibTest", "klib")
 
 val testTags = findProperty("kotlin.native.tests.tags")?.toString()
 // Note: arbitrary JUnit tag expressions can be used in this property.

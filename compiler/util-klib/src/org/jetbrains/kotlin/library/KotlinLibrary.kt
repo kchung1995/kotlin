@@ -11,6 +11,11 @@ const val KLIB_PROPERTY_ABI_VERSION = "abi_version"
 const val KLIB_PROPERTY_COMPILER_VERSION = "compiler_version"
 
 /**
+ * A set of values of [org.jetbrains.kotlin.library.KotlinIrSignatureVersion].
+ */
+const val KLIB_PROPERTY_IR_SIGNATURE_VERSIONS = "ir_signature_versions"
+
+/**
  * [org.jetbrains.kotlin.library.metadata.KlibMetadataVersion]
  */
 const val KLIB_PROPERTY_METADATA_VERSION = "metadata_version"
@@ -27,6 +32,7 @@ const val KLIB_PROPERTY_CONTAINS_ERROR_CODE = "contains_error_code"
 const val KLIB_PROPERTY_INTEROP = "interop"
 const val KLIB_PROPERTY_EXPORT_FORWARD_DECLARATIONS = "exportForwardDeclarations"
 const val KLIB_PROPERTY_INCLUDED_FORWARD_DECLARATIONS = "includedForwardDeclarations"
+const val KLIB_PROPERTY_IR_PROVIDER = "ir_provider"
 
 /**
  * Copy-pasted to `kotlin-native/build-tools/src/main/kotlin/org/jetbrains/kotlin/Utils.kt`
@@ -92,12 +98,18 @@ val BaseKotlinLibrary.uniqueName: String
 val BaseKotlinLibrary.shortName: String?
     get() = manifestProperties.getProperty(KLIB_PROPERTY_SHORT_NAME)
 
+val BaseKotlinLibrary.isNativeStdlib: Boolean
+    get() = uniqueName == KOTLIN_STDLIB_NAME
+
 val BaseKotlinLibrary.unresolvedDependencies: List<RequiredUnresolvedLibrary>
     get() = unresolvedDependencies(lenient = false).map { it as RequiredUnresolvedLibrary }
 
 fun BaseKotlinLibrary.unresolvedDependencies(lenient: Boolean = false): List<UnresolvedLibrary> =
     manifestProperties.propertyList(KLIB_PROPERTY_DEPENDS, escapeInQuotes = true)
         .map { UnresolvedLibrary(it, manifestProperties.getProperty("dependency_version_$it"), lenient = lenient) }
+
+val BaseKotlinLibrary.hasDependencies: Boolean
+    get() = !manifestProperties.getProperty(KLIB_PROPERTY_DEPENDS).isNullOrBlank()
 
 interface KotlinLibrary : BaseKotlinLibrary, MetadataLibrary, IrLibrary
 
@@ -113,6 +125,9 @@ val KotlinLibrary.exportForwardDeclarations: List<String>
 
 val KotlinLibrary.includedForwardDeclarations: List<String>
     get() = manifestProperties.propertyList(KLIB_PROPERTY_INCLUDED_FORWARD_DECLARATIONS, escapeInQuotes = true)
+
+val BaseKotlinLibrary.irProviderName: String?
+    get() = manifestProperties.getProperty(KLIB_PROPERTY_IR_PROVIDER)
 
 val BaseKotlinLibrary.nativeTargets: List<String>
     get() = manifestProperties.propertyList(KLIB_PROPERTY_NATIVE_TARGETS)

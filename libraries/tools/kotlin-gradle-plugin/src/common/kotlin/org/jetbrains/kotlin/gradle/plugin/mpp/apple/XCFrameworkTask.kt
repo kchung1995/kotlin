@@ -8,21 +8,25 @@ package org.jetbrains.kotlin.gradle.plugin.mpp.apple
 import org.gradle.api.DefaultTask
 import org.gradle.api.Project
 import org.gradle.api.Task
-import org.gradle.api.file.FileSystemOperations
 import org.gradle.api.file.ProjectLayout
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.*
 import org.gradle.process.ExecOperations
+import org.gradle.work.DisableCachingByDefault
 import org.jetbrains.kotlin.gradle.plugin.cocoapods.asValidFrameworkName
+import org.jetbrains.kotlin.gradle.plugin.diagnostics.KotlinToolingDiagnostics
+import org.jetbrains.kotlin.gradle.plugin.diagnostics.UsesKotlinToolingDiagnostics
 import org.jetbrains.kotlin.gradle.plugin.mpp.Framework
 import org.jetbrains.kotlin.gradle.plugin.mpp.NativeBuildType
 import org.jetbrains.kotlin.gradle.tasks.*
+import org.jetbrains.kotlin.gradle.utils.existsCompat
 import org.jetbrains.kotlin.gradle.utils.lowerCamelCaseName
 import org.jetbrains.kotlin.konan.target.HostManager
 import org.jetbrains.kotlin.konan.target.KonanTarget
 import java.io.File
 import javax.inject.Inject
 
+@Suppress("unused") // used through .values() call
 internal enum class AppleTarget(
     val targetName: String,
     val targets: List<KonanTarget>
@@ -142,12 +146,13 @@ private fun Project.registerAssembleFatForXCFrameworkTask(
     }
 }
 
+@DisableCachingByDefault
 abstract class XCFrameworkTask
 @Inject
 internal constructor(
     private val execOperations: ExecOperations,
     private val projectLayout: ProjectLayout,
-) : DefaultTask() {
+) : DefaultTask(), UsesKotlinToolingDiagnostics {
     init {
         onlyIf { HostManager.hostIsMac }
     }
@@ -177,7 +182,9 @@ internal constructor(
     @get:PathSensitive(PathSensitivity.ABSOLUTE)
     @get:SkipWhenEmpty
     val inputFrameworkFiles: Collection<File>
-        get() = groupedFrameworkFiles.values.flatten().map { it.file }.filter { it.exists() }
+        get() = groupedFrameworkFiles.values.flatten().map { it.file }.filter {
+            it.existsCompat()
+        }
 
     /**
      * A parent directory for the XCFramework.
@@ -238,9 +245,10 @@ internal constructor(
                               frameworks.joinToString("\n") { it.file.path })
             }
             if (name != xcfName) {
-                logger.warn(
-                    "Name of XCFramework '$rawXcfName' differs from inner frameworks name '$name'! Framework renaming is not supported yet"
-                )
+                toolingDiagnosticsCollector.get().report(this, KotlinToolingDiagnostics.XCFrameworkDifferentInnerFrameworksName(
+                    xcFramework = rawXcfName,
+                    innerFrameworks = name,
+                ))
             }
         }
 

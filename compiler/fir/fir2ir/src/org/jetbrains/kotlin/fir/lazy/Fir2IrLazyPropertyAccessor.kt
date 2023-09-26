@@ -6,6 +6,7 @@
 package org.jetbrains.kotlin.fir.lazy
 
 import org.jetbrains.kotlin.fir.backend.*
+import org.jetbrains.kotlin.fir.backend.generators.generateOverriddenAccessorSymbols
 import org.jetbrains.kotlin.fir.declarations.FirCallableDeclaration
 import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.declarations.FirPropertyAccessor
@@ -76,24 +77,25 @@ class Fir2IrLazyPropertyAccessor(
     override var valueParameters: List<IrValueParameter> by lazyVar(lock) {
         if (!isSetter && contextReceiverParametersCount == 0) emptyList()
         else {
-            declarationStorage.enterScope(this)
+            declarationStorage.enterScope(this.symbol)
 
             buildList {
-                declarationStorage.addContextReceiverParametersTo(
+                callablesGenerator.addContextReceiverParametersTo(
                     fir.contextReceiversForFunctionOrContainingProperty(),
                     this@Fir2IrLazyPropertyAccessor,
-                    this@buildList,
+                    this@buildList
                 )
 
                 if (isSetter) {
                     val valueParameter = firAccessor?.valueParameters?.firstOrNull()
                     add(
-                        declarationStorage.createDefaultSetterParameter(
+                        callablesGenerator.createDefaultSetterParameter(
                             startOffset, endOffset,
                             (valueParameter?.returnTypeRef ?: firParentProperty.returnTypeRef).toIrType(
                                 typeConverter, conversionTypeContext
                             ),
                             parent = this@Fir2IrLazyPropertyAccessor,
+                            firValueParameter = valueParameter,
                             name = valueParameter?.name,
                             isCrossinline = valueParameter?.isCrossinline == true,
                             isNoinline = valueParameter?.isNoinline == true
@@ -101,7 +103,7 @@ class Fir2IrLazyPropertyAccessor(
                     )
                 }
             }.apply {
-                declarationStorage.leaveScope(this@Fir2IrLazyPropertyAccessor)
+                declarationStorage.leaveScope(this@Fir2IrLazyPropertyAccessor.symbol)
             }
         }
     }
@@ -112,11 +114,12 @@ class Fir2IrLazyPropertyAccessor(
     }
 
     override val initialSignatureFunction: IrFunction? by lazy {
-        (fir as? FirSyntheticPropertyAccessor)?.delegate?.let { declarationStorage.getIrFunctionSymbol(it.symbol).owner }
+        val originalFirFunction = (fir as? FirSyntheticPropertyAccessor)?.delegate ?: return@lazy null
+        declarationStorage.getOrCreateIrFunction(originalFirFunction, parent)
     }
 
     override val containerSource: DeserializedContainerSource?
         get() = firParentProperty.containerSource
 
-    private val conversionTypeContext = if (isSetter) ConversionTypeContext.DEFAULT.inSetter() else ConversionTypeContext.DEFAULT
+    private val conversionTypeContext = if (isSetter) ConversionTypeOrigin.SETTER else ConversionTypeOrigin.DEFAULT
 }

@@ -24,11 +24,11 @@ import org.jetbrains.kotlin.ir.declarations.impl.IrExternalPackageFragmentImpl
 import org.jetbrains.kotlin.ir.declarations.impl.IrFileImpl
 import org.jetbrains.kotlin.ir.symbols.IrSimpleFunctionSymbol
 import org.jetbrains.kotlin.ir.symbols.impl.DescriptorlessExternalPackageFragmentSymbol
-import org.jetbrains.kotlin.ir.types.IrSimpleType
 import org.jetbrains.kotlin.ir.types.IrTypeSystemContext
 import org.jetbrains.kotlin.ir.types.IrTypeSystemContextImpl
 import org.jetbrains.kotlin.ir.util.SymbolTable
 import org.jetbrains.kotlin.ir.util.addChild
+import org.jetbrains.kotlin.js.config.JSConfigurationKeys
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
@@ -58,10 +58,10 @@ class WasmBackendContext(
 
     override val mapping = JsMapping()
 
-    val closureCallExports = mutableMapOf<IrSimpleType, IrSimpleFunction>()
-    val kotlinClosureToJsConverters = mutableMapOf<IrSimpleType, IrSimpleFunction>()
-    val jsClosureCallers = mutableMapOf<IrSimpleType, IrSimpleFunction>()
-    val jsToKotlinClosures = mutableMapOf<IrSimpleType, IrSimpleFunction>()
+    val closureCallExports = mutableMapOf<String, IrSimpleFunction>()
+    val kotlinClosureToJsConverters = mutableMapOf<String, IrSimpleFunction>()
+    val jsClosureCallers = mutableMapOf<String, IrSimpleFunction>()
+    val jsToKotlinClosures = mutableMapOf<String, IrSimpleFunction>()
 
     val jsModuleAndQualifierReferences =
         mutableSetOf<JsModuleAndQualifierReference>()
@@ -86,15 +86,15 @@ class WasmBackendContext(
                 SourceRangeInfo(
                     "",
                     UNDEFINED_OFFSET,
+                    UNDEFINED_LINE_NUMBER,
+                    UNDEFINED_COLUMN_NUMBER,
                     UNDEFINED_OFFSET,
-                    UNDEFINED_OFFSET,
-                    UNDEFINED_OFFSET,
-                    UNDEFINED_OFFSET,
-                    UNDEFINED_OFFSET
+                    UNDEFINED_LINE_NUMBER,
+                    UNDEFINED_COLUMN_NUMBER
                 )
 
-            override fun getLineNumber(offset: Int) = UNDEFINED_OFFSET
-            override fun getColumnNumber(offset: Int) = UNDEFINED_OFFSET
+            override fun getLineNumber(offset: Int) = UNDEFINED_LINE_NUMBER
+            override fun getColumnNumber(offset: Int) = UNDEFINED_COLUMN_NUMBER
         }, internalPackageFragmentDescriptor, irModuleFragment).also {
             irModuleFragment.files += it
         }
@@ -158,15 +158,15 @@ class WasmBackendContext(
                 SourceRangeInfo(
                     "",
                     UNDEFINED_OFFSET,
+                    UNDEFINED_LINE_NUMBER,
+                    UNDEFINED_COLUMN_NUMBER,
                     UNDEFINED_OFFSET,
-                    UNDEFINED_OFFSET,
-                    UNDEFINED_OFFSET,
-                    UNDEFINED_OFFSET,
-                    UNDEFINED_OFFSET
+                    UNDEFINED_LINE_NUMBER,
+                    UNDEFINED_COLUMN_NUMBER
                 )
 
-            override fun getLineNumber(offset: Int) = UNDEFINED_OFFSET
-            override fun getColumnNumber(offset: Int) = UNDEFINED_OFFSET
+            override fun getLineNumber(offset: Int) = UNDEFINED_LINE_NUMBER
+            override fun getColumnNumber(offset: Int) = UNDEFINED_COLUMN_NUMBER
         }, internalPackageFragmentDescriptor, module).also {
             module.files += it
         }

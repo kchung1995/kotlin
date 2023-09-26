@@ -8,7 +8,6 @@ package org.jetbrains.kotlin.tools.dukat.wasm
 import org.jetbrains.dukat.astCommon.IdentifierEntity
 import org.jetbrains.dukat.astCommon.NameEntity
 import org.jetbrains.dukat.astModel.*
-import org.jetbrains.dukat.astModel.modifiers.VisibilityModifierModel
 import org.jetbrains.dukat.commonLowerings.AddExplicitGettersAndSetters
 import org.jetbrains.dukat.idlLowerings.*
 import org.jetbrains.dukat.idlParser.parseIDL
@@ -19,6 +18,7 @@ import org.jetbrains.dukat.ownerContext.NodeOwner
 fun translateIdlToSourceSet(fileName: String): SourceSetModel {
     val translationContext = TranslationContext()
     return parseIDL(fileName, DirectoryReferencesResolver())
+        .voidifyEventHandlerReturnType()
         .resolvePartials()
         .addConstructors()
         .resolveTypedefs()
@@ -27,7 +27,8 @@ fun translateIdlToSourceSet(fileName: String): SourceSetModel {
         .resolveImplementsStatements()
         .resolveMixins()
         .addItemArrayLike()
-        .resolveTypes()
+        .resolveTypesKeepingUnions()
+        .addOverloadsForUnions()
         .markAbstractOrOpen()
         .addMissingMembers()
         .addOverloadsForCallbacks()
@@ -41,7 +42,6 @@ fun translateIdlToSourceSet(fileName: String): SourceSetModel {
         .lower(ReplaceDynamics())  // Wasm-specific
         .addKDocs()
         .relocateDeclarations()
-        .resolveTopLevelVisibility(alwaysPublic())
         .addImportsForUsedPackages()
         .omitStdLib()
         .lower(WasmPostProcessingHacks())
@@ -96,9 +96,4 @@ class WasmPostProcessingHacks : TopLevelModelLowering {
             else -> error("Unknown ClassLikeModel: ${klass::class}")
         }
     }
-}
-
-
-private fun alwaysPublic(): VisibilityModifierResolver = object : VisibilityModifierResolver {
-    override fun resolve(): VisibilityModifierModel = VisibilityModifierModel.PUBLIC
 }

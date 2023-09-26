@@ -5,7 +5,7 @@
 
 package org.jetbrains.kotlin.analysis.api.renderer.declarations.impl
 
-import org.jetbrains.kotlin.analysis.api.renderer.base.KtKeywordRenderer
+import org.jetbrains.kotlin.analysis.api.renderer.base.KtKeywordsRenderer
 import org.jetbrains.kotlin.analysis.api.renderer.base.annotations.KtAnnotationRendererForSource
 import org.jetbrains.kotlin.analysis.api.renderer.base.contextReceivers.KtContextReceiversRendererForSource
 import org.jetbrains.kotlin.analysis.api.renderer.declarations.KtCallableReturnTypeFilter
@@ -29,7 +29,7 @@ import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KtTypeRendererForSo
 public object KtDeclarationRendererForSource {
     public val WITH_QUALIFIED_NAMES: KtDeclarationRenderer = KtDeclarationRenderer {
         nameRenderer = KtDeclarationNameRenderer.QUOTED
-        keywordRender = KtKeywordRenderer.AS_WORD
+        keywordsRenderer = KtKeywordsRenderer.AS_WORD
         contextReceiversRenderer = KtContextReceiversRendererForSource.WITH_LABELS
         codeStyle = KtRecommendedRendererCodeStyle
         modifiersRenderer = KtDeclarationModifiersRendererForSource.NO_IMPLICIT_MODIFIERS
@@ -50,7 +50,7 @@ public object KtDeclarationRendererForSource {
         classInitializerRender = KtClassInitializerRenderer.INIT_BLOCK_WITH_BRACES
 
         anonymousFunctionRenderer = KtAnonymousFunctionSymbolRenderer.AS_SOURCE
-        backingFieldRenderer = KtBackingFieldSymbolRenderer.AS_FIELD_KEYWROD
+        backingFieldRenderer = KtBackingFieldSymbolRenderer.AS_FIELD_KEYWORD
         constructorRenderer = KtConstructorSymbolRenderer.AS_SOURCE
         enumEntryRenderer = KtEnumEntrySymbolRenderer.AS_SOURCE
         functionSymbolRenderer = KtFunctionSymbolRenderer.AS_SOURCE
@@ -74,6 +74,7 @@ public object KtDeclarationRendererForSource {
         anonymousObjectRenderer = KtAnonymousObjectSymbolRenderer.AS_SOURCE
         singleTypeParameterRenderer = KtSingleTypeParameterSymbolRenderer.WITHOUT_BOUNDS
         propertyAccessorsRenderer = KtPropertyAccessorsRenderer.NO_DEFAULT
+        destructuringDeclarationRenderer = KtDestructuringDeclarationRenderer.WITH_ENTRIES
 
         callableReceiverRenderer = KtCallableReceiverRenderer.AS_TYPE_WITH_IN_APPROXIMATION
         returnTypeRenderer = KtCallableReturnTypeRenderer.WITH_OUT_APPROXIMATION

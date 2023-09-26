@@ -22,10 +22,10 @@ import org.jetbrains.kotlin.backend.konan.llvm.objc.ObjCCodeGenerator
 import org.jetbrains.kotlin.backend.konan.llvm.objc.ObjCDataGenerator
 import org.jetbrains.kotlin.backend.konan.lower.getObjectClassInstanceFunction
 import org.jetbrains.kotlin.backend.konan.objcexport.*
-import org.jetbrains.kotlin.backend.konan.serialization.resolveFakeOverrideMaybeAbstract
 import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.incremental.components.NoLookupLocation
+import org.jetbrains.kotlin.ir.ObsoleteDescriptorBasedAPI
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.expressions.IrClassReference
 import org.jetbrains.kotlin.ir.expressions.IrVararg
@@ -803,6 +803,7 @@ private fun ObjCExportCodeGenerator.generateUnitContinuationToRetainedCompletion
 }
 
 // TODO: find out what to use instead here and in the dependent code
+@OptIn(ObsoleteDescriptorBasedAPI::class)
 private val ObjCExportBlockCodeGenerator.mappedFunctionNClasses get() =
     // failed attempt to migrate to descriptor-less IrBuiltIns
     ((context.irBuiltIns as IrBuiltInsOverDescriptors).functionFactory as BuiltInFictitiousFunctionIrClassFactory).builtFunctionNClasses
@@ -945,10 +946,10 @@ private fun ObjCExportCodeGenerator.generateObjCImp(
                     listOf(param(0), codegen.typeInfoValue(target.parent as IrClass))
             )
         }
-        val llvmCallable = if (!isVirtual) {
-            codegen.llvmFunction(target)
+        val llvmCallable = if (isVirtual) {
+            codegen.getVirtualFunctionTrampoline(target as IrSimpleFunction)
         } else {
-            lookupVirtualImpl(args.first(), target)
+            codegen.llvmFunction(target)
         }
         call(llvmCallable, args, resultLifetime, exceptionHandler)
     }
@@ -1141,11 +1142,11 @@ private fun ObjCExportCodeGenerator.effectiveThrowsClasses(method: IrFunction, s
     val throwsVararg = throwsAnnotation.getValueArgument(0)
             ?: return emptyList()
 
-    if (throwsVararg !is IrVararg) error(method.getContainingFile(), throwsVararg, "unexpected vararg")
+    if (throwsVararg !is IrVararg) error(method.fileOrNull, throwsVararg, "unexpected vararg")
 
     return throwsVararg.elements.map {
         (it as? IrClassReference)?.symbol?.owner as? IrClass
-                ?: error(method.getContainingFile(), it, "unexpected @Throws argument")
+                ?: error(method.fileOrNull, it, "unexpected @Throws argument")
     }
 }
 
@@ -1533,7 +1534,7 @@ private fun ObjCExportCodeGenerator.itablePlace(irFunction: IrSimpleFunction): C
     assert(irFunction.isOverridable)
     val irClass = irFunction.parentAsClass
     return if (irClass.isInterface
-            && (irFunction.isReal || irFunction.resolveFakeOverrideMaybeAbstract().parent != context.irBuiltIns.anyClass.owner)
+            && (irFunction.isReal || irFunction.resolveFakeOverride(allowAbstract = true)?.parent != context.irBuiltIns.anyClass.owner)
     ) {
         context.getLayoutBuilder(irClass).itablePlace(irFunction)
     } else {
@@ -1783,7 +1784,7 @@ private fun ObjCExportCodeGenerator.createDirectAdapters(
         )
     }
 
-    val inheritedAdapters = superClass?.getAllRequiredDirectAdapters().orEmpty()
+    val inheritedAdapters = superClass?.getAllRequiredDirectAdapters().orEmpty().toSet()
     val requiredAdapters = typeDeclaration.getAllRequiredDirectAdapters() - inheritedAdapters
 
     return requiredAdapters.distinctBy { it.base.selector }.map { createMethodAdapter(it) }

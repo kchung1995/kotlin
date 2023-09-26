@@ -8,9 +8,10 @@ package org.jetbrains.kotlin.backend.jvm.lower
 import org.jetbrains.kotlin.backend.common.ScopeWithIr
 import org.jetbrains.kotlin.backend.common.lower.createIrBuilder
 import org.jetbrains.kotlin.backend.common.lower.irBlockBody
+import org.jetbrains.kotlin.backend.common.lower.loops.forLoopsPhase
+import org.jetbrains.kotlin.backend.common.phaser.makeIrFilePhase
 import org.jetbrains.kotlin.backend.jvm.*
 import org.jetbrains.kotlin.backend.jvm.ir.erasedUpperBound
-import org.jetbrains.kotlin.backend.jvm.ir.isInlineClassType
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.config.ApiVersion
 import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
@@ -30,6 +31,17 @@ import org.jetbrains.kotlin.ir.visitors.IrElementTransformerVoid
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.resolve.JVM_INLINE_ANNOTATION_FQ_NAME
 
+val jvmInlineClassPhase = makeIrFilePhase(
+    ::JvmInlineClassLowering,
+    name = "InlineClasses",
+    description = "Lower inline classes",
+    // forLoopsPhase may produce UInt and ULong which are inline classes.
+    // Standard library replacements are done on the not mangled names for UInt and ULong classes.
+    // Collection stubs may require mangling by value class rules.
+    // SAM wrappers may require mangling for fun interfaces with value class parameters
+    prerequisite = setOf(forLoopsPhase, jvmBuiltInsPhase, collectionStubMethodLowering, singleAbstractMethodPhase),
+)
+
 /**
  * Adds new constructors, box, and unbox functions to inline classes as well as replacement
  * functions and bridges to avoid clashes between overloaded function. Changes call with
@@ -38,10 +50,7 @@ import org.jetbrains.kotlin.resolve.JVM_INLINE_ANNOTATION_FQ_NAME
  * We do not unfold inline class types here. Instead, the type mapper will lower inline class
  * types to the types of their underlying field.
  */
-internal class JvmInlineClassLowering(
-    context: JvmBackendContext,
-    scopeStack: MutableList<ScopeWithIr>,
-) : JvmValueClassAbstractLowering(context, scopeStack) {
+internal class JvmInlineClassLowering(context: JvmBackendContext) : JvmValueClassAbstractLowering(context) {
     override val replacements: MemoizedValueClassAbstractReplacements
         get() = context.inlineClassReplacements
 
@@ -72,7 +81,6 @@ internal class JvmInlineClassLowering(
 
     override val specificMangle: SpecificMangle
         get() = SpecificMangle.Inline
-    override val IrType.needsHandling get() = isInlineClassType()
     override fun visitClassNewDeclarationsWhenParallel(declaration: IrDeclaration) = Unit
 
     override fun visitClassNew(declaration: IrClass): IrClass {
@@ -373,7 +381,7 @@ internal class JvmInlineClassLowering(
         get() {
             if (!isSingleFieldValueClass) return false
             // Before version 1.4, we cannot rely on the Result.equals-impl0 method
-            return fqNameWhenAvailable != StandardNames.RESULT_FQ_NAME ||
+            return !isClassWithFqName(StandardNames.RESULT_FQ_NAME) ||
                     context.state.languageVersionSettings.apiVersion >= ApiVersion.KOTLIN_1_4
         }
 
@@ -442,6 +450,7 @@ internal class JvmInlineClassLowering(
         val function = context.inlineClassReplacements.getReplacementFunction(irConstructor)!!
 
         val initBlocks = valueClass.declarations.filterIsInstance<IrAnonymousInitializer>()
+            .filterNot { it.isStatic }
 
         function.valueParameters.forEach { it.transformChildrenVoid() }
         function.body = context.createIrBuilder(function.symbol).irBlockBody {

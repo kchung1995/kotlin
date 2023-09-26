@@ -11,6 +11,8 @@ import kotlinx.collections.immutable.mutate
 import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
 import org.jetbrains.kotlin.analysis.api.annotations.hasAnnotation
 import org.jetbrains.kotlin.analysis.api.symbols.KtFunctionSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.KtNamedClassOrObjectSymbol
+import org.jetbrains.kotlin.analysis.api.types.KtNonErrorClassType
 import org.jetbrains.kotlin.analysis.api.types.KtType
 import org.jetbrains.kotlin.analysis.api.types.KtTypeMappingMode
 import org.jetbrains.kotlin.asJava.builder.LightMemberOrigin
@@ -19,12 +21,13 @@ import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.light.classes.symbol.*
 import org.jetbrains.kotlin.light.classes.symbol.annotations.*
 import org.jetbrains.kotlin.light.classes.symbol.classes.SymbolLightClassBase
+import org.jetbrains.kotlin.light.classes.symbol.classes.SymbolLightClassForInterfaceDefaultImpls
 import org.jetbrains.kotlin.light.classes.symbol.modifierLists.GranularModifiersBox
 import org.jetbrains.kotlin.light.classes.symbol.modifierLists.SymbolLightMemberModifierList
 import org.jetbrains.kotlin.light.classes.symbol.modifierLists.with
 import org.jetbrains.kotlin.light.classes.symbol.parameters.SymbolLightTypeParameterList
-import org.jetbrains.kotlin.name.JvmNames.STRICTFP_ANNOTATION_CLASS_ID
-import org.jetbrains.kotlin.name.JvmNames.SYNCHRONIZED_ANNOTATION_CLASS_ID
+import org.jetbrains.kotlin.name.JvmStandardClassIds.STRICTFP_ANNOTATION_CLASS_ID
+import org.jetbrains.kotlin.name.JvmStandardClassIds.SYNCHRONIZED_ANNOTATION_CLASS_ID
 import org.jetbrains.kotlin.utils.addToStdlib.ifTrue
 import java.util.*
 
@@ -67,7 +70,9 @@ internal class SymbolLightSimpleMethod(
         }
     }
 
-    override fun hasTypeParameters(): Boolean = hasTypeParameters(ktModule, functionDeclaration, functionSymbolPointer)
+    override fun hasTypeParameters(): Boolean =
+        hasTypeParameters(ktModule, functionDeclaration, functionSymbolPointer)
+                || containingClass.isDefaultImplsForInterfaceWithTypeParameters
 
     override fun getTypeParameterList(): PsiTypeParameterList? = _typeParameterList
     override fun getTypeParameters(): Array<PsiTypeParameter> = _typeParameterList?.typeParameters ?: PsiTypeParameter.EMPTY_ARRAY
@@ -75,10 +80,10 @@ internal class SymbolLightSimpleMethod(
     private fun computeModifiers(modifier: String): Map<String, Boolean>? = when (modifier) {
         in GranularModifiersBox.MODALITY_MODIFIERS -> {
             ifInlineOnly { return modifiersForInlineOnlyCase() }
-            val modality = if (isTopLevel) {
-                PsiModifier.FINAL
-            } else {
-                withFunctionSymbol { functionSymbol ->
+            val modality = when {
+                isTopLevel -> PsiModifier.FINAL
+                containingClass is SymbolLightClassForInterfaceDefaultImpls -> null
+                else -> withFunctionSymbol { functionSymbol ->
                     functionSymbol.computeSimpleModality()?.takeUnless { it.isSuppressedFinalModifier(containingClass, functionSymbol) }
                 }
             }
@@ -96,7 +101,9 @@ internal class SymbolLightSimpleMethod(
             val isStatic = if (suppressStatic) {
                 false
             } else {
-                isTopLevel || withFunctionSymbol { it.isStatic || it.hasJvmStaticAnnotation() }
+                isTopLevel
+                        || containingClass is SymbolLightClassForInterfaceDefaultImpls
+                        || withFunctionSymbol { it.isStatic || it.hasJvmStaticAnnotation() }
             }
 
             mapOf(modifier to isStatic)
@@ -152,11 +159,17 @@ internal class SymbolLightSimpleMethod(
                             NullabilityType.Unknown
                         } else {
                             withFunctionSymbol { functionSymbol ->
-                                if (functionSymbol.isSuspend) { // Any?
-                                    NullabilityType.Nullable
-                                } else {
-                                    val returnType = functionSymbol.returnType
-                                    if (returnType.isVoidType) NullabilityType.Unknown else getTypeNullability(returnType)
+                                when {
+                                    functionSymbol.isSuspend -> { // Any?
+                                        NullabilityType.Nullable
+                                    }
+                                    forceBoxedReturnType(functionSymbol) -> {
+                                        NullabilityType.NotNull
+                                    }
+                                    else -> {
+                                        val returnType = functionSymbol.returnType
+                                        if (returnType.isVoidType) NullabilityType.Unknown else getTypeNullability(returnType)
+                                    }
                                 }
                             }
                         }
@@ -177,6 +190,24 @@ internal class SymbolLightSimpleMethod(
         if (isTopLevel) false else withFunctionSymbol { it.isOverride }
     }
 
+    // Inspired by KotlinTypeMapper#forceBoxedReturnType
+    context(KtAnalysisSession)
+    private fun forceBoxedReturnType(functionSymbol: KtFunctionSymbol): Boolean {
+        val returnType = functionSymbol.returnType
+        // 'invoke' methods for lambdas, function literals, and callable references
+        // implicitly override generic 'invoke' from a corresponding base class.
+        if (functionSymbol.isBuiltinFunctionInvoke && returnType.isInlineClassType)
+            return true
+
+        return returnType.isPrimitive &&
+                functionSymbol.getAllOverriddenSymbols().any { overriddenSymbol ->
+                    !overriddenSymbol.returnType.isPrimitive
+                }
+    }
+
+    private val KtType.isInlineClassType: Boolean
+        get() = ((this as? KtNonErrorClassType)?.classSymbol as? KtNamedClassOrObjectSymbol)?.isInline == true
+
     private val KtType.isVoidType: Boolean get() = isUnit && nullabilityType != NullabilityType.Nullable
 
     private val _returnedType: PsiType by lazyPub {
@@ -187,10 +218,15 @@ internal class SymbolLightSimpleMethod(
                 functionSymbol.returnType.takeUnless { it.isVoidType } ?: return@withFunctionSymbol PsiType.VOID
             }
 
+            val typeMappingMode = if (forceBoxedReturnType(functionSymbol))
+                KtTypeMappingMode.RETURN_TYPE_BOXED
+            else
+                KtTypeMappingMode.RETURN_TYPE
+
             ktType.asPsiTypeElement(
                 this@SymbolLightSimpleMethod,
                 allowErrorTypes = true,
-                KtTypeMappingMode.RETURN_TYPE,
+                typeMappingMode,
                 this@SymbolLightSimpleMethod.containingClass.isAnnotationType,
             )?.let {
                 annotateByKtType(it.type, ktType, it, modifierList)

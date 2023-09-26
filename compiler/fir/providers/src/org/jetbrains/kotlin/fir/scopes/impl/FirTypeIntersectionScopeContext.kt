@@ -10,7 +10,6 @@ import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.descriptors.Visibility
 import org.jetbrains.kotlin.fir.*
 import org.jetbrains.kotlin.fir.caches.*
-import org.jetbrains.kotlin.fir.declarations.FirCallableDeclaration
 import org.jetbrains.kotlin.fir.declarations.FirDeclarationOrigin
 import org.jetbrains.kotlin.fir.declarations.FirMemberDeclaration
 import org.jetbrains.kotlin.fir.declarations.FirVariable
@@ -39,6 +38,9 @@ class FirTypeIntersectionScopeContext(
     private val forClassUseSiteScope: Boolean,
 ) {
     private val overrideService = session.overrideService
+
+    private val dispatchClassSymbol: FirRegularClassSymbol? = dispatchReceiverType.toRegularClassSymbol(session)
+    private val isReceiverClassExpect = dispatchClassSymbol?.isExpect == true
 
     val intersectionOverrides: FirCache<FirCallableSymbol<*>, MemberWithBaseScope<FirCallableSymbol<*>>, ResultOfIntersection.NonTrivial<*>> =
         session.intersectionOverrideStorage.cacheByScope.getValue(dispatchReceiverType)
@@ -149,11 +151,11 @@ class FirTypeIntersectionScopeContext(
         val result = mutableListOf<ResultOfIntersection<D>>()
 
         while (allMembersWithScope.size > 1) {
-            val groupWithPrivate =
+            val groupWithInvisible =
                 overrideService.extractBothWaysOverridable(allMembersWithScope.maxByVisibility(), allMembersWithScope, overrideChecker)
-            val group = groupWithPrivate.filter { !Visibilities.isPrivate(it.member.fir.visibility) }.ifEmpty { groupWithPrivate }
+            val group = groupWithInvisible.filter { it.isVisible() }.ifEmpty { groupWithInvisible }
             val nonSubsumed = if (forClassUseSiteScope) group.nonSubsumed() else group
-            val mostSpecific = overrideService.selectMostSpecificMembers(nonSubsumed, ReturnTypeCalculatorForFullBodyResolve)
+            val mostSpecific = overrideService.selectMostSpecificMembers(nonSubsumed, ReturnTypeCalculatorForFullBodyResolve.Default)
             val nonTrivial = if (forClassUseSiteScope) {
                 // Create a non-trivial intersection override when the base methods come from different scopes,
                 // even if one of them is more specific than the others, i.e. when there is more than one method that is not subsumed.
@@ -183,6 +185,17 @@ class FirTypeIntersectionScopeContext(
         }
 
         return result
+    }
+
+    private fun MemberWithBaseScope<*>.isVisible(): Boolean {
+        // Checking for private is not enough because package-private declarations can be hidden, too, if they're in a different package.
+        val dispatchClassSymbol = dispatchClassSymbol ?: return true
+
+        return session.visibilityChecker.isVisibleForOverriding(
+            dispatchClassSymbol.moduleData,
+            dispatchClassSymbol.classId.packageFqName,
+            member.fir
+        )
     }
 
     fun <D : FirCallableSymbol<*>> createIntersectionOverride(
@@ -310,10 +323,12 @@ class FirTypeIntersectionScopeContext(
         symbol: D,
         scope: FirTypeScope,
         result: MutableCollection<MemberWithBaseScope<D>>,
-        visited: MutableSet<D>,
+        // There's no guarantee that directOverridden(symbol) is strictly different
+        // It might be the same instance that when being requested with a different/new scope would return next level of overridden
+        visited: MutableSet<Pair<FirTypeScope, D>>,
         processDirectOverridden: FirTypeScope.(D, (D, FirTypeScope) -> ProcessorAction) -> ProcessorAction,
     ) {
-        if (!visited.add(symbol)) return
+        if (!visited.add(scope to symbol)) return
         if (!symbol.fir.origin.fromSupertypes) {
             result.add(MemberWithBaseScope(symbol, scope))
             return
@@ -356,7 +371,8 @@ class FirTypeIntersectionScopeContext(
         val newSymbol = FirIntersectionOverrideFunctionSymbol(callableId, overrides)
         FirFakeOverrideGenerator.createCopyForFirFunction(
             newSymbol, keyFir, derivedClassLookupTag = null, session,
-            FirDeclarationOrigin.IntersectionOverride, keyFir.isExpect,
+            FirDeclarationOrigin.IntersectionOverride,
+            isExpect = isReceiverClassExpect || keyFir.isExpect,
             newModality = newModality,
             newVisibility = newVisibility,
             newDispatchReceiverType = dispatchReceiverType,
@@ -381,6 +397,7 @@ class FirTypeIntersectionScopeContext(
             FirFakeOverrideGenerator.createCopyForFirProperty(
                 symbol, fir, derivedClassLookupTag = null, session,
                 FirDeclarationOrigin.IntersectionOverride,
+                isExpect = isReceiverClassExpect || fir.isExpect,
                 newModality = newModality,
                 newVisibility = newVisibility,
                 newDispatchReceiverType = dispatchReceiverType,
@@ -405,6 +422,7 @@ class FirTypeIntersectionScopeContext(
             FirFakeOverrideGenerator.createCopyForFirField(
                 symbol, fir, derivedClassLookupTag = null, session,
                 FirDeclarationOrigin.IntersectionOverride,
+                isExpect = isReceiverClassExpect || fir.isExpect,
                 newModality = newModality,
                 newVisibility = newVisibility,
                 newDispatchReceiverType = dispatchReceiverType,

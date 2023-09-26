@@ -2,12 +2,11 @@
  * Copyright 2010-2019 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
-@file:Suppress("DEPRECATION")
 
 package kotlinx.metadata.klib
 
 import kotlinx.metadata.KmAnnotation
-import kotlinx.metadata.KmModuleFragment
+import kotlinx.metadata.internal.common.KmModuleFragment
 import kotlinx.metadata.internal.*
 import kotlinx.metadata.klib.impl.*
 import org.jetbrains.kotlin.library.metadata.parseModuleHeader
@@ -90,7 +89,7 @@ class KlibModuleMetadata(
                 library.packageMetadataParts(packageFqName).map { part ->
                     val packageFragment = parsePackageFragment(library.packageMetadata(packageFqName, part))
                     val nameResolver = NameResolverImpl(packageFragment.strings, packageFragment.qualifiedNames)
-                    KmModuleFragment().apply { packageFragment.accept(this, nameResolver, listOf(fileIndex)) }
+                    packageFragment.toKmModuleFragment(nameResolver, listOf(fileIndex))
                 }.let(readStrategy::processModuleParts)
             }
             return KlibModuleMetadata(moduleHeader.moduleName, moduleFragments, moduleHeader.annotation)
@@ -119,9 +118,9 @@ class KlibModuleMetadata(
             annotations
         )
         val groupedProtos = groupedFragments.mapValues { (_, fragments) ->
-            fragments.map {
+            fragments.map { mf ->
                 val c = WriteContext(ApproximatingStringTable(), listOf(reverseIndex))
-                KlibModuleFragmentWriter(c.strings as ApproximatingStringTable, c.contextExtensions).also(it::accept).write()
+                KlibModuleFragmentWriter(c.strings as ApproximatingStringTable, c.contextExtensions).also { it.writeModuleFragment(mf) }.write()
             }
         }
         // This context and string table is only required for module-level annotations.

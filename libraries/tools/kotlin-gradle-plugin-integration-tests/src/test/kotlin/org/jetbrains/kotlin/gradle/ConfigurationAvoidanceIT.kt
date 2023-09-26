@@ -27,8 +27,7 @@ class ConfigurationAvoidanceIT : KGPBaseTest() {
 
     @JvmGradlePluginTests
     @GradleTestVersions(
-        maxVersion = TestVersions.Gradle.G_7_5,
-        additionalVersions = [TestVersions.Gradle.G_7_3, TestVersions.Gradle.G_7_4]
+        additionalVersions = [TestVersions.Gradle.G_7_3]
     )
     @DisplayName("KGP/Jvm does not eagerly configure any tasks")
     @GradleTest
@@ -49,9 +48,31 @@ class ConfigurationAvoidanceIT : KGPBaseTest() {
         }
     }
 
+    @OtherGradlePluginTests
+    @GradleTestVersions(
+        additionalVersions = [TestVersions.Gradle.G_7_3]
+    )
+    @DisplayName("KGP/Kapt does not eagerly configure any tasks")
+    @GradleTest
+    fun testKaptConfigurationAvoidance(gradleVersion: GradleVersion) {
+        project("kapt2/simple", gradleVersion) {
+            buildGradle.appendText(
+                """
+                |
+                |tasks.configureEach {
+                |    if (name != "help" && name != "clean") {
+                |        throw new GradleException("Configuration avoidance failure for ${'$'}name!")
+                |    }
+                |}
+                """.trimMargin()
+            )
+
+            build("--dry-run")
+        }
+    }
+
     @AndroidGradlePluginTests
     @DisplayName("Android unrelated tasks are not configured")
-    @AndroidTestVersions(minVersion = TestVersions.AGP.AGP_42)
     @GradleAndroidTest
     fun testAndroidUnrelatedTaskNotConfigured(
         gradleVersion: GradleVersion,
@@ -65,6 +86,7 @@ class ConfigurationAvoidanceIT : KGPBaseTest() {
             buildJdk = providedJdk.location
         ) {
 
+            gradleProperties.appendText("android.defaults.buildfeatures.aidl=true")
             listOf("Android", "Test").forEach { subproject ->
                 subProject(subproject)
                     .buildGradle

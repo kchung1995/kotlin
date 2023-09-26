@@ -5,10 +5,13 @@
 
 package org.jetbrains.kotlin.fir.extensions
 
-import org.jetbrains.kotlin.fir.*
+import org.jetbrains.kotlin.fir.FirSession
+import org.jetbrains.kotlin.fir.FirSessionComponent
 import org.jetbrains.kotlin.fir.caches.*
 import org.jetbrains.kotlin.fir.declarations.validate
 import org.jetbrains.kotlin.fir.ownerGenerator
+import org.jetbrains.kotlin.fir.render
+import org.jetbrains.kotlin.fir.resolve.providers.FirSymbolNamesProvider
 import org.jetbrains.kotlin.fir.resolve.providers.FirSymbolProvider
 import org.jetbrains.kotlin.fir.resolve.providers.FirSymbolProviderInternals
 import org.jetbrains.kotlin.fir.resolve.providers.symbolProvider
@@ -28,7 +31,7 @@ class FirExtensionDeclarationsSymbolProvider private constructor(
     private val extensions: List<FirDeclarationGenerationExtension>
 ) : FirSymbolProvider(session), FirSessionComponent {
     companion object {
-        fun create(session: FirSession): FirExtensionDeclarationsSymbolProvider? {
+        fun createIfNeeded(session: FirSession): FirExtensionDeclarationsSymbolProvider? {
             val extensions = session.extensionService.declarationGenerators
             if (extensions.isEmpty()) return null
             return FirExtensionDeclarationsSymbolProvider(session, session.firCachesFactory, extensions)
@@ -65,7 +68,7 @@ class FirExtensionDeclarationsSymbolProvider private constructor(
         cachesFactory.createLazyValue {
             computeNamesGroupedByPackage(
                 FirDeclarationGenerationExtension::getTopLevelClassIds,
-                ClassId::getPackageFqName
+                ClassId::packageFqName
             ) { it.shortClassName.asString() }
         }
 
@@ -144,6 +147,19 @@ class FirExtensionDeclarationsSymbolProvider private constructor(
 
     // ------------------------------------------ provider methods ------------------------------------------
 
+    override val symbolNamesProvider: FirSymbolNamesProvider = object : FirSymbolNamesProvider() {
+        override fun getTopLevelClassifierNamesInPackage(packageFqName: FqName): Set<String> =
+            classNamesInPackageCache.getValue()[packageFqName] ?: emptySet()
+
+        override fun getPackageNamesWithTopLevelCallables(): Set<String> =
+            extensions.flatMapTo(mutableSetOf()) { extension ->
+                extension.topLevelCallableIdsCache.getValue().map { it.packageName.asString() }
+            }
+
+        override fun getTopLevelCallableNamesInPackage(packageFqName: FqName): Set<Name> =
+            callableNamesInPackageCache.getValue()[packageFqName].orEmpty()
+    }
+
     override fun getClassLikeSymbolByClassId(classId: ClassId): FirClassLikeSymbol<*>? {
         return classCache.getValue(classId)
     }
@@ -168,15 +184,4 @@ class FirExtensionDeclarationsSymbolProvider private constructor(
     override fun getPackage(fqName: FqName): FqName? {
         return fqName.takeIf { packageCache.getValue(fqName, null) }
     }
-
-    override fun computePackageSetWithTopLevelCallables(): Set<String> =
-        extensions.flatMapTo(mutableSetOf()) { extension ->
-            extension.topLevelCallableIdsCache.getValue().map { it.packageName.asString() }
-        }
-
-    override fun knownTopLevelClassifiersInPackage(packageFqName: FqName): Set<String> =
-        classNamesInPackageCache.getValue()[packageFqName] ?: emptySet()
-
-    override fun computeCallableNamesInPackage(packageFqName: FqName): Set<Name> =
-        callableNamesInPackageCache.getValue()[packageFqName].orEmpty()
 }

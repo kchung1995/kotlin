@@ -31,7 +31,6 @@ import org.jetbrains.kotlin.codegen.CompilationException
 import org.jetbrains.kotlin.config.CommonConfigurationKeys
 import org.jetbrains.kotlin.config.CompilerConfiguration
 import org.jetbrains.kotlin.config.Services
-import org.jetbrains.kotlin.config.getModuleNameForSource
 import org.jetbrains.kotlin.metadata.builtins.BuiltInsBinaryVersion
 import org.jetbrains.kotlin.metadata.deserialization.BinaryVersion
 import org.jetbrains.kotlin.metadata.jvm.deserialization.JvmProtoBufUtil
@@ -66,8 +65,12 @@ class K2MetadataCompiler : CLICompiler<K2MetadataCompilerArguments>() {
 
         val commonSources = arguments.commonSources?.toSet() ?: emptySet()
         val hmppCliModuleStructure = configuration.get(CommonConfigurationKeys.HMPP_MODULE_STRUCTURE)
+        if (hmppCliModuleStructure != null) {
+            collector.report(ERROR, "HMPP module structure should not be passed during metadata compilation. Please remove `-Xfragments` and related flags")
+            return ExitCode.COMPILATION_ERROR
+        }
         for (arg in arguments.freeArgs) {
-            configuration.addKotlinSourceRoot(arg, isCommon = arg in commonSources, hmppCliModuleStructure?.getModuleNameForSource(arg))
+            configuration.addKotlinSourceRoot(arg, isCommon = arg in commonSources, hmppModuleName = null)
         }
         if (arguments.classpath != null) {
             configuration.addJvmClasspathRoots(arguments.classpath!!.split(File.pathSeparatorChar).map(::File))
@@ -98,7 +101,8 @@ class K2MetadataCompiler : CLICompiler<K2MetadataCompilerArguments>() {
         val environment =
             KotlinCoreEnvironment.createForProduction(rootDisposable, configuration, EnvironmentConfigFiles.METADATA_CONFIG_FILES)
 
-        val mode = if(arguments.expectActualLinker) "KLib" else "metadata"
+        // TODO (KT-61136): drop `expectActualLinker` later, after the appropriate changes in the Gradle plugin
+        val mode = if (arguments.expectActualLinker || arguments.metadataKlib) "KLib" else "metadata"
 
         val sourceFiles = environment.getSourceFiles()
         performanceManager.notifyCompilerInitialized(sourceFiles.size, environment.countLinesOfCode(sourceFiles), "$mode mode for $moduleName module")
@@ -111,13 +115,14 @@ class K2MetadataCompiler : CLICompiler<K2MetadataCompilerArguments>() {
             return ExitCode.COMPILATION_ERROR
         }
 
-        checkKotlinPackageUsage(environment.configuration, environment.getSourceFiles())
+        checkKotlinPackageUsageForPsi(environment.configuration, environment.getSourceFiles())
 
         try {
             val useFir = configuration.getBoolean(CommonConfigurationKeys.USE_FIR)
             val metadataSerializer = when {
                 useFir -> FirMetadataSerializer(configuration, environment)
-                arguments.expectActualLinker -> K2MetadataKlibSerializer(configuration, environment)
+                // TODO (KT-61136): drop `expectActualLinker` later, after the appropriate changes in the Gradle plugin
+                arguments.expectActualLinker || arguments.metadataKlib -> K2MetadataKlibSerializer(configuration, environment)
                 else -> MetadataSerializer(configuration, environment, dependOnOldBuiltIns = true)
             }
             metadataSerializer.analyzeAndSerialize()

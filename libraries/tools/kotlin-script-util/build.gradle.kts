@@ -17,7 +17,7 @@ dependencies {
     api(project(":kotlin-daemon-client"))
     testCompileOnly(project(":compiler:cli"))
     testApi(project(":kotlin-test:kotlin-test-junit"))
-    testApi(commonDependency("junit:junit"))
+    testImplementation(libs.junit4)
     testApi(project(":kotlin-scripting-compiler"))
     testRuntimeOnly(project(":kotlin-compiler"))
     testApi(intellijCore())
@@ -27,15 +27,13 @@ optInToExperimentalCompilerApi()
 
 configurations.all {
     resolutionStrategy {
-        force(commonDependency("junit:junit"))
+        force(libs.junit4)
     }
 }
 
 projectTest {
     workingDir = rootDir
 }
-
-publish()
 
 runtimeJar()
 sourcesJar()

@@ -35,8 +35,8 @@ object FirMemberPropertiesChecker : FirClassChecker() {
         for (innerDeclaration in declaration.declarations) {
             if (innerDeclaration is FirProperty) {
                 val symbol = innerDeclaration.symbol
-                val isInitialized = innerDeclaration.initializer != null || info?.get(symbol)?.isDefinitelyVisited() == true
-                checkProperty(declaration, innerDeclaration, isInitialized, context, reporter, !reachedDeadEnd)
+                val isDefinitelyAssignedInConstructor = info?.get(symbol)?.isDefinitelyVisited() == true
+                checkProperty(declaration, innerDeclaration, isDefinitelyAssignedInConstructor, context, reporter, !reachedDeadEnd)
             }
             // Can't just look at each property's graph's enterNode because they may have no graph if there is no initializer.
             reachedDeadEnd = reachedDeadEnd ||
@@ -47,40 +47,41 @@ object FirMemberPropertiesChecker : FirClassChecker() {
     private fun FirClass.collectInitializationInfo(context: CheckerContext, reporter: DiagnosticReporter): PropertyInitializationInfo? {
         val graph = (this as? FirControlFlowGraphOwner)?.controlFlowGraphReference?.controlFlowGraph ?: return null
         val memberPropertySymbols = declarations.mapNotNullTo(mutableSetOf()) {
-            (it.symbol as? FirPropertySymbol)?.takeIf { symbol -> symbol.requiresInitialization(isForClassInitialization = true) }
+            (it.symbol as? FirPropertySymbol)?.takeIf { symbol -> symbol.requiresInitialization(isForInitialization = true) }
         }
         if (memberPropertySymbols.isEmpty()) return null
-        // TODO: merge with `FirPropertyInitializationAnalyzer` for fewer passes.
+        // TODO, KT-59803: merge with `FirPropertyInitializationAnalyzer` for fewer passes.
         val data = PropertyInitializationInfoData(memberPropertySymbols, symbol, graph)
-        data.checkPropertyAccesses(isForClassInitialization = true, context, reporter)
+        data.checkPropertyAccesses(isForInitialization = true, context, reporter)
         return data.getValue(graph.exitNode)[NormalPath]
     }
+}
 
-    private fun checkProperty(
-        containingDeclaration: FirClass,
-        property: FirProperty,
-        isInitialized: Boolean,
-        context: CheckerContext,
-        reporter: DiagnosticReporter,
-        reachable: Boolean
-    ) {
-        val source = property.source ?: return
-        if (source.kind is KtFakeSourceElementKind) return
-        // If multiple (potentially conflicting) modality modifiers are specified, not all modifiers are recorded at `status`.
-        // So, our source of truth should be the full modifier list retrieved from the source.
-        val modifierList = property.source.getModifierList()
+internal fun checkProperty(
+    containingDeclaration: FirClass?,
+    property: FirProperty,
+    isDefinitelyAssigned: Boolean,
+    context: CheckerContext,
+    reporter: DiagnosticReporter,
+    reachable: Boolean,
+) {
+    val source = property.source ?: return
+    if (source.kind is KtFakeSourceElementKind) return
+    // If multiple (potentially conflicting) modality modifiers are specified, not all modifiers are recorded at `status`.
+    // So, our source of truth should be the full modifier list retrieved from the source.
+    val modifierList = property.source.getModifierList()
 
-        checkPropertyInitializer(
-            containingDeclaration,
-            property,
-            modifierList,
-            isInitialized,
-            reporter,
-            context,
-            reachable
-        )
-        checkExpectDeclarationVisibilityAndBody(property, source, reporter, context)
+    checkPropertyInitializer(
+        containingDeclaration,
+        property,
+        modifierList,
+        isDefinitelyAssigned,
+        reporter,
+        context,
+        reachable
+    )
 
+    if (containingDeclaration != null) {
         val hasAbstractModifier = KtTokens.ABSTRACT_KEYWORD in modifierList
         val isAbstract = property.isAbstract || hasAbstractModifier
         if (containingDeclaration.isInterface &&

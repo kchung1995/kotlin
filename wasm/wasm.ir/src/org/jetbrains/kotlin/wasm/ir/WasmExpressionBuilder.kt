@@ -95,10 +95,30 @@ abstract class WasmExpressionBuilder {
         buildInstr(brOp, location, WasmImmediate.LabelIdx(relativeLevel))
     }
 
-    fun buildBrInstr(brOp: WasmOp, absoluteBlockLevel: Int, symbol: WasmSymbolReadOnly<WasmTypeDeclaration>, location: SourceLocation) {
+    fun buildBrOnCastInstr(
+        brOp: WasmOp,
+        absoluteBlockLevel: Int,
+        fromIsNullable: Boolean,
+        toIsNullable: Boolean,
+        from: WasmHeapType,
+        to: WasmHeapType,
+        location: SourceLocation,
+    ) {
         val relativeLevel = numberOfNestedBlocks - absoluteBlockLevel
         assert(relativeLevel >= 0) { "Negative relative block index" }
-        buildInstr(brOp, location, WasmImmediate.LabelIdx(relativeLevel), WasmImmediate.TypeIdx(symbol))
+
+        val fromTypeFlag = if (fromIsNullable) 0b01 else 0
+        val toTypeFlag = if (toIsNullable) 0b10 else 0
+        val flags = fromTypeFlag or toTypeFlag
+
+        buildInstr(
+            brOp,
+            location,
+            WasmImmediate.ConstU8(flags.toUByte()),
+            WasmImmediate.LabelIdx(relativeLevel),
+            WasmImmediate.HeapType(from),
+            WasmImmediate.HeapType(to)
+        )
     }
 
     fun buildBr(absoluteBlockLevel: Int, location: SourceLocation) {
@@ -179,11 +199,15 @@ abstract class WasmExpressionBuilder {
     }
 
     fun buildRefCastNullStatic(toType: WasmSymbolReadOnly<WasmTypeDeclaration>, location: SourceLocation) {
-        buildInstr(WasmOp.REF_CAST_DEPRECATED, location, WasmImmediate.TypeIdx(toType))
+        buildInstr(WasmOp.REF_CAST_NULL, location, WasmImmediate.HeapType(WasmHeapType.Type(toType)))
+    }
+
+    fun buildRefCastStatic(toType: WasmSymbolReadOnly<WasmTypeDeclaration>, location: SourceLocation) {
+        buildInstr(WasmOp.REF_CAST, location, WasmImmediate.HeapType(WasmHeapType.Type(toType)))
     }
 
     fun buildRefTestStatic(toType: WasmSymbolReadOnly<WasmTypeDeclaration>, location: SourceLocation) {
-        buildInstr(WasmOp.REF_TEST_DEPRECATED, location, WasmImmediate.TypeIdx(toType))
+        buildInstr(WasmOp.REF_TEST, location, WasmImmediate.HeapType(WasmHeapType.Type(toType)))
     }
 
     fun buildRefNull(type: WasmHeapType, location: SourceLocation) {

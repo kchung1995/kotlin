@@ -11,6 +11,7 @@ import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.FirTypeRef
 import org.jetbrains.kotlin.types.SmartcastStability
 import org.jetbrains.kotlin.fir.visitors.*
+import org.jetbrains.kotlin.fir.expressions.UnresolvedExpressionTypeAccess
 
 /*
  * This file was generated automatically
@@ -19,8 +20,9 @@ import org.jetbrains.kotlin.fir.visitors.*
 
 abstract class FirSmartCastExpression : FirExpression() {
     abstract override val source: KtSourceElement?
+    @UnresolvedExpressionTypeAccess
+    abstract override val coneTypeOrNull: ConeKotlinType?
     abstract override val annotations: List<FirAnnotation>
-    abstract override val typeRef: FirTypeRef
     abstract val originalExpression: FirExpression
     abstract val typesFromSmartCast: Collection<ConeKotlinType>
     abstract val smartcastType: FirTypeRef
@@ -34,9 +36,11 @@ abstract class FirSmartCastExpression : FirExpression() {
     override fun <E : FirElement, D> transform(transformer: FirTransformer<D>, data: D): E =
         transformer.transformSmartCastExpression(this, data) as E
 
+    abstract override fun replaceConeTypeOrNull(newConeTypeOrNull: ConeKotlinType?)
+
     abstract override fun replaceAnnotations(newAnnotations: List<FirAnnotation>)
 
-    abstract override fun replaceTypeRef(newTypeRef: FirTypeRef)
+    abstract fun replaceOriginalExpression(newOriginalExpression: FirExpression)
 
     abstract override fun <D> transformAnnotations(transformer: FirTransformer<D>, data: D): FirSmartCastExpression
 

@@ -13,7 +13,6 @@ import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.diagnostics.FirErrors
 import org.jetbrains.kotlin.fir.declarations.*
 import org.jetbrains.kotlin.fir.expressions.*
-import org.jetbrains.kotlin.fir.expressions.impl.FirNoReceiverExpression
 
 object FirBreakOrContinueJumpsAcrossFunctionBoundaryChecker : FirLoopJumpChecker() {
     override fun check(expression: FirLoopJump, context: CheckerContext, reporter: DiagnosticReporter) {
@@ -67,7 +66,6 @@ object FirBreakOrContinueJumpsAcrossFunctionBoundaryChecker : FirLoopJumpChecker
                 }
                 is FirVariable -> return findPathAndCheck(element.initializer)
                 is FirWrappedExpression -> return findPathAndCheck(element.expression)
-                is FirNoReceiverExpression -> return false
                 is FirFunctionCall -> {
                     if (findPathAndCheck(element.extensionReceiver) || findPathAndCheck(element.dispatchReceiver)) {
                         return true
@@ -121,8 +119,4 @@ object FirBreakOrContinueJumpsAcrossFunctionBoundaryChecker : FirLoopJumpChecker
         findPathAndCheck(expression.target.labeledElement.block)
     }
 
-    private fun FirExpression.tryInline(): FirExpression {
-        val anonymousFunctionExpression = (((this as? FirLambdaArgumentExpression)?.expression) ?: this) as? FirAnonymousFunctionExpression
-        return anonymousFunctionExpression?.anonymousFunction?.body ?: this
-    }
 }

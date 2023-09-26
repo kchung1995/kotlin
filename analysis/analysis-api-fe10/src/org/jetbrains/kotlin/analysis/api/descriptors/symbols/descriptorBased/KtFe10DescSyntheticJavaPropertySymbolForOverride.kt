@@ -75,8 +75,11 @@ internal class KtFe10DescSyntheticJavaPropertySymbolForOverride(
             KtFe10DescPropertySetterSymbol(setter, analysisContext)
         }
 
+    override val backingFieldSymbol: KtBackingFieldSymbol?
+        get() = withValidityAssertion { null }
+
     override val initializer: KtInitializerValue?
-        get() = withValidityAssertion { createKtInitializerValue(source as? KtProperty, descriptor, analysisContext) }
+        get() = withValidityAssertion { createKtInitializerValue((psi as? KtProperty)?.initializer, descriptor, analysisContext) }
 
     override val callableIdIfNonLocal: CallableId?
         get() = withValidityAssertion { descriptor.callableIdIfNotLocal }

@@ -17,7 +17,6 @@ import org.jetbrains.kotlin.asJava.classes.lazyPub
 import org.jetbrains.kotlin.asJava.elements.KtLightField
 import org.jetbrains.kotlin.asJava.elements.KtLightIdentifier
 import org.jetbrains.kotlin.asJava.elements.KtLightMethod
-import org.jetbrains.kotlin.light.classes.symbol.annotations.hasJvmFieldAnnotation
 import org.jetbrains.kotlin.light.classes.symbol.cachedValue
 import org.jetbrains.kotlin.light.classes.symbol.fields.SymbolLightField
 import org.jetbrains.kotlin.psi.KtClassOrObject
@@ -88,9 +87,7 @@ internal class SymbolLightClassForAnonymousObject : SymbolLightClassForClassLike
                     createField(
                         propertySymbol,
                         nameGenerator,
-                        isTopLevel = false,
-                        forceStatic = false,
-                        takePropertyVisibility = propertySymbol.hasJvmFieldAnnotation(),
+                        isStatic = false,
                         result,
                     )
                 }

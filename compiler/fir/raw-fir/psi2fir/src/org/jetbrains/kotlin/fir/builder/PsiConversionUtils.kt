@@ -14,8 +14,7 @@ import org.jetbrains.kotlin.fir.declarations.FirDeclarationOrigin
 import org.jetbrains.kotlin.fir.declarations.FirVariable
 import org.jetbrains.kotlin.fir.declarations.builder.buildProperty
 import org.jetbrains.kotlin.fir.declarations.impl.FirDeclarationStatusImpl
-import org.jetbrains.kotlin.fir.diagnostics.ConeSimpleDiagnostic
-import org.jetbrains.kotlin.fir.diagnostics.DiagnosticKind
+import org.jetbrains.kotlin.fir.diagnostics.ConeSyntaxDiagnostic
 import org.jetbrains.kotlin.fir.expressions.*
 import org.jetbrains.kotlin.fir.expressions.builder.*
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
@@ -25,19 +24,19 @@ import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.*
 
 internal fun KtWhenCondition.toFirWhenCondition(
-    whenRefWithSibject: FirExpressionRef<FirWhenExpression>,
+    whenRefWithSubject: FirExpressionRef<FirWhenExpression>,
     convert: KtExpression?.(String) -> FirExpression,
     toFirOrErrorTypeRef: KtTypeReference?.() -> FirTypeRef,
 ): FirExpression {
     val firSubjectSource = this.toKtPsiSourceElement(KtFakeSourceElementKind.WhenGeneratedSubject)
     val firSubjectExpression = buildWhenSubjectExpression {
         source = firSubjectSource
-        whenRef = whenRefWithSibject
+        whenRef = whenRefWithSubject
     }
     return when (this) {
         is KtWhenConditionWithExpression -> {
             buildEqualityOperatorCall {
-                source = expression?.toKtPsiSourceElement(KtFakeSourceElementKind.WhenCondition)
+                source = (expression ?: firstChild)?.toKtPsiSourceElement(KtFakeSourceElementKind.WhenCondition)
                 operation = FirOperation.EQ
                 argumentList = buildBinaryArgumentList(
                     firSubjectExpression, expression.convert("No expression in condition with expression")
@@ -62,7 +61,7 @@ internal fun KtWhenCondition.toFirWhenCondition(
             }
         }
         else -> {
-            buildErrorExpression(firSubjectSource, ConeSimpleDiagnostic("Unsupported when condition: ${this.javaClass}", DiagnosticKind.Syntax))
+            buildErrorExpression(firSubjectSource, ConeSyntaxDiagnostic("Unsupported when condition: ${this.javaClass}"))
         }
     }
 }
@@ -120,42 +119,33 @@ internal fun generateTemporaryVariable(
         extractAnnotationsTo,
     )
 
+context(DestructuringContext<KtDestructuringDeclarationEntry>)
 internal fun generateDestructuringBlock(
     moduleData: FirModuleData,
     multiDeclaration: KtDestructuringDeclaration,
     container: FirVariable,
     tmpVariable: Boolean,
-    extractAnnotationsTo: KtAnnotated.(FirAnnotationContainerBuilder) -> Unit,
-    toFirOrImplicitTypeRef: KtTypeReference?.() -> FirTypeRef,
+    localEntries: Boolean,
 ): FirBlock {
     return buildBlock {
         source = multiDeclaration.toKtPsiSourceElement()
-        if (tmpVariable) {
-            statements += container
-        }
-        val isVar = multiDeclaration.isVar
-        for ((index, entry) in multiDeclaration.entries.withIndex()) {
-            if (entry.nameIdentifier?.text == "_") continue
-            val entrySource = entry.toKtPsiSourceElement()
-            val name = entry.nameAsSafeName
-            statements += buildProperty {
-                source = entrySource
-                this.moduleData = moduleData
-                origin = FirDeclarationOrigin.Source
-                returnTypeRef = entry.typeReference.toFirOrImplicitTypeRef()
-                this.name = name
-                initializer = buildComponentCall {
-                    val componentCallSource = entrySource.fakeElement(KtFakeSourceElementKind.DesugaredComponentFunctionCall)
-                    source = componentCallSource
-                    explicitReceiver = generateResolvedAccessExpression(componentCallSource, container)
-                    componentIndex = index + 1
-                }
-                this.isVar = isVar
-                isLocal = true
-                status = FirDeclarationStatusImpl(Visibilities.Local, Modality.FINAL)
-                symbol = FirPropertySymbol(name)
-                entry.extractAnnotationsTo(this)
-            }
-        }
+        statements.addDestructuringStatements(
+            moduleData,
+            multiDeclaration,
+            container,
+            tmpVariable,
+            localEntries
+        )
     }
+}
+
+context(DestructuringContext<KtDestructuringDeclarationEntry>)
+internal fun MutableList<FirStatement>.addDestructuringStatements(
+    moduleData: FirModuleData,
+    multiDeclaration: KtDestructuringDeclaration,
+    container: FirVariable,
+    tmpVariable: Boolean,
+    localEntries: Boolean,
+) {
+    addDestructuringStatements(moduleData, container, multiDeclaration.entries, multiDeclaration.isVar, tmpVariable, localEntries)
 }

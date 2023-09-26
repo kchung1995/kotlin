@@ -9,8 +9,10 @@ import org.gradle.api.logging.LogLevel
 import org.gradle.util.GradleVersion
 import org.jetbrains.kotlin.gradle.report.BuildReportType
 import org.jetbrains.kotlin.gradle.testbase.*
-import org.jetbrains.kotlin.konan.target.HostManager
+import org.jetbrains.kotlin.gradle.util.replaceText
 import org.junit.jupiter.api.DisplayName
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Path
 
 @DisplayName("Configuration cache")
 class ConfigurationCacheIT : AbstractConfigurationCacheIT() {
@@ -61,71 +63,71 @@ class ConfigurationCacheIT : AbstractConfigurationCacheIT() {
 
     @MppGradlePluginTests
     @DisplayName("works with MPP publishing")
-    @GradleTestVersions(minVersion = TestVersions.Gradle.G_7_4)
+    @GradleTestVersions(
+        minVersion = TestVersions.Gradle.G_7_4,
+        additionalVersions = [TestVersions.Gradle.G_7_6],
+    )
     @GradleTest
     fun testMppWithMavenPublish(gradleVersion: GradleVersion) {
         project("new-mpp-lib-and-app/sample-lib", gradleVersion) {
-            val publishedTargets = listOf("kotlinMultiplatform", "jvm6", "nodeJs", "linux64", "mingw64", "mingw86")
-
+            val publishedTargets = listOf("kotlinMultiplatform", "jvm6", "nodeJs", "linux64", "mingw64")
             testConfigurationCacheOf(
-                ":buildKotlinToolingMetadata", // Remove it when KT-49933 is fixed and `kotlinMultiplatform` publication works
-                *(publishedTargets.map { ":publish${it.replaceFirstChar { it.uppercaseChar() }}PublicationToMavenRepository" }.toTypedArray()),
+                *(publishedTargets.map { ":publish${it.replaceFirstChar { it.uppercaseChar() }}PublicationToMavenRepository" }
+                    .toTypedArray()),
                 checkUpToDateOnRebuild = false
             )
         }
     }
 
     @NativeGradlePluginTests
-    @DisplayName("works with native tasks in complex project")
-    @GradleTestVersions(minVersion = TestVersions.Gradle.G_7_4)
+    @DisplayName("works with commonizer")
+    @GradleTestVersions(
+        minVersion = TestVersions.Gradle.G_7_4,
+        additionalVersions = [TestVersions.Gradle.G_7_6],
+    )
     @GradleTest
-    fun testNativeTasks(gradleVersion: GradleVersion) {
-        val expectedTasks = mutableListOf(
-            ":lib:cinteropMyCinteropLinuxX64",
-            ":lib:commonizeCInterop",
-            ":lib:compileKotlinLinuxX64",
-            ":lib:linkExecutableDebugExecutableLinuxX64",
-            ":lib:linkSharedDebugSharedLinuxX64",
-            ":lib:linkStaticDebugStaticLinuxX64",
-            ":lib:linkDebugTestLinuxX64",
-        )
-
-        if (HostManager.hostIsMac) {
-            expectedTasks += listOf(
-                ":lib:cinteropMyCinteropIosX64",
-                ":lib:compileKotlinIosX64",
-                ":lib:assembleMyframeDebugFrameworkIosArm64",
-                ":lib:assembleMyfatframeDebugFatFramework",
-                ":lib:assembleLibDebugXCFramework",
-                ":lib:compileTestKotlinIosX64",
-                ":lib:linkDebugTestIosX64",
-                ":lib:transformCommonMainDependenciesMetadata",
-                ":lib:transformCommonMainCInteropDependenciesMetadata"
-            )
-        }
-
+    fun testCommonizer(gradleVersion: GradleVersion, @TempDir konanHome: Path) {
         project("native-configuration-cache", gradleVersion) {
-            testConfigurationCacheOf(
-                "build",
-                executedTaskNames = expectedTasks,
+            build(
+                ":commonizeNativeDistribution",
+            ) {
+                assertOutputContains("0 problems were found storing the configuration cache.")
+            }
+
+            // Override kotlin native home location to be able to run clean native distribution commonization task
+            // since by default it is global location on host
+            val buildOptions = defaultBuildOptions.copy(
+                freeArgs = listOf("-Porg.jetbrains.kotlin.native.home=$konanHome"),
+                konanDataDir = null
             )
+            build(":cleanNativeDistributionCommonization", buildOptions = buildOptions) {
+                assertOutputContains("0 problems were found storing the configuration cache.")
+            }
+
+            testConfigurationCacheOf(":lib:commonizeCInterop")
         }
     }
 
-    @NativeGradlePluginTests
-    @DisplayName("works with commonizer")
-    @GradleTestVersions(minVersion = TestVersions.Gradle.G_7_4)
+    @MppGradlePluginTests
+    @GradleTestVersions(
+        minVersion = TestVersions.Gradle.G_8_0 // configuration cache and precompiled script plugins fails on earlier versions
+    )
     @GradleTest
-    fun testCommonizer(gradleVersion: GradleVersion) {
-        project("native-configuration-cache", gradleVersion) {
-            build(
-                ":lib:commonizeCInterop",
-                ":commonizeNativeDistribution",
-            ) {
-                // Reduce the problem numbers when a Task become compatible with GCC.
-                // When all tasks support GCC, replace these assertions with `testConfigurationCacheOf`
-                assertOutputContains("0 problems were found storing the configuration cache.")
-            }
+    fun `test composite build with precompiled script plugins and multiplatform`(gradleVersion: GradleVersion) {
+        project("composite-build-with-precompiled-script-plugins", gradleVersion) {
+            settingsGradleKts.replaceText(
+                "pluginManagement {",
+                """
+                    pluginManagement {
+                        includeBuild("build-logic")
+                """.trimIndent()
+            )
+            subProject("build-logic").projectPath.addPluginManagementToSettings()
+
+            testConfigurationCacheOf(
+                ":lib:transformCommonMainDependenciesMetadata",
+                checkUpToDateOnRebuild = false
+            )
         }
     }
 
@@ -151,10 +153,8 @@ class ConfigurationCacheIT : AbstractConfigurationCacheIT() {
         }
     }
 
-    // Set min Gradle version to 6.8 because of using DependencyResolutionManagement API to add repositories.
     @JvmGradlePluginTests
     @DisplayName("with instance execution")
-    @GradleTestVersions(minVersion = TestVersions.Gradle.G_6_8)
     @GradleTest
     fun testInstantExecution(gradleVersion: GradleVersion) {
         project("instantExecution", gradleVersion) {
@@ -179,7 +179,6 @@ class ConfigurationCacheIT : AbstractConfigurationCacheIT() {
 
     @JvmGradlePluginTests
     @DisplayName("instant execution works with included build plugin")
-    @GradleTestVersions(minVersion = TestVersions.Gradle.G_6_8)
     @GradleTest
     fun testInstantExecutionWithIncludedBuildPlugin(gradleVersion: GradleVersion) {
         project("instantExecutionWithIncludedBuildPlugin", gradleVersion) {
@@ -196,9 +195,8 @@ class ConfigurationCacheIT : AbstractConfigurationCacheIT() {
     @GradleTest
     fun testJvmWithJavaConfigurationCache(gradleVersion: GradleVersion) {
         project("mppJvmWithJava", gradleVersion) {
-            build("jar")
-
-            build("jar") {
+            build("jvmWithJavaJar")
+            build("jvmWithJavaJar") {
                 assertOutputContains("Reusing configuration cache.")
             }
         }
@@ -206,6 +204,10 @@ class ConfigurationCacheIT : AbstractConfigurationCacheIT() {
 
     @JvmGradlePluginTests
     @DisplayName("with build report")
+    @GradleTestVersions(
+        minVersion = TestVersions.Gradle.MIN_SUPPORTED,
+        additionalVersions = [TestVersions.Gradle.G_7_6, TestVersions.Gradle.G_8_0],
+    )
     @GradleTest
     fun testBuildReportSmokeTestForConfigurationCache(gradleVersion: GradleVersion) {
         project(
@@ -224,7 +226,11 @@ class ConfigurationCacheIT : AbstractConfigurationCacheIT() {
     }
 
     @JvmGradlePluginTests
-    @DisplayName("with build build scan report")
+    @DisplayName("with build scan report")
+    @GradleTestVersions(
+        minVersion = TestVersions.Gradle.MIN_SUPPORTED,
+        additionalVersions = [TestVersions.Gradle.G_7_6], //build scan reports doesn't work properly for Gradle 8.0
+    )
     @GradleTest
     fun testBuildScanReportSmokeTestForConfigurationCache(gradleVersion: GradleVersion) {
         project("simpleProject", gradleVersion) {
@@ -248,7 +254,7 @@ abstract class AbstractConfigurationCacheIT : KGPBaseTest() {
         vararg taskNames: String,
         executedTaskNames: List<String>? = null,
         checkUpToDateOnRebuild: Boolean = true,
-        buildOptions: BuildOptions = this.buildOptions
+        buildOptions: BuildOptions = this.buildOptions,
     ) {
         assertSimpleConfigurationCacheScenarioWorks(
             *taskNames,

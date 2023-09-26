@@ -14,13 +14,18 @@ import org.jetbrains.kotlin.fir.resolve.*
 import org.jetbrains.kotlin.fir.resolve.calls.*
 import org.jetbrains.kotlin.fir.scopes.FirContainingNamesAwareScope
 import org.jetbrains.kotlin.fir.scopes.FirScope
+import org.jetbrains.kotlin.fir.scopes.FirTypeScope
 import org.jetbrains.kotlin.fir.scopes.impl.FirLocalScope
 import org.jetbrains.kotlin.fir.scopes.impl.wrapNestedClassifierScopeWithSubstitutionForSuperType
 import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
+import org.jetbrains.kotlin.fir.types.ConeErrorType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
+import org.jetbrains.kotlin.fir.types.ConeStubType
 import org.jetbrains.kotlin.fir.types.coneType
+import org.jetbrains.kotlin.fir.utils.exceptions.withConeTypeEntry
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.utils.addIfNotNull
+import org.jetbrains.kotlin.utils.exceptions.errorWithAttachment
 
 fun SessionHolder.collectImplicitReceivers(
     type: ConeKotlinType?,
@@ -199,6 +204,21 @@ class FirTowerDataContext private constructor(
         return addNonLocalScope(scope)
     }
 
+    // Optimized version for two parameters
+    fun addNonLocalScopesIfNotNull(scope1: FirScope?, scope2: FirScope?): FirTowerDataContext {
+        return if (scope1 != null) {
+            if (scope2 != null) {
+                addNonLocalScopeElements(listOf(scope1.asTowerDataElement(isLocal = false), scope2.asTowerDataElement(isLocal = false)))
+            } else {
+                addNonLocalScope(scope1)
+            }
+        } else if (scope2 != null) {
+            addNonLocalScope(scope2)
+        } else {
+            this
+        }
+    }
+
     fun addNonLocalScope(scope: FirScope): FirTowerDataContext {
         val element = scope.asTowerDataElement(isLocal = false)
         return FirTowerDataContext(
@@ -206,6 +226,15 @@ class FirTowerDataContext private constructor(
             implicitReceiverStack,
             localScopes,
             nonLocalTowerDataElements.add(element)
+        )
+    }
+
+    private fun addNonLocalScopeElements(elements: List<FirTowerDataElement>): FirTowerDataContext {
+        return FirTowerDataContext(
+            towerDataElements.addAll(elements),
+            implicitReceiverStack,
+            localScopes,
+            nonLocalTowerDataElements.addAll(elements)
         )
     }
 
@@ -219,6 +248,7 @@ class FirTowerDataContext private constructor(
     }
 }
 
+// Each FirTowerDataElement has exactly one non-null value among values of properties: scope, implicitReceiver and contextReceiverGroup.
 class FirTowerDataElement(
     val scope: FirScope?,
     val implicitReceiver: ImplicitReceiverValue<*>?,
@@ -236,11 +266,30 @@ class FirTowerDataElement(
         )
 
     /**
-     * Returns [scope] if it is not null. Otherwise, returns [implicitReceiver.implicitScope].
+     * Returns [scope] if it is not null. Otherwise, returns scopes of implicit receivers (including context receivers).
      *
      * Note that a scope for a companion object is an implicit scope.
      */
-    fun getAvailableScope() = scope ?: implicitReceiver?.implicitScope
+    fun getAvailableScopes(
+        processTypeScope: FirTypeScope.(ConeKotlinType) -> FirTypeScope = { this },
+    ): List<FirScope> = when {
+        scope != null -> listOf(scope)
+        implicitReceiver != null -> listOf(implicitReceiver.getImplicitScope(processTypeScope))
+        contextReceiverGroup != null -> contextReceiverGroup.map { it.getImplicitScope(processTypeScope) }
+        else -> error("Tower data element is expected to have either scope or implicit receivers.")
+    }
+
+    private fun ImplicitReceiverValue<*>.getImplicitScope(
+        processTypeScope: FirTypeScope.(ConeKotlinType) -> FirTypeScope,
+    ): FirScope {
+        return when (val type = type.fullyExpandedType(useSiteSession)) {
+            is ConeErrorType,
+            is ConeStubType -> FirTypeScope.Empty
+            else -> implicitScope?.processTypeScope(type) ?: errorWithAttachment("Scope for type ${type::class.simpleName} is null") {
+                withConeTypeEntry("type", type)
+            }
+        }
+    }
 }
 
 fun ImplicitReceiverValue<*>.asTowerDataElement(): FirTowerDataElement =

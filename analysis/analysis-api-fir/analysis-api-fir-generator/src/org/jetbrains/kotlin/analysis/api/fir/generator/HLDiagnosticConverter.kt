@@ -30,14 +30,17 @@ import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.FirTypeRef
 import org.jetbrains.kotlin.lexer.KtKeywordToken
 import org.jetbrains.kotlin.lexer.KtModifierKeywordToken
-import org.jetbrains.kotlin.name.ClassId
+import org.jetbrains.kotlin.metadata.deserialization.VersionRequirement
 import org.jetbrains.kotlin.name.CallableId
+import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.resolve.ForbiddenNamedArgumentsTarget
 import org.jetbrains.kotlin.resolve.deprecation.DeprecationInfo
+import org.jetbrains.kotlin.resolve.multiplatform.ExpectActualAnnotationsIncompatibilityType
 import org.jetbrains.kotlin.resolve.multiplatform.ExpectActualCompatibility
+import org.jetbrains.kotlin.serialization.deserialization.IncompatibleVersionErrorData
 import org.jetbrains.kotlin.types.Variance
 import kotlin.reflect.KClass
 import kotlin.reflect.KType
@@ -211,6 +214,14 @@ internal object FirToKtConversionCreator {
                 "org.jetbrains.kotlin.psi"
             )
         ),
+        KtSourceElement::class to HLFunctionCallConversion(
+            "({0} as? KtPsiSourceElement)?.psi",
+            PsiElement::class.createType(nullable = true),
+            importsToAdd = listOf(
+                "org.jetbrains.kotlin.psi",
+                "org.jetbrains.kotlin.KtPsiSourceElement"
+            )
+        ),
     )
 
     private val typeMapping: Map<KClass<*>, HLFunctionCallConversion> = mapOf(
@@ -361,12 +372,16 @@ internal object FirToKtConversionCreator {
         FqName::class,
         ClassId::class,
         FirModuleData::class,
+        ExpectActualCompatibility::class,
         ExpectActualCompatibility.Incompatible::class,
+        ExpectActualAnnotationsIncompatibilityType::class,
         DeprecationInfo::class,
         ApiVersion::class,
         CallableId::class,
         ClassKind::class,
         FunctionTypeKind::class,
+        VersionRequirement.Version::class,
+        IncompatibleVersionErrorData::class,
     )
 
     private val KType.kClass: KClass<*>

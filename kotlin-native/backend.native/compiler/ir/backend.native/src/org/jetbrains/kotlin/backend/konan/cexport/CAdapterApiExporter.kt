@@ -273,7 +273,7 @@ internal class CAdapterApiExporter(
     |KObjHeader* DerefStablePointer(void*, KObjHeader**) RUNTIME_NOTHROW;
     |void* CreateStablePointer(KObjHeader*) RUNTIME_NOTHROW;
     |void DisposeStablePointer(void*) RUNTIME_NOTHROW;
-    |${prefix}_KBoolean IsInstance(const KObjHeader*, const KTypeInfo*) RUNTIME_NOTHROW;
+    |${prefix}_KBoolean IsInstanceInternal(const KObjHeader*, const KTypeInfo*) RUNTIME_NOTHROW;
     |void EnterFrame(KObjHeader** start, int parameters, int count) RUNTIME_NOTHROW;
     |void LeaveFrame(KObjHeader** start, int parameters, int count) RUNTIME_NOTHROW;
     |void SetCurrentFrame(KObjHeader** start) RUNTIME_NOTHROW;
@@ -289,7 +289,6 @@ internal class CAdapterApiExporter(
     |}  // extern "C"
     |
     |struct ${prefix}_FrameOverlay {
-    |  void* arena;
     |  ${prefix}_FrameOverlay* previous;
     |  ${prefix}_KInt parameters;
     |  ${prefix}_KInt count;
@@ -338,7 +337,7 @@ internal class CAdapterApiExporter(
     |  Kotlin_initRuntimeIfNeeded();
     |  ScopedRunnableState stateGuard;
     |  KObjHolder holder;
-    |  return IsInstance(DerefStablePointer(ref, holder.slot()), (const KTypeInfo*)type);
+    |  return IsInstanceInternal(DerefStablePointer(ref, holder.slot()), (const KTypeInfo*)type);
     |}
     """.trimMargin())
         predefinedTypes.forEach {

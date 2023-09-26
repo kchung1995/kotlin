@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2022 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -16,8 +16,8 @@ import org.jetbrains.kotlin.fir.moduleData
 import org.jetbrains.kotlin.fir.resolve.providers.FirSymbolProvider
 import org.jetbrains.kotlin.fir.resolve.providers.symbolProvider
 import org.jetbrains.kotlin.fir.scopes.*
-import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.ir.IrBuiltIns
@@ -72,9 +72,12 @@ class Fir2IrPluginContext(
     private val symbolProvider: FirSymbolProvider
         get() = components.session.symbolProvider
 
+    override val annotationsRegistrar: Fir2IrAnnotationsFromPluginRegistrar
+        get() = components.annotationsFromPluginRegistrar
+
     override fun referenceClass(classId: ClassId): IrClassSymbol? {
         val firSymbol = symbolProvider.getClassLikeSymbolByClassId(classId) as? FirClassSymbol<*> ?: return null
-        return components.classifierStorage.getIrClassSymbol(firSymbol)
+        return components.classifierStorage.getOrCreateIrClass(firSymbol).symbol
     }
 
     override fun referenceTypeAlias(classId: ClassId): IrTypeAliasSymbol? {
@@ -83,7 +86,7 @@ class Fir2IrPluginContext(
 
     private inline fun <R> referenceClassLikeSymbol(
         id: ClassId,
-        firSymbolExtractor: (ClassId) -> FirBasedSymbol<*>?,
+        firSymbolExtractor: (ClassId) -> FirClassLikeSymbol<*>?,
         irSymbolExtractor: (IdSignature) -> R
     ): R? {
         val firSymbol = firSymbolExtractor(id) ?: return null
@@ -128,9 +131,10 @@ class Fir2IrPluginContext(
             val expandedClass = symbolProvider.getClassLikeSymbolByClassId(classId)
                 ?.fullyExpandedClass(components.session)
                 ?: return emptyList()
-            expandedClass
-                .unsubstitutedScope(components.session, components.scopeSession, withForcedTypeCalculator = true)
-                .getCallablesFromScope()
+
+            with(components) {
+                expandedClass.unsubstitutedScope().getCallablesFromScope()
+            }
         } else {
             symbolProvider.getCallablesFromProvider()
         }

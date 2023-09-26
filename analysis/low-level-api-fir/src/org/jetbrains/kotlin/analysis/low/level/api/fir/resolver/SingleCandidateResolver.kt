@@ -53,12 +53,12 @@ class SingleCandidateResolver(
             callInfo,
             resolutionParameters.callableSymbol,
             explicitReceiverKind = explicitReceiverKind,
-            dispatchReceiverValue = dispatchReceiverValue,
+            dispatchReceiver = dispatchReceiverValue?.receiverExpression,
             givenExtensionReceiverOptions = listOfNotNull(
                 if (explicitReceiverKind.isExtensionReceiver)
-                    callInfo.explicitReceiver?.let { ExpressionReceiverValue(it) }
+                    callInfo.explicitReceiver
                 else
-                    implicitExtensionReceiverValue
+                    implicitExtensionReceiverValue?.receiverExpression
             ),
             scope = null,
         )
@@ -82,7 +82,7 @@ class SingleCandidateResolver(
                 ?: ResolutionMode.ContextIndependent
         )
 
-        return completionResult.takeIf { it.callCompleted }?.result
+        return completionResult
     }
 
     private fun createCandidateInfoProvider(resolutionParameters: ResolutionParameters): CandidateInfoProvider {

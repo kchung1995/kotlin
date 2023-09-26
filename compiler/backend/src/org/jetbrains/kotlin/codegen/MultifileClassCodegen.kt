@@ -28,7 +28,7 @@ import org.jetbrains.kotlin.load.java.JvmAnnotationNames
 import org.jetbrains.kotlin.load.kotlin.header.KotlinClassHeader
 import org.jetbrains.kotlin.load.kotlin.incremental.IncrementalPackageFragmentProvider
 import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.name.JvmNames.JVM_SYNTHETIC_ANNOTATION_FQ_NAME
+import org.jetbrains.kotlin.name.JvmStandardClassIds.JVM_SYNTHETIC_ANNOTATION_FQ_NAME
 import org.jetbrains.kotlin.progress.ProgressIndicatorAndCompilationCanceledStatus
 import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtFile
@@ -140,7 +140,7 @@ class MultifileClassCodegenImpl(
             }
 
             defineClass(
-                singleSourceFile, state.classFileVersion, attributes,
+                singleSourceFile, state.config.classFileVersion, attributes,
                 facadeClassType.internalName, null, superClassForFacade, emptyArray()
             )
             if (singleSourceFile != null) {
@@ -344,7 +344,7 @@ class MultifileClassCodegenImpl(
         }
 
     private fun done() {
-        classBuilder.done(state.generateSmapCopyToAnnotation)
+        classBuilder.done(state.config.generateSmapCopyToAnnotation)
         if (classBuilder.isComputed) {
             state.afterIndependentPart()
         }

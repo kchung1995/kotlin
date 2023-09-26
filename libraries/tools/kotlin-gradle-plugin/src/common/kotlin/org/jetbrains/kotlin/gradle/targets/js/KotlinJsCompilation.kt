@@ -9,6 +9,8 @@
 package org.jetbrains.kotlin.gradle.plugin.mpp
 
 import groovy.lang.Closure
+import org.gradle.api.Action
+import org.gradle.api.attributes.AttributeContainer
 import org.gradle.api.tasks.TaskProvider
 import org.jetbrains.kotlin.gradle.dsl.KotlinJsCompilerOptions
 import org.jetbrains.kotlin.gradle.dsl.KotlinJsOptions
@@ -28,6 +30,14 @@ open class KotlinJsCompilation @Inject internal constructor(
     @Suppress("UNCHECKED_CAST")
     final override val compilerOptions: HasCompilerOptions<KotlinJsCompilerOptions>
         get() = compilation.compilerOptions as HasCompilerOptions<KotlinJsCompilerOptions>
+
+    fun compilerOptions(configure: KotlinJsCompilerOptions.() -> Unit) {
+        compilerOptions.configure(configure)
+    }
+
+    fun compilerOptions(configure: Action<KotlinJsCompilerOptions>) {
+        configure.execute(compilerOptions.options)
+    }
 
     val binaries: KotlinJsBinaryContainer =
         compilation.target.project.objects.newInstance(
@@ -53,6 +63,16 @@ open class KotlinJsCompilation @Inject internal constructor(
     override val processResourcesTaskName: String
         get() = disambiguateName("processResources")
 
+    val npmAggregatedConfigurationName
+        get() = compilation.disambiguateName("npmAggregated")
+
+    val publicPackageJsonConfigurationName
+        get() = compilation.disambiguateName("publicPackageJsonConfiguration")
+
+    override fun getAttributes(): AttributeContainer {
+        return compilation.attributes
+    }
+
     @Suppress("DEPRECATION")
     @Deprecated("Accessing task instance directly is deprecated", replaceWith = ReplaceWith("compileTaskProvider"))
     override val compileKotlinTask: Kotlin2JsCompile
@@ -67,9 +87,9 @@ open class KotlinJsCompilation @Inject internal constructor(
     override val compileTaskProvider: TaskProvider<Kotlin2JsCompile>
         get() = compilation.compileTaskProvider as TaskProvider<Kotlin2JsCompile>
 
-    internal val packageJsonHandlers = mutableListOf<PackageJson.() -> Unit>()
+    internal val packageJsonHandlers = mutableListOf<Action<PackageJson>>()
 
-    fun packageJson(handler: PackageJson.() -> Unit) {
+    fun packageJson(handler: Action<PackageJson>) {
         packageJsonHandlers.add(handler)
     }
 

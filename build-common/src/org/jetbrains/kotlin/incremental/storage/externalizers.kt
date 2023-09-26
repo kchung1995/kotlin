@@ -111,9 +111,9 @@ object ClassIdExternalizer : DataExternalizer<ClassId> {
 
     override fun read(input: DataInput): ClassId {
         return ClassId(
-            /* packageFqName */ FqNameExternalizer.read(input),
-            /* relativeClassName */ FqNameExternalizer.read(input),
-            /* isLocal */ input.readBoolean()
+            packageFqName = FqNameExternalizer.read(input),
+            relativeClassName = FqNameExternalizer.read(input),
+            isLocal = input.readBoolean()
         )
     }
 }
@@ -274,8 +274,7 @@ class DelegateDataExternalizer<T>(
 
     override fun read(input: DataInput): T {
         val typeIndex = input.readByte().toInt()
-        @Suppress("UNCHECKED_CAST")
-        return typesExternalizers[typeIndex].read(input) as T
+        return typesExternalizers[typeIndex].read(input)
     }
 }
 

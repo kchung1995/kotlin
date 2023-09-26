@@ -6,7 +6,6 @@
 package org.jetbrains.kotlin.assignment.plugin.k2.diagnostics
 
 import org.jetbrains.kotlin.KtFakeSourceElementKind
-import org.jetbrains.kotlin.assignment.plugin.AssignmentPluginNames.ASSIGN_METHOD
 import org.jetbrains.kotlin.assignment.plugin.k2.annotationMatchingService
 import org.jetbrains.kotlin.assignment.plugin.k2.diagnostics.FirErrorsAssignmentPlugin.CALL_ERROR_ASSIGN_METHOD_SHOULD_RETURN_UNIT
 import org.jetbrains.kotlin.assignment.plugin.k2.diagnostics.FirErrorsAssignmentPlugin.NO_APPLICABLE_ASSIGN_METHOD
@@ -15,20 +14,18 @@ import org.jetbrains.kotlin.diagnostics.reportOn
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
-import org.jetbrains.kotlin.fir.analysis.checkers.toRegularClassSymbol
 import org.jetbrains.kotlin.fir.diagnostics.ConeDiagnostic
-import org.jetbrains.kotlin.fir.diagnostics.FirDiagnosticHolder
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.arguments
 import org.jetbrains.kotlin.fir.expressions.toResolvedCallableSymbol
-import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
-import org.jetbrains.kotlin.fir.references.FirErrorNamedReference
-import org.jetbrains.kotlin.fir.references.FirResolvedErrorReference
 import org.jetbrains.kotlin.fir.references.isError
 import org.jetbrains.kotlin.fir.resolve.diagnostics.ConeAmbiguityError
 import org.jetbrains.kotlin.fir.resolve.diagnostics.ConeDiagnosticWithSingleCandidate
 import org.jetbrains.kotlin.fir.resolve.diagnostics.ConeUnresolvedNameError
 import org.jetbrains.kotlin.fir.types.isUnit
+import org.jetbrains.kotlin.fir.types.resolvedType
+import org.jetbrains.kotlin.fir.types.toRegularClassSymbol
+import org.jetbrains.kotlin.types.expressions.OperatorConventions.ASSIGN_METHOD
 
 object FirAssignmentPluginFunctionCallChecker : FirFunctionCallChecker() {
 
@@ -62,7 +59,7 @@ object FirAssignmentPluginFunctionCallChecker : FirFunctionCallChecker() {
         calleeReference.name == ASSIGN_METHOD && isAnnotated(session)
 
     private fun FirFunctionCall.isAnnotated(session: FirSession): Boolean =
-        session.annotationMatchingService.isAnnotated(explicitReceiver?.typeRef?.toRegularClassSymbol(session))
+        session.annotationMatchingService.isAnnotated(explicitReceiver?.resolvedType?.toRegularClassSymbol(session))
 
     private fun FirFunctionCall.isReturnTypeUnit() = toResolvedCallableSymbol()?.resolvedReturnType?.isUnit ?: false
 }

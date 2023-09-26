@@ -16,8 +16,9 @@ import org.jetbrains.kotlin.backend.common.extensions.FirIncompatiblePluginAPI
 import org.jetbrains.kotlin.backend.common.extensions.IrGenerationExtension
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.backend.common.ir.addDispatchReceiver
+import org.jetbrains.kotlin.backend.common.lower.ConstructorDelegationKind
 import org.jetbrains.kotlin.backend.common.lower.DeclarationIrBuilder
-import org.jetbrains.kotlin.backend.common.lower.callsSuper
+import org.jetbrains.kotlin.backend.common.lower.delegationKind
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.ObsoleteDescriptorBasedAPI
@@ -204,7 +205,7 @@ private class AndroidIrTransformer(val extension: AndroidIrExtension, val plugin
             declaration.declarations += declaration.getCachedFindViewByIdFun()
 
             for (constructor in declaration.constructors) {
-                if (!constructor.callsSuper(pluginContext.irBuiltIns)) continue
+                if (constructor.delegationKind(pluginContext.irBuiltIns) != ConstructorDelegationKind.CALLS_SUPER) continue
                 // Initialize the cache as the first thing, even before the super constructor is called. This ensures
                 // that if the super constructor calls an override declared in this class, the cache already exists.
                 val body = constructor.body as? IrBlockBody ?: continue
@@ -344,8 +345,14 @@ private val IrClassifierSymbol.isFragment: Boolean
 private fun TranslationPluginContext.declareTypeParameterStub(typeParameterDescriptor: TypeParameterDescriptor): IrTypeParameter {
     val symbol = IrTypeParameterSymbolImpl(typeParameterDescriptor)
     return irFactory.createTypeParameter(
-        UNDEFINED_OFFSET, UNDEFINED_OFFSET, IrDeclarationOrigin.DEFINED, symbol, typeParameterDescriptor.name,
-        typeParameterDescriptor.index, typeParameterDescriptor.isReified, typeParameterDescriptor.variance
+        startOffset = UNDEFINED_OFFSET,
+        endOffset = UNDEFINED_OFFSET,
+        origin = IrDeclarationOrigin.DEFINED,
+        name = typeParameterDescriptor.name,
+        symbol = symbol,
+        variance = typeParameterDescriptor.variance,
+        index = typeParameterDescriptor.index,
+        isReified = typeParameterDescriptor.isReified,
     )
 }
 
@@ -354,9 +361,18 @@ private fun TranslationPluginContext.declareParameterStub(parameterDescriptor: P
     val type = typeTranslator.translateType(parameterDescriptor.type)
     val varargElementType = parameterDescriptor.varargElementType?.let { typeTranslator.translateType(it) }
     return irFactory.createValueParameter(
-        UNDEFINED_OFFSET, UNDEFINED_OFFSET, IrDeclarationOrigin.DEFINED, symbol, parameterDescriptor.name,
-        parameterDescriptor.indexOrMinusOne, type, varargElementType, parameterDescriptor.isCrossinline,
-        parameterDescriptor.isNoinline, isHidden = false, isAssignable = false
+        startOffset = UNDEFINED_OFFSET,
+        endOffset = UNDEFINED_OFFSET,
+        origin = IrDeclarationOrigin.DEFINED,
+        name = parameterDescriptor.name,
+        type = type,
+        isAssignable = false,
+        symbol = symbol,
+        index = parameterDescriptor.indexOrMinusOne,
+        varargElementType = varargElementType,
+        isCrossinline = parameterDescriptor.isCrossinline,
+        isNoinline = parameterDescriptor.isNoinline,
+        isHidden = false,
     )
 }
 

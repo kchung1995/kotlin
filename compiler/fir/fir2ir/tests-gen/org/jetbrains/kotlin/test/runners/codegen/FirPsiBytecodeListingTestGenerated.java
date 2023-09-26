@@ -470,12 +470,6 @@ public class FirPsiBytecodeListingTestGenerated extends AbstractFirPsiBytecodeLi
             }
 
             @Test
-            @TestMetadata("propertyGetterSeveralUseSiteTargets.kt")
-            public void testPropertyGetterSeveralUseSiteTargets() throws Exception {
-                runTest("compiler/testData/codegen/bytecodeListing/annotations/repeatable/propertyGetterSeveralUseSiteTargets.kt");
-            }
-
-            @Test
             @TestMetadata("propertyGetterUseSiteTarget.kt")
             public void testPropertyGetterUseSiteTarget() throws Exception {
                 runTest("compiler/testData/codegen/bytecodeListing/annotations/repeatable/propertyGetterUseSiteTarget.kt");
@@ -1560,12 +1554,6 @@ public class FirPsiBytecodeListingTestGenerated extends AbstractFirPsiBytecodeLi
             public void testJvmDefaultAll() throws Exception {
                 runTest("compiler/testData/codegen/bytecodeListing/inlineClasses/defaultInterfaceMembers/jvmDefaultAll.kt");
             }
-
-            @Test
-            @TestMetadata("jvmDefaultEnable.kt")
-            public void testJvmDefaultEnable() throws Exception {
-                runTest("compiler/testData/codegen/bytecodeListing/inlineClasses/defaultInterfaceMembers/jvmDefaultEnable.kt");
-            }
         }
 
         @Nested
@@ -1918,22 +1906,6 @@ public class FirPsiBytecodeListingTestGenerated extends AbstractFirPsiBytecodeLi
             }
 
             @Nested
-            @TestMetadata("compiler/testData/codegen/bytecodeListing/jvm8/defaults/enable")
-            @TestDataPath("$PROJECT_ROOT")
-            public class Enable {
-                @Test
-                public void testAllFilesPresentInEnable() throws Exception {
-                    KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/testData/codegen/bytecodeListing/jvm8/defaults/enable"), Pattern.compile("^(.+)\\.kt$"), null, TargetBackend.JVM_IR, true);
-                }
-
-                @Test
-                @TestMetadata("interfaceProperty.kt")
-                public void testInterfaceProperty() throws Exception {
-                    runTest("compiler/testData/codegen/bytecodeListing/jvm8/defaults/enable/interfaceProperty.kt");
-                }
-            }
-
-            @Nested
             @TestMetadata("compiler/testData/codegen/bytecodeListing/jvm8/defaults/noDefaultImpl")
             @TestDataPath("$PROJECT_ROOT")
             public class NoDefaultImpl {
@@ -1946,6 +1918,12 @@ public class FirPsiBytecodeListingTestGenerated extends AbstractFirPsiBytecodeLi
                 @TestMetadata("interfaceProperty.kt")
                 public void testInterfaceProperty() throws Exception {
                     runTest("compiler/testData/codegen/bytecodeListing/jvm8/defaults/noDefaultImpl/interfaceProperty.kt");
+                }
+
+                @Test
+                @TestMetadata("privateAccessorNaming.kt")
+                public void testPrivateAccessorNaming() throws Exception {
+                    runTest("compiler/testData/codegen/bytecodeListing/jvm8/defaults/noDefaultImpl/privateAccessorNaming.kt");
                 }
             }
         }
@@ -2152,6 +2130,38 @@ public class FirPsiBytecodeListingTestGenerated extends AbstractFirPsiBytecodeLi
         @TestMetadata("samAdapterForJavaInterfaceWithNullability.kt")
         public void testSamAdapterForJavaInterfaceWithNullability() throws Exception {
             runTest("compiler/testData/codegen/bytecodeListing/nullabilityAnnotations/samAdapterForJavaInterfaceWithNullability.kt");
+        }
+
+        @Test
+        @TestMetadata("suspendFunction.kt")
+        public void testSuspendFunction() throws Exception {
+            runTest("compiler/testData/codegen/bytecodeListing/nullabilityAnnotations/suspendFunction.kt");
+        }
+    }
+
+    @Nested
+    @TestMetadata("compiler/testData/codegen/bytecodeListing/properties")
+    @TestDataPath("$PROJECT_ROOT")
+    public class Properties {
+        @Test
+        public void testAllFilesPresentInProperties() throws Exception {
+            KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/testData/codegen/bytecodeListing/properties"), Pattern.compile("^(.+)\\.kt$"), null, TargetBackend.JVM_IR, true);
+        }
+
+        @Nested
+        @TestMetadata("compiler/testData/codegen/bytecodeListing/properties/backingField")
+        @TestDataPath("$PROJECT_ROOT")
+        public class BackingField {
+            @Test
+            public void testAllFilesPresentInBackingField() throws Exception {
+                KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/testData/codegen/bytecodeListing/properties/backingField"), Pattern.compile("^(.+)\\.kt$"), null, TargetBackend.JVM_IR, true);
+            }
+
+            @Test
+            @TestMetadata("explicitBackingFieldsInJava.kt")
+            public void testExplicitBackingFieldsInJava() throws Exception {
+                runTest("compiler/testData/codegen/bytecodeListing/properties/backingField/explicitBackingFieldsInJava.kt");
+            }
         }
     }
 
@@ -2538,6 +2548,12 @@ public class FirPsiBytecodeListingTestGenerated extends AbstractFirPsiBytecodeLi
         @TestMetadata("annotations.kt")
         public void testAnnotations() throws Exception {
             runTest("compiler/testData/codegen/bytecodeListing/valueClasses/annotations.kt");
+        }
+
+        @Test
+        @TestMetadata("nullabilityAnnotationsOnInlineClassMembers.kt")
+        public void testNullabilityAnnotationsOnInlineClassMembers() throws Exception {
+            runTest("compiler/testData/codegen/bytecodeListing/valueClasses/nullabilityAnnotationsOnInlineClassMembers.kt");
         }
     }
 }

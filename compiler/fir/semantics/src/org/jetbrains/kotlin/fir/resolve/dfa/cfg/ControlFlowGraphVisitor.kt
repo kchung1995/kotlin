@@ -58,6 +58,16 @@ abstract class ControlFlowGraphVisitor<out R, in D> {
         return visitNode(node, data)
     }
 
+     // ----------------------------------- Files ------------------------------------------
+
+    open fun visitFileEnterNode(node: FileEnterNode, data: D): R {
+        return visitNode(node, data)
+    }
+
+    open fun visitFileExitNode(node: FileExitNode, data: D): R {
+        return visitNode(node, data)
+    }
+
     // ----------------------------------- Classes -----------------------------------
 
     open fun visitAnonymousObjectEnterNode(node: AnonymousObjectEnterNode, data: D): R {
@@ -87,6 +97,16 @@ abstract class ControlFlowGraphVisitor<out R, in D> {
     }
 
     open fun visitScriptExitNode(node: ScriptExitNode, data: D): R {
+        return visitNode(node, data)
+    }
+
+    // ----------------------------------- Code Fragments ------------------------------------------
+
+    open fun visitCodeFragmentEnterNode(node: CodeFragmentEnterNode, data: D): R {
+        return visitNode(node, data)
+    }
+
+    open fun visitCodeFragmentExitNode(node: CodeFragmentExitNode, data: D): R {
         return visitNode(node, data)
     }
 
@@ -218,14 +238,6 @@ abstract class ControlFlowGraphVisitor<out R, in D> {
     }
 
     open fun visitFinallyBlockExitNode(node: FinallyBlockExitNode, data: D): R {
-        return visitNode(node, data)
-    }
-
-    open fun visitFinallyProxyEnterNode(node: FinallyProxyEnterNode, data: D): R {
-        return visitNode(node, data)
-    }
-
-    open fun visitFinallyProxyExitNode(node: FinallyProxyExitNode, data: D): R {
         return visitNode(node, data)
     }
 

@@ -11,7 +11,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import org.jetbrains.kotlin.analysis.api.symbols.KtSymbolOrigin
 import org.jetbrains.kotlin.analysis.project.structure.KtModule
 import org.jetbrains.kotlin.analysis.project.structure.KtSourceModule
-import org.jetbrains.kotlin.analysis.project.structure.getKtModule
+import org.jetbrains.kotlin.analysis.project.structure.ProjectStructureProvider
 import org.jetbrains.kotlin.analyzer.AnalysisResult
 import org.jetbrains.kotlin.container.ComponentProvider
 import org.jetbrains.kotlin.container.get
@@ -34,7 +34,7 @@ import org.jetbrains.kotlin.resolve.lazy.ResolveSession
 import org.jetbrains.kotlin.types.checker.KotlinTypeRefiner
 import org.jetbrains.kotlin.util.CancellationChecker
 
-class CliFe10AnalysisFacade(private val project: Project) : Fe10AnalysisFacade {
+class CliFe10AnalysisFacade : Fe10AnalysisFacade {
     override fun getResolveSession(element: KtElement): ResolveSession {
         return getHandler(element).resolveSession ?: error("Resolution is not performed")
     }
@@ -59,7 +59,8 @@ class CliFe10AnalysisFacade(private val project: Project) : Fe10AnalysisFacade {
         return getHandler(element).kotlinTypeRefiner ?: error("Resolution is not performed")
     }
 
-    override fun analyze(element: KtElement, mode: Fe10AnalysisFacade.AnalysisMode): BindingContext {
+    override fun analyze(elements: List<KtElement>, mode: Fe10AnalysisFacade.AnalysisMode): BindingContext {
+        val element = elements.firstOrNull() ?: return BindingContext.EMPTY
         return getResolveSession(element).bindingContext
     }
 
@@ -68,17 +69,21 @@ class CliFe10AnalysisFacade(private val project: Project) : Fe10AnalysisFacade {
     }
 
     private fun getHandler(useSiteElement: KtElement): KtFe10AnalysisHandlerExtension {
-        val ktModule = useSiteElement.getKtModule(project)
-        return KtFe10AnalysisHandlerExtension.getInstance(ktModule.project, ktModule)
+        val project = useSiteElement.project
+        val ktModule = ProjectStructureProvider.getModule(project, useSiteElement, contextualModule = null)
+        return KtFe10AnalysisHandlerExtension.getInstance(project, ktModule)
     }
 }
 
-class KtFe10AnalysisHandlerExtension(private val useSiteModule: KtSourceModule) : AnalysisHandlerExtension {
+class KtFe10AnalysisHandlerExtension(
+    private val useSiteModule: KtSourceModule? = null
+) : AnalysisHandlerExtension {
     internal companion object {
         fun getInstance(area: AreaInstance, module: KtModule): KtFe10AnalysisHandlerExtension {
-            return AnalysisHandlerExtension.extensionPointName.getExtensions(area)
+            val extensions = AnalysisHandlerExtension.extensionPointName.getExtensions(area)
                 .filterIsInstance<KtFe10AnalysisHandlerExtension>()
-                .firstOrNull { it.useSiteModule == module }
+            return extensions.firstOrNull { it.useSiteModule == module }
+                ?: extensions.singleOrNull { it.useSiteModule == null }
                 ?: error(KtFe10AnalysisHandlerExtension::class.java.name + " should be registered")
         }
     }
@@ -109,9 +114,14 @@ class KtFe10AnalysisHandlerExtension(private val useSiteModule: KtSourceModule) 
         bindingTrace: BindingTrace,
         componentProvider: ComponentProvider
     ): AnalysisResult? {
-        if (module.name.asString().removeSurrounding("<", ">") != useSiteModule.moduleName) {
+        // Single-module [KtFe10AnalysisHandlerExtension] can be registered without specific use-site module.
+        // Simple null-check below will skip the bail-out.
+        if (useSiteModule != null &&
+            module.name.asString().removeSurrounding("<", ">") != useSiteModule.moduleName
+        ) {
             // there is no way to properly map KtModule to ModuleDescriptor,
-            // KtFe10AnalysisHandlerExtension is used only for tests, so just by name comparasion should work as all module names are different
+            // Multi-module [KtFe10AnalysisHandlerExtension]s are used only for tests,
+            // so just by name comparison should work as all module names are different
             return null
         }
 

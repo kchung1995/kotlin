@@ -188,7 +188,7 @@ abstract class CommonCompilerArguments : CommonToolArguments() {
         value = "-Xcompiler-plugin",
         valueDescription = "<path1>,<path2>:<optionName>=<value>,<optionName>=<value>",
         description = "Register compiler plugin",
-        delimiter = ""
+        delimiter = Argument.Delimiters.none
     )
     var pluginConfigurations: Array<String>? = null
         set(value) {
@@ -534,9 +534,19 @@ abstract class CommonCompilerArguments : CommonToolArguments() {
 
     @Argument(
         value = "-Xuse-fir-lt",
-        description = "Compile using LightTree parser with Front-end IR. Warning: this feature is far from being production-ready"
+        description = "Compile using LightTree parser with Front-end IR"
     )
     var useFirLT = true
+        set(value) {
+            checkFrozen()
+            field = value
+        }
+
+    @Argument(
+        value = "-Xuse-ir-fake-override-builder",
+        description = "Generate fake overrides via IR. See KT-61514"
+    )
+    var useIrFakeOverrideBuilder = false
         set(value) {
             checkFrozen()
             field = value
@@ -562,6 +572,17 @@ abstract class CommonCompilerArguments : CommonToolArguments() {
             field = value
         }
 
+    @Argument(
+        value = "-Xmetadata-klib",
+        description = "Produce a klib that only contains the declarations metadata"
+    )
+    var metadataKlib: Boolean = false
+        set(value) {
+            checkFrozen()
+            field = value
+        }
+
+    /** TODO: replace by [metadataKlib] */
     @Argument(
         value = "-Xexpect-actual-linker",
         description = "Enable experimental expect/actual linker"
@@ -627,6 +648,17 @@ abstract class CommonCompilerArguments : CommonToolArguments() {
         description = "Compile builtIns from sources"
     )
     var builtInsFromSources = false
+        set(value) {
+            checkFrozen()
+            field = value
+        }
+
+    @Argument(
+        value = "-Xexpect-actual-classes",
+        description = "'expect'/'actual' classes (including interfaces, objects, annotations, enums, and 'actual' typealiases) are in Beta.\n" +
+                "Kotlin reports a warning every time you use them. You can use this flag to mute the warning."
+    )
+    var expectActualClasses = false
         set(value) {
             checkFrozen()
             field = value
@@ -753,6 +785,26 @@ abstract class CommonCompilerArguments : CommonToolArguments() {
             field = value
         }
 
+    @Argument(
+        value = "-Xignore-const-optimization-errors",
+        description = "Ignore all compilation exceptions while optimizing some constant expressions."
+    )
+    var ignoreConstOptimizationErrors = false
+        set(value) {
+            checkFrozen()
+            field = value
+        }
+
+    @Argument(
+        value = "-Xdont-warn-on-error-suppression",
+        description = "Don't report a warning when an error is suppressed. Only affects K2."
+    )
+    var dontWarnOnErrorSuppression = false
+        set(value) {
+            checkFrozen()
+            field = value
+        }
+
     @OptIn(IDEAPluginsCompatibilityAPI::class)
     open fun configureAnalysisFlags(collector: MessageCollector, languageVersion: LanguageVersion): MutableMap<AnalysisFlag<*>, Any> {
         return HashMap<AnalysisFlag<*>, Any>().apply {
@@ -766,7 +818,7 @@ abstract class CommonCompilerArguments : CommonToolArguments() {
                 )
             }
             put(AnalysisFlags.optIn, useExperimentalFqNames + optIn?.toList().orEmpty())
-            put(AnalysisFlags.expectActualLinker, expectActualLinker)
+            put(AnalysisFlags.skipExpectedActualDeclarationChecker, expectActualLinker || metadataKlib) // TODO (KT-61136): drop `expectActualLinker` later, after the appropriate changes in the Gradle plugin
             put(AnalysisFlags.explicitApiVersion, apiVersion != null)
             put(AnalysisFlags.allowResultReturnType, allowResultReturnType)
             ExplicitApiMode.fromString(explicitApi)?.also { put(AnalysisFlags.explicitApiMode, it) } ?: collector.report(
@@ -776,7 +828,9 @@ abstract class CommonCompilerArguments : CommonToolArguments() {
             put(AnalysisFlags.extendedCompilerChecks, extendedCompilerChecks)
             put(AnalysisFlags.allowKotlinPackage, allowKotlinPackage)
             put(AnalysisFlags.builtInsFromSources, builtInsFromSources)
+            put(AnalysisFlags.muteExpectActualClassesWarning, expectActualClasses)
             put(AnalysisFlags.allowFullyQualifiedNameInKClass, true)
+            put(AnalysisFlags.dontWarnOnErrorSuppression, dontWarnOnErrorSuppression)
         }
     }
 
@@ -858,7 +912,11 @@ abstract class CommonCompilerArguments : CommonToolArguments() {
             if (internalArguments.isNotEmpty()) {
                 configureLanguageFeaturesFromInternalArgs(collector)
             }
+
+            configureExtraLanguageFeatures(this)
         }
+
+    protected open fun configureExtraLanguageFeatures(map: HashMap<LanguageFeature, LanguageFeature.State>) {}
 
     private fun HashMap<LanguageFeature, LanguageFeature.State>.configureLanguageFeaturesFromInternalArgs(collector: MessageCollector) {
         val featuresThatForcePreReleaseBinaries = mutableListOf<LanguageFeature>()
@@ -1059,5 +1117,7 @@ abstract class CommonCompilerArguments : CommonToolArguments() {
             }
 
     // Used only for serialize and deserialize settings. Don't use in other places!
-    class DummyImpl : CommonCompilerArguments()
+    class DummyImpl : CommonCompilerArguments() {
+        override fun copyOf(): Freezable = copyCommonCompilerArguments(this, DummyImpl())
+    }
 }

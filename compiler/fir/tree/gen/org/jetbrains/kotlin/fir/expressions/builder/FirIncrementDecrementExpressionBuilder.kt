@@ -3,7 +3,7 @@
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
-@file:Suppress("DuplicatedCode")
+@file:Suppress("DuplicatedCode", "unused")
 
 package org.jetbrains.kotlin.fir.expressions.builder
 
@@ -15,10 +15,10 @@ import org.jetbrains.kotlin.fir.builder.toMutableOrEmpty
 import org.jetbrains.kotlin.fir.expressions.FirAnnotation
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirIncrementDecrementExpression
+import org.jetbrains.kotlin.fir.expressions.UnresolvedExpressionTypeAccess
 import org.jetbrains.kotlin.fir.expressions.builder.FirExpressionBuilder
 import org.jetbrains.kotlin.fir.expressions.impl.FirIncrementDecrementExpressionImpl
-import org.jetbrains.kotlin.fir.types.FirTypeRef
-import org.jetbrains.kotlin.fir.types.impl.FirImplicitTypeRefImplWithoutSource
+import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.visitors.*
 import org.jetbrains.kotlin.name.Name
 
@@ -30,6 +30,7 @@ import org.jetbrains.kotlin.name.Name
 @FirBuilderDsl
 class FirIncrementDecrementExpressionBuilder : FirAnnotationContainerBuilder, FirExpressionBuilder {
     override var source: KtSourceElement? = null
+    override var coneTypeOrNull: ConeKotlinType? = null
     override val annotations: MutableList<FirAnnotation> = mutableListOf()
     var isPrefix: Boolean by kotlin.properties.Delegates.notNull<Boolean>()
     lateinit var operationName: Name
@@ -39,6 +40,7 @@ class FirIncrementDecrementExpressionBuilder : FirAnnotationContainerBuilder, Fi
     override fun build(): FirIncrementDecrementExpression {
         return FirIncrementDecrementExpressionImpl(
             source,
+            coneTypeOrNull,
             annotations.toMutableOrEmpty(),
             isPrefix,
             operationName,
@@ -47,13 +49,6 @@ class FirIncrementDecrementExpressionBuilder : FirAnnotationContainerBuilder, Fi
         )
     }
 
-
-    @Deprecated("Modification of 'typeRef' has no impact for FirIncrementDecrementExpressionBuilder", level = DeprecationLevel.HIDDEN)
-    override var typeRef: FirTypeRef
-        get() = throw IllegalStateException()
-        set(_) {
-            throw IllegalStateException()
-        }
 }
 
 @OptIn(ExperimentalContracts::class)

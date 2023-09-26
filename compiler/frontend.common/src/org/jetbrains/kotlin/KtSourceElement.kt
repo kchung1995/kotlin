@@ -14,6 +14,7 @@ import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.tree.IElementType
 import com.intellij.util.diff.FlyweightCapableTreeStructure
+import org.jetbrains.kotlin.utils.getElementTextWithContext
 
 sealed class KtSourceElementKind {
     abstract val shouldSkipErrorTypeReporting: Boolean
@@ -58,6 +59,10 @@ sealed class KtFakeSourceElementKind(final override val shouldSkipErrorTypeRepor
     // with a fake source which refers to containing class
     object ImplicitConstructor : KtFakeSourceElementKind()
 
+    // for constructor type parameters, because they refer to the same source
+    // as the class type parameters themselves
+    object ConstructorTypeParameter : KtFakeSourceElementKind()
+
     // for constructors which do not have delegated constructor call the fake one is generated
     // with a fake sources which refers to the original constructor
     object DelegatingConstructorCall : KtFakeSourceElementKind()
@@ -81,9 +86,19 @@ sealed class KtFakeSourceElementKind(final override val shouldSkipErrorTypeRepor
         object FromLastStatement : ImplicitReturn()
     }
 
-    // return expression in procedures -> return Unit
-    // with a fake sources which refers to the return statement
-    object ImplicitUnit : KtFakeSourceElementKind()
+    sealed class ImplicitUnit : KtFakeSourceElementKind() {
+        // this source is used for implicit returns from empty lambdas {}
+        // fake source refers to the lambda expression
+        object LambdaCoercion : ImplicitUnit()
+
+        // this source is used for 'return' without given value converted to 'return Unit'
+        // fake source refers to the return statement
+        object Return : ImplicitUnit()
+
+        // this source is used for 'a[i] = b' or 'a[i] += b' converted to { a[i] = b; Unit }
+        // fake source refers to the assignment statement
+        object IndexedAssignmentCoercion : ImplicitUnit()
+    }
 
     // delegates are wrapped into FirWrappedDelegateExpression
     // with a fake sources which refers to delegated expression
@@ -132,6 +147,9 @@ sealed class KtFakeSourceElementKind(final override val shouldSkipErrorTypeRepor
     // x++ -> x = x.inc()
     // x = x++ -> x = { val <unary> = x; x = <unary>.inc(); <unary> }
     object DesugaredIncrementOrDecrement : KtFakeSourceElementKind()
+
+    // In ++a[1], a.get(1) will be called twice. This kind is used for the second call reference.
+    object DesugaredPrefixSecondGetReference : KtFakeSourceElementKind()
 
     // ++x --> `inc` calleeReference
     object DesugaredPrefixNameReference : KtFakeSourceElementKind()
@@ -191,11 +209,6 @@ sealed class KtFakeSourceElementKind(final override val shouldSkipErrorTypeRepor
     // where `Supertype` has a fake source
     object SuperCallImplicitType : KtFakeSourceElementKind()
 
-    // Consider `super<Supertype>.foo()`. The source PSI `Supertype` is referenced by both the qualified access expression
-    // `super<Supertype>` and the calleeExpression `super<Supertype>`. To avoid having two FIR elements sharing the same source, this fake
-    // source is assigned to the qualified access expression.
-    object SuperCallExplicitType : KtFakeSourceElementKind(shouldSkipErrorTypeReporting = true)
-
     // fun foo(vararg args: Int) {}
     // fun bar(1, 2, 3) --> [resolved] fun bar(VarargArgument(1, 2, 3))
     object VarargArgument : KtFakeSourceElementKind()
@@ -206,6 +219,10 @@ sealed class KtFakeSourceElementKind(final override val shouldSkipErrorTypeRepor
     // { it + 1} --> { it -> it + 1 }
     // where `it` parameter declaration has fake source
     object ItLambdaParameter : KtFakeSourceElementKind()
+
+    // { (a, b) -> foo() } -> { x -> val (a, b) = x; { foo() } }
+    // where the inner block { foo() } has fake source
+    object LambdaDestructuringBlock : KtFakeSourceElementKind()
 
     // for java annotations implicit constructor is generated
     // with a fake source which refers to containing class
@@ -265,6 +282,9 @@ sealed class KtFakeSourceElementKind(final override val shouldSkipErrorTypeRepor
 
     // When property doesn't have an initializer and explicit return type, but its getter's return type is specified
     object PropertyTypeFromGetterReturnType : KtFakeSourceElementKind()
+
+    // Scripts get implicit imports from their configurations
+    object ImplicitImport : KtFakeSourceElementKind()
 }
 
 sealed class AbstractKtSourceElement {
@@ -299,6 +319,8 @@ sealed class KtSourceElement : AbstractKtSourceElement() {
     abstract val lighterASTNode: LighterASTNode
     abstract val treeStructure: FlyweightCapableTreeStructure<LighterASTNode>
 
+    abstract fun getElementTextInContextForDebug(): String
+
     /** Implementation must compute the hashcode from the source element. */
     abstract override fun hashCode(): Int
 
@@ -324,6 +346,10 @@ sealed class KtPsiSourceElement(val psi: PsiElement) : KtSourceElement() {
 
     override val treeStructure: FlyweightCapableTreeStructure<LighterASTNode> by lazy(LazyThreadSafetyMode.PUBLICATION) {
         WrappedTreeStructure(psi.containingFile)
+    }
+
+    override fun getElementTextInContextForDebug(): String {
+        return getElementTextWithContext(psi)
     }
 
     internal class WrappedTreeStructure(file: PsiFile) : FlyweightCapableTreeStructure<LighterASTNode> {
@@ -412,7 +438,10 @@ class KtRealPsiSourceElement(psi: PsiElement) : KtPsiSourceElement(psi) {
     override val kind: KtSourceElementKind get() = KtRealSourceElementKind
 }
 
-class KtFakeSourceElement(psi: PsiElement, override val kind: KtFakeSourceElementKind) : KtPsiSourceElement(psi) {
+open class KtFakeSourceElement(
+    psi: PsiElement,
+    override val kind: KtFakeSourceElementKind,
+) : KtPsiSourceElement(psi) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (javaClass != other?.javaClass) return false
@@ -432,11 +461,49 @@ class KtFakeSourceElement(psi: PsiElement, override val kind: KtFakeSourceElemen
     }
 }
 
-fun KtSourceElement.fakeElement(newKind: KtFakeSourceElementKind): KtSourceElement {
+private class KtFakeSourceElementWithOffsets(
+    psi: PsiElement,
+    kind: KtFakeSourceElementKind,
+    override val startOffset: Int,
+    override val endOffset: Int,
+) : KtFakeSourceElement(psi, kind) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is KtFakeSourceElementWithOffsets) return false
+        if (!super.equals(other)) return false
+
+        if (kind != other.kind) return false
+        if (startOffset != other.startOffset) return false
+        return endOffset == other.endOffset
+    }
+
+    override fun hashCode(): Int {
+        var result = super.hashCode()
+        result = 31 * result + kind.hashCode()
+        result = 31 * result + startOffset
+        result = 31 * result + endOffset
+        return result
+    }
+}
+
+fun KtSourceElement.fakeElement(
+    newKind: KtFakeSourceElementKind,
+    startOffset: Int = -1,
+    endOffset: Int = -1,
+): KtSourceElement {
     if (kind == newKind) return this
     return when (this) {
-        is KtLightSourceElement -> KtLightSourceElement(lighterASTNode, startOffset, endOffset, treeStructure, newKind)
-        is KtPsiSourceElement -> KtFakeSourceElement(psi, newKind)
+        is KtLightSourceElement -> KtLightSourceElement(
+            lighterASTNode,
+            if (startOffset != -1) startOffset else this.startOffset,
+            if (endOffset != -1) endOffset else this.endOffset,
+            treeStructure,
+            newKind
+        )
+        is KtPsiSourceElement -> when {
+            startOffset != -1 && endOffset != -1 -> KtFakeSourceElementWithOffsets(psi, newKind, startOffset, endOffset)
+            else -> KtFakeSourceElement(psi, newKind)
+        }
     }
 }
 
@@ -468,6 +535,10 @@ class KtLightSourceElement(
         if (treeStructure !is KtPsiSourceElement.WrappedTreeStructure) return null
         val node = treeStructure.unwrap(lighterASTNode)
         return node.psi?.toKtPsiSourceElement(kind)
+    }
+
+    override fun getElementTextInContextForDebug(): String {
+        return treeStructure.toString(lighterASTNode).toString()
     }
 
     override fun equals(other: Any?): Boolean {

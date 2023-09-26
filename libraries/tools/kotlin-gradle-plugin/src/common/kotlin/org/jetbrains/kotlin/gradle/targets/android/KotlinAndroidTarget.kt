@@ -7,14 +7,16 @@
 package org.jetbrains.kotlin.gradle.plugin.mpp
 
 import com.android.build.gradle.api.BaseVariant
-import org.gradle.api.InvalidUserDataException
-import org.gradle.api.Named
-import org.gradle.api.NamedDomainObjectContainer
-import org.gradle.api.Project
+import org.gradle.api.*
 import org.gradle.api.artifacts.Configuration
-import org.gradle.api.attributes.*
+import org.gradle.api.attributes.Attribute
+import org.gradle.api.attributes.AttributeContainer
+import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
+import org.jetbrains.kotlin.gradle.dsl.KotlinJvmCompilerOptions
+import org.jetbrains.kotlin.gradle.dsl.KotlinJvmCompilerOptionsDefault
 import org.jetbrains.kotlin.gradle.plugin.*
-import org.jetbrains.kotlin.gradle.plugin.mpp.pm20.util.copyAttributes
+import org.jetbrains.kotlin.gradle.tasks.DefaultKotlinJavaToolchain
+import org.jetbrains.kotlin.gradle.utils.*
 import org.jetbrains.kotlin.gradle.utils.dashSeparatedName
 import org.jetbrains.kotlin.gradle.utils.forAllAndroidVariants
 import org.jetbrains.kotlin.gradle.utils.lowerCamelCaseName
@@ -25,7 +27,7 @@ import javax.inject.Inject
 
 abstract class KotlinAndroidTarget @Inject constructor(
     final override val targetName: String,
-    project: Project
+    project: Project,
 ) : AbstractKotlinTarget(project) {
 
     final override val disambiguationClassifier: String = targetName
@@ -35,6 +37,53 @@ abstract class KotlinAndroidTarget @Inject constructor(
 
     override val compilations: NamedDomainObjectContainer<out KotlinJvmAndroidCompilation> =
         project.container(KotlinJvmAndroidCompilation::class.java)
+
+
+    @ExperimentalKotlinGradlePluginApi
+    val mainVariant: KotlinAndroidTargetVariantDsl = KotlinAndroidTargetVariantDslImpl(project.objects).apply {
+        sourceSetTree.convention(KotlinSourceSetTree.main)
+    }
+
+    @ExperimentalKotlinGradlePluginApi
+    fun mainVariant(action: Action<KotlinAndroidTargetVariantDsl>) {
+        action.execute(mainVariant)
+    }
+
+    @ExperimentalKotlinGradlePluginApi
+    fun mainVariant(configure: KotlinAndroidTargetVariantDsl.() -> Unit) {
+        mainVariant.configure()
+    }
+
+    @ExperimentalKotlinGradlePluginApi
+    val unitTestVariant: KotlinAndroidTargetVariantDsl = KotlinAndroidTargetVariantDslImpl(project.objects).apply {
+        sourceSetTree.convention(KotlinSourceSetTree.test)
+    }
+
+    @ExperimentalKotlinGradlePluginApi
+    fun unitTestVariant(action: Action<KotlinAndroidTargetVariantDsl>) {
+        action.execute(unitTestVariant)
+    }
+
+    @ExperimentalKotlinGradlePluginApi
+    fun unitTestVariant(configure: KotlinAndroidTargetVariantDsl.() -> Unit) {
+        unitTestVariant.configure()
+    }
+
+    @ExperimentalKotlinGradlePluginApi
+    val instrumentedTestVariant: KotlinAndroidTargetVariantDsl = KotlinAndroidTargetVariantDslImpl(project.objects).apply {
+        sourceSetTree.convention(KotlinSourceSetTree.instrumentedTest)
+    }
+
+    @ExperimentalKotlinGradlePluginApi
+    fun instrumentedTestVariant(action: Action<KotlinAndroidTargetVariantDsl>) {
+        action.execute(instrumentedTestVariant)
+    }
+
+    @ExperimentalKotlinGradlePluginApi
+    fun instrumentedTestVariant(configure: KotlinAndroidTargetVariantDsl.() -> Unit) {
+        instrumentedTestVariant.configure()
+    }
+
 
     /** Names of the Android library variants that should be published from the target's project within the default publications which are
      * set up if the `maven-publish` Gradle plugin is applied.
@@ -101,6 +150,7 @@ abstract class KotlinAndroidTarget @Inject constructor(
     }
 
     private fun AndroidProjectHandler.doCreateComponents(): Set<KotlinTargetComponent> {
+        assert(project.state.executed) { "Android: doCreateComponents requires 'afterEvaluate' based project state" }
 
         val publishableVariants = mutableListOf<BaseVariant>()
             .apply { project.forAllAndroidVariants { add(it) } }
@@ -239,7 +289,7 @@ abstract class KotlinAndroidTarget @Inject constructor(
     private fun createSourcesElementsIfNeeded(
         variantName: String,
         apiElementsConfigurationName: String,
-        sourcesElementsConfigurationName: String
+        sourcesElementsConfigurationName: String,
     ): Configuration {
         val existingConfiguration = project.configurations.findByName(sourcesElementsConfigurationName)
         if (existingConfiguration != null) return existingConfiguration
@@ -259,7 +309,7 @@ abstract class KotlinAndroidTarget @Inject constructor(
     /** We filter this variant out as it is never requested on the consumer side, while keeping it leads to ambiguity between Android and
      * JVM variants due to non-nesting sets of unmatched attributes. */
     private fun filterOutAndroidVariantAttribute(
-        attribute: Attribute<*>
+        attribute: Attribute<*>,
     ): Boolean =
         attribute.name != "com.android.build.gradle.internal.attributes.VariantAttr" &&
                 attribute.name != "com.android.build.api.attributes.VariantAttr"
@@ -267,7 +317,7 @@ abstract class KotlinAndroidTarget @Inject constructor(
     private fun filterOutAndroidBuildTypeAttribute(
         it: Attribute<*>,
         valueString: String,
-        isSinglePublishedVariant: Boolean
+        isSinglePublishedVariant: Boolean,
     ) = when {
         PropertiesProvider(project).keepAndroidBuildTypeAttribute -> true
         it.name != "com.android.build.api.attributes.BuildTypeAttr" -> true
@@ -279,6 +329,24 @@ abstract class KotlinAndroidTarget @Inject constructor(
     }
 
     private fun filterOutAndroidAgpVersionAttribute(
-        attribute: Attribute<*>
+        attribute: Attribute<*>,
     ): Boolean = attribute.name != "com.android.build.api.attributes.AgpVersionAttr"
+
+    @ExperimentalKotlinGradlePluginApi
+    override val compilerOptions: KotlinJvmCompilerOptions = project.objects
+        .newInstance<KotlinJvmCompilerOptionsDefault>()
+        .apply {
+            DefaultKotlinJavaToolchain.wireJvmTargetToToolchain(this, project)
+        }
+
+    @ExperimentalKotlinGradlePluginApi
+    fun compilerOptions(configure: KotlinJvmCompilerOptions.() -> Unit) {
+        configure(compilerOptions)
+    }
+
+    @ExperimentalKotlinGradlePluginApi
+    fun compilerOptions(configure: Action<KotlinJvmCompilerOptions>) {
+        configure.execute(compilerOptions)
+    }
 }
+

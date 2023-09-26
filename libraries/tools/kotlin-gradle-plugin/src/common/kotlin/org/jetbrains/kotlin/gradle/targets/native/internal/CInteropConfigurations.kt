@@ -9,21 +9,24 @@ import org.gradle.api.Project
 import org.gradle.api.artifacts.Configuration
 import org.gradle.api.attributes.*
 import org.gradle.api.tasks.TaskProvider
+import org.jetbrains.kotlin.gradle.plugin.KotlinCompilation.Companion.MAIN_COMPILATION_NAME
 import org.jetbrains.kotlin.gradle.plugin.KotlinNativeTargetConfigurator.NativeArtifactFormat
+import org.jetbrains.kotlin.gradle.plugin.KotlinPluginLifecycle.Stage.AfterFinaliseDsl
 import org.jetbrains.kotlin.gradle.plugin.KotlinTarget
 import org.jetbrains.kotlin.gradle.plugin.categoryByName
 import org.jetbrains.kotlin.gradle.plugin.internal.artifactTypeAttribute
+import org.jetbrains.kotlin.gradle.plugin.launchInStage
 import org.jetbrains.kotlin.gradle.plugin.mpp.*
-import org.jetbrains.kotlin.gradle.plugin.mpp.pm20.util.copyAttributes
 import org.jetbrains.kotlin.gradle.plugin.usesPlatformOf
-import org.jetbrains.kotlin.gradle.plugin.whenEvaluated
 import org.jetbrains.kotlin.gradle.targets.native.internal.CInteropKlibLibraryElements.cinteropKlibLibraryElements
 import org.jetbrains.kotlin.gradle.tasks.CInteropProcess
+import org.jetbrains.kotlin.gradle.utils.copyAttributes
+import org.jetbrains.kotlin.gradle.utils.markResolvable
 
 internal fun createCInteropApiElementsKlibArtifact(
     target: KotlinNativeTarget,
     settings: DefaultCInteropSettings,
-    interopTask: TaskProvider<out CInteropProcess>
+    interopTask: TaskProvider<out CInteropProcess>,
 ) {
     val project = target.project
     val configurationName = cInteropApiElementsConfigurationName(target)
@@ -47,11 +50,10 @@ internal fun Project.locateOrCreateCInteropDependencyConfiguration(
     return configurations.create(compilation.cInteropDependencyConfigurationName).apply {
         extendsFrom(compileOnlyConfiguration, implementationConfiguration)
         isVisible = false
-        isCanBeResolved = true
-        isCanBeConsumed = false
+        markResolvable()
 
         /* Deferring attributes to wait for compilation.attributes to be configured  by user*/
-        whenEvaluated {
+        launchInStage(AfterFinaliseDsl) {
             usesPlatformOf(compilation.target)
             copyAttributes(compilation.attributes, attributes)
             attributes.attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, cinteropKlibLibraryElements())
@@ -74,13 +76,18 @@ internal fun Project.locateOrCreateCInteropApiElementsConfiguration(target: Kotl
         isCanBeConsumed = true
 
         /* Deferring attributes to wait for target.attributes to be configured by user */
-        whenEvaluated {
+        launchInStage(AfterFinaliseDsl) {
             usesPlatformOf(target)
             copyAttributes(target.attributes, attributes)
             attributes.attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, cinteropKlibLibraryElements())
             attributes.attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage::class.java, KotlinUsages.KOTLIN_CINTEROP))
             attributes.attribute(Category.CATEGORY_ATTRIBUTE, project.categoryByName(Category.LIBRARY))
             attributes.attribute(artifactTypeAttribute, NativeArtifactFormat.KLIB)
+
+            /* Expose api dependencies */
+            target.compilations.findByName(MAIN_COMPILATION_NAME)?.let { compilation ->
+                extendsFrom(compilation.internal.configurations.apiConfiguration)
+            }
         }
     }
 }
@@ -110,4 +117,3 @@ private class CInteropLibraryElementsCompatibilityRule : AttributeCompatibilityR
         }
     }
 }
-

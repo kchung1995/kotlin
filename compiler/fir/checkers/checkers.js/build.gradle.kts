@@ -7,7 +7,12 @@ plugins {
 
 dependencies {
     api(project(":core:compiler.common.js"))
+    api(project(":js:js.ast"))
     api(project(":compiler:fir:checkers"))
+
+    // FE checks for modules use ModuleKind
+    // This dependency can be removed when we stop supporting PLAIN and UMD module systems
+    implementation(project(":js:js.serializer"))
 
     /*
      * We can't remove this dependency until we use

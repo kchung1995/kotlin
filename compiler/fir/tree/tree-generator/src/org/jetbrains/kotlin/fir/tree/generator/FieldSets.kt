@@ -26,8 +26,8 @@ object FieldSets {
     val receivers by lazy {
         fieldSet(
             field("explicitReceiver", expression, nullable = true, withReplace = true).withTransform(),
-            field("dispatchReceiver", expression, withReplace = true),
-            field("extensionReceiver", expression, withReplace = true)
+            field("dispatchReceiver", expression, nullable = true, withReplace = true),
+            field("extensionReceiver", expression, nullable = true, withReplace = true)
         )
     }
 
@@ -60,8 +60,6 @@ object FieldSets {
 
     val typeRefField = field(typeRef, withReplace = true)
 
-    val valueParameters by lazy { fieldList(valueParameter) }
-
     val typeParameters by lazy { fieldList("typeParameters", typeParameter) }
 
     val typeParameterRefs by lazy { fieldList("typeParameters", typeParameterRef) }
@@ -82,7 +80,9 @@ object FieldSets {
 
     val effectiveVisibility by lazy { field("effectiveVisibility", effectiveVisibilityType) }
 
-    val modality by lazy { field(modalityType, nullable = true) }
+    fun modality(nullable: Boolean): Field {
+        return field(modalityType, nullable = nullable)
+    }
 
     val scopeProvider by lazy { field("scopeProvider", firScopeProviderType) }
 

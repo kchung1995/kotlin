@@ -17,14 +17,10 @@ import org.jetbrains.kotlin.konan.properties.propertyList
 import org.jetbrains.kotlin.library.KLIB_PROPERTY_DEPENDS
 import org.jetbrains.kotlin.library.KotlinLibrary
 import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.test.TargetBackend
 import org.jetbrains.kotlin.test.directives.JsEnvironmentConfigurationDirectives
 import org.jetbrains.kotlin.test.model.TestModule
-import org.jetbrains.kotlin.test.services.TestService
-import org.jetbrains.kotlin.test.services.TestServices
-import org.jetbrains.kotlin.test.services.compilerConfigurationProvider
+import org.jetbrains.kotlin.test.services.*
 import org.jetbrains.kotlin.test.services.configuration.JsEnvironmentConfigurator
-import org.jetbrains.kotlin.test.services.jsLibraryProvider
 import java.io.ByteArrayOutputStream
 import java.io.File
 
@@ -38,7 +34,7 @@ private class TestArtifactCache(val moduleName: String, val binaryAsts: MutableM
                     // TODO: It will be better to use saved fragments, but it doesn't work
                     //  Merger.merge() + JsNode.resolveTemporaryNames() modify fragments,
                     //  therefore the sequential calls produce different results
-                    fragment = deserializeJsIrProgramFragment(it.value)
+                    fragments = deserializeJsIrProgramFragment(it.value)
                 )
             }
         )
@@ -46,14 +42,14 @@ private class TestArtifactCache(val moduleName: String, val binaryAsts: MutableM
 }
 
 class JsIrIncrementalDataProvider(private val testServices: TestServices) : TestService {
-    private val fullRuntimeKlib: String = System.getProperty("kotlin.js.full.stdlib.path")
-    private val defaultRuntimeKlib = System.getProperty("kotlin.js.reduced.stdlib.path")
-    private val kotlinTestKLib = System.getProperty("kotlin.js.kotlin.test.path")
+    private val fullRuntimeKlib = testServices.standardLibrariesPathProvider.fullJsStdlib()
+    private val defaultRuntimeKlib = testServices.standardLibrariesPathProvider.defaultJsStdlib()
+    private val kotlinTestKLib = testServices.standardLibrariesPathProvider.kotlinTestJsKLib()
 
     private val predefinedKlibHasIcCache = mutableMapOf<String, TestArtifactCache?>(
-        File(fullRuntimeKlib).absolutePath to null,
-        File(kotlinTestKLib).absolutePath to null,
-        File(defaultRuntimeKlib).absolutePath to null
+        fullRuntimeKlib.absolutePath to null,
+        kotlinTestKLib.absolutePath to null,
+        defaultRuntimeKlib.absolutePath to null
     )
 
     private val icCache: MutableMap<String, TestArtifactCache> = mutableMapOf()
@@ -81,8 +77,8 @@ class JsIrIncrementalDataProvider(private val testServices: TestServices) : Test
     private fun recordIncrementalDataForRuntimeKlib(module: TestModule) {
         val runtimeKlibPath = JsEnvironmentConfigurator.getRuntimePathsForModule(module, testServices)
         val libs = runtimeKlibPath.map {
-            val descriptor = testServices.jsLibraryProvider.getDescriptorByPath(it)
-            testServices.jsLibraryProvider.getCompiledLibraryByDescriptor(descriptor)
+            val descriptor = testServices.libraryProvider.getDescriptorByPath(it)
+            testServices.libraryProvider.getCompiledLibraryByDescriptor(descriptor)
         }
         val configuration = testServices.compilerConfigurationProvider.getCompilerConfiguration(module)
 
@@ -90,7 +86,7 @@ class JsIrIncrementalDataProvider(private val testServices: TestServices) : Test
             .run { if (shouldBeGenerated()) arguments() else null }
 
         runtimeKlibPath.forEach {
-            recordIncrementalData(it, null, libs, configuration, mainArguments, module.targetBackend)
+            recordIncrementalData(it, null, libs, configuration, mainArguments)
         }
     }
 
@@ -112,7 +108,6 @@ class JsIrIncrementalDataProvider(private val testServices: TestServices) : Test
             allDependencies + library,
             configuration,
             mainArguments,
-            module.targetBackend
         )
     }
 
@@ -122,7 +117,6 @@ class JsIrIncrementalDataProvider(private val testServices: TestServices) : Test
         allDependencies: List<KotlinLibrary>,
         configuration: CompilerConfiguration,
         mainArguments: List<String>?,
-        targetBackend: TargetBackend?
     ) {
         val canonicalPath = File(path).canonicalPath
         val predefinedModuleCache = predefinedKlibHasIcCache[canonicalPath]
@@ -153,7 +147,6 @@ class JsIrIncrementalDataProvider(private val testServices: TestServices) : Test
             IrFactoryImplForJsIC(WholeWorldStageController()),
             setOf(FqName.fromSegments(listOfNotNull(testPackage, JsBoxRunner.TEST_FUNCTION))),
             mainArguments,
-            targetBackend == TargetBackend.JS_IR_ES6
         )
 
         val moduleCache = icCache[canonicalPath] ?: TestArtifactCache(mainModuleIr.name.asString())

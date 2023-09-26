@@ -52,6 +52,13 @@ abstract class AbstractKaptToolIntegrationTest {
                     "kapt" -> runKotlinDistBinary("kapt", section.args)
                     "javac" -> runJavac(section.args)
                     "java" -> runJava(section.args)
+                    "output" -> {
+                        val output = File(tmpdir, "processOutput.txt").readText()
+                        val expected = section.content.trim()
+                        JUnit5Assertions.assertTrue(output.contains(expected)) {
+                            "Output\"$output\" doesn't contain the expected string \"$expected\""
+                        }
+                    }
                     "after" -> {}
                     else -> error("Unknown section name ${section.name}")
                 }
@@ -80,7 +87,7 @@ abstract class AbstractKaptToolIntegrationTest {
 
     private fun runJavac(args: List<String>) {
         val executableName = if (SystemInfo.isWindows) "javac.exe" else "javac"
-        val executablePath = File(getJdk8Home(), "bin/" + executableName).absolutePath
+        val executablePath = File(KtTestUtil.getJdk8Home(), "bin/" + executableName).absolutePath
         runProcess(executablePath, args)
     }
 
@@ -88,7 +95,7 @@ abstract class AbstractKaptToolIntegrationTest {
         val outputFile = File(tmpdir, "javaOutput.txt")
 
         val executableName = if (SystemInfo.isWindows) "java.exe" else "java"
-        val executablePath = File(getJdk8Home(), "bin/" + executableName).absolutePath
+        val executablePath = File(KtTestUtil.getJdk8Home(), "bin/" + executableName).absolutePath
         runProcess(executablePath, args, outputFile)
 
         throw GotResult(outputFile.takeIf { it.isFile }?.readText() ?: "")
@@ -118,17 +125,12 @@ abstract class AbstractKaptToolIntegrationTest {
     private fun transformArguments(args: List<String>): List<String> {
         return args.map {
             val arg = it.replace("%KOTLIN_STDLIB%", File("dist/kotlinc/lib/kotlin-stdlib.jar").absolutePath)
-            if (SystemInfo.isWindows && (arg.contains("=") || arg.contains(":"))) {
+            if (SystemInfo.isWindows && (arg.contains("=") || arg.contains(":") || arg.contains(";"))) {
                 "\"" + arg + "\""
             } else {
                 arg
             }
         }
-    }
-
-    private fun getJdk8Home(): File {
-        val homePath = System.getenv()["JDK_1_8"] ?: System.getenv()["JDK_18"] ?: error("Can't find JDK 1.8 home, please define JDK_1_8 variable")
-        return File(homePath)
     }
 }
 

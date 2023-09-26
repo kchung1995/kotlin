@@ -18,8 +18,9 @@ import org.jetbrains.kotlin.fir.psi
 import org.jetbrains.kotlin.fir.resolve.providers.symbolProvider
 import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
 import org.jetbrains.kotlin.load.java.JvmAnnotationNames
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.analysis.utils.classIdIfNonLocal
+import org.jetbrains.kotlin.utils.exceptions.errorWithAttachment
+import org.jetbrains.kotlin.utils.exceptions.checkWithAttachment
 
 class LLFirFirClassByPsiClassProvider(private val session: LLFirSession) : FirSessionComponent {
     fun getFirClass(psiClass: PsiClass): FirRegularClassSymbol? {
@@ -31,13 +32,13 @@ class LLFirFirClassByPsiClassProvider(private val session: LLFirSession) : FirSe
             "${LLFirFirClassByPsiClassProvider::class.simpleName} can create only non-kotlin classes"
         }
 
-        checkWithAttachmentBuilder(
+        checkWithAttachment(
             psiClass !is ClsElementImpl || !psiClass.hasAnnotation(JvmAnnotationNames.METADATA_FQ_NAME.asString()), {
                 "${LLFirFirClassByPsiClassProvider::class.simpleName} can create only non-kotlin classes, but got ${psiClass::class} with ${JvmAnnotationNames.METADATA_FQ_NAME.asString()} annotation"
             }
         ) {
             withEntry("virtualFilePath", psiClass.containingFile.virtualFile?.path)
-            withPsiEntry("psiClass", psiClass)
+            withPsiEntry("psiClass", psiClass, session.ktModule)
         }
 
         if (psiClass.qualifiedName == null) {
@@ -46,7 +47,7 @@ class LLFirFirClassByPsiClassProvider(private val session: LLFirSession) : FirSe
 
         val firClassSymbol = createFirClassFromFirProvider(psiClass)
         val gotPsi = firClassSymbol.fir.psi
-        checkWithAttachmentBuilder(
+        checkWithAttachment(
             gotPsi == psiClass,
             { "resulted FirClass.psi != requested PsiClass" }
         ) {
@@ -70,8 +71,8 @@ class LLFirFirClassByPsiClassProvider(private val session: LLFirSession) : FirSe
             ?: error("No classId for non-local class")
         val provider = session.nullableJavaSymbolProvider ?: session.symbolProvider
         val symbol = provider.getClassLikeSymbolByClassId(classId)
-            ?: buildErrorWithAttachment("No classifier found") {
-                withPsiEntry("psiClass", psiClass)
+            ?: errorWithAttachment("No classifier found") {
+                withPsiEntry("psiClass", psiClass, session.ktModule)
                 withEntry("classId", classId) { it.asString() }
             }
         return symbol as FirRegularClassSymbol

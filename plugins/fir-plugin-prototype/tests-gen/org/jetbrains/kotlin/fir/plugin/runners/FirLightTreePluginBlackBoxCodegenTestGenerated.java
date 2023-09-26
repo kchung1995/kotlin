@@ -26,6 +26,12 @@ public class FirLightTreePluginBlackBoxCodegenTestGenerated extends AbstractFirL
     }
 
     @Test
+    @TestMetadata("builtins.kt")
+    public void testBuiltins() throws Exception {
+        runTest("plugins/fir-plugin-prototype/testData/box/builtins.kt");
+    }
+
+    @Test
     @TestMetadata("classWithAllPropertiesConstructor.kt")
     public void testClassWithAllPropertiesConstructor() throws Exception {
         runTest("plugins/fir-plugin-prototype/testData/box/classWithAllPropertiesConstructor.kt");
@@ -41,6 +47,24 @@ public class FirLightTreePluginBlackBoxCodegenTestGenerated extends AbstractFirL
     @TestMetadata("classWithGeneratedMembersAndNestedClass.kt")
     public void testClassWithGeneratedMembersAndNestedClass() throws Exception {
         runTest("plugins/fir-plugin-prototype/testData/box/classWithGeneratedMembersAndNestedClass.kt");
+    }
+
+    @Test
+    @TestMetadata("composableFunction.kt")
+    public void testComposableFunction() throws Exception {
+        runTest("plugins/fir-plugin-prototype/testData/box/composableFunction.kt");
+    }
+
+    @Test
+    @TestMetadata("expectComposableFunction.kt")
+    public void testExpectComposableFunction() throws Exception {
+        runTest("plugins/fir-plugin-prototype/testData/box/expectComposableFunction.kt");
+    }
+
+    @Test
+    @TestMetadata("extendsJava.kt")
+    public void testExtendsJava() throws Exception {
+        runTest("plugins/fir-plugin-prototype/testData/box/extendsJava.kt");
     }
 
     @Test
@@ -68,9 +92,27 @@ public class FirLightTreePluginBlackBoxCodegenTestGenerated extends AbstractFirL
     }
 
     @Test
+    @TestMetadata("replaceActualFunctionBodyWitExpectDefaultValue.kt")
+    public void testReplaceActualFunctionBodyWitExpectDefaultValue() throws Exception {
+        runTest("plugins/fir-plugin-prototype/testData/box/replaceActualFunctionBodyWitExpectDefaultValue.kt");
+    }
+
+    @Test
     @TestMetadata("serializer.kt")
     public void testSerializer() throws Exception {
         runTest("plugins/fir-plugin-prototype/testData/box/serializer.kt");
+    }
+
+    @Test
+    @TestMetadata("superCompiledClassAnnotation.kt")
+    public void testSuperCompiledClassAnnotation() throws Exception {
+        runTest("plugins/fir-plugin-prototype/testData/box/superCompiledClassAnnotation.kt");
+    }
+
+    @Test
+    @TestMetadata("superJavaClassAnnotation.kt")
+    public void testSuperJavaClassAnnotation() throws Exception {
+        runTest("plugins/fir-plugin-prototype/testData/box/superJavaClassAnnotation.kt");
     }
 
     @Test

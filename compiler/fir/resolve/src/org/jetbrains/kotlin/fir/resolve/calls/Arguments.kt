@@ -48,7 +48,6 @@ fun Candidate.resolveArgumentExpression(
     csBuilder: ConstraintSystemBuilder,
     argument: FirExpression,
     expectedType: ConeKotlinType?,
-    expectedTypeRef: FirTypeRef?,
     sink: CheckerSink,
     context: ResolutionContext,
     isReceiver: Boolean,
@@ -111,15 +110,11 @@ fun Candidate.resolveArgumentExpression(
                 )
             else
                 preprocessCallableReference(argument, expectedType, context)
-        // TODO:!
-        is FirAnonymousFunctionExpression -> preprocessLambdaArgument(csBuilder, argument, expectedType, expectedTypeRef, context, sink)
-        // TODO:!
-        //TODO: Collection literal
+        is FirAnonymousFunctionExpression -> preprocessLambdaArgument(csBuilder, argument, expectedType, context, sink)
         is FirWrappedArgumentExpression -> resolveArgumentExpression(
             csBuilder,
             argument.expression,
             expectedType,
-            expectedTypeRef,
             sink,
             context,
             isReceiver,
@@ -129,7 +124,6 @@ fun Candidate.resolveArgumentExpression(
             csBuilder,
             argument,
             expectedType,
-            expectedTypeRef,
             sink,
             context,
             isReceiver,
@@ -143,7 +137,6 @@ private fun Candidate.resolveBlockArgument(
     csBuilder: ConstraintSystemBuilder,
     block: FirBlock,
     expectedType: ConeKotlinType?,
-    expectedTypeRef: FirTypeRef?,
     sink: CheckerSink,
     context: ResolutionContext,
     isReceiver: Boolean,
@@ -154,7 +147,7 @@ private fun Candidate.resolveBlockArgument(
         checkApplicabilityForArgumentType(
             csBuilder,
             block,
-            block.typeRef.coneType,
+            block.resolvedType,
             expectedType?.type,
             SimpleConstraintSystemConstraintPosition,
             isReceiver = false,
@@ -169,7 +162,6 @@ private fun Candidate.resolveBlockArgument(
             csBuilder,
             argument,
             expectedType,
-            expectedTypeRef,
             sink,
             context,
             isReceiver,
@@ -230,7 +222,11 @@ fun Candidate.resolvePlainExpressionArgument(
 ) {
 
     if (expectedType == null) return
-    val argumentType = argument.typeRef.coneTypeSafe<ConeKotlinType>() ?: return
+
+    // TODO Remove when KT-61843 is fixed
+    if (argument is FirArrayLiteral && !argument.isResolved) return
+
+    val argumentType = argument.resolvedType
     resolvePlainArgumentType(
         csBuilder,
         argument,
@@ -349,12 +345,11 @@ private fun checkApplicabilityForArgumentType(
 ) {
     if (expectedType == null) return
 
-    // todo run this approximation only once for call
     val argumentType = captureFromTypeParameterUpperBoundIfNeeded(argumentTypeBeforeCapturing, expectedType, context.session)
 
     fun subtypeError(actualExpectedType: ConeKotlinType): ResolutionDiagnostic {
         if (argument.isNullLiteral && actualExpectedType.nullability == ConeNullability.NOT_NULL) {
-            return NullForNotNullType(argument)
+            return NullForNotNullType(argument, actualExpectedType)
         }
 
         fun tryGetConeTypeThatCompatibleWithKtType(type: ConeKotlinType): ConeKotlinType {
@@ -427,7 +422,7 @@ private fun checkApplicabilityForArgumentType(
         val nullableExpectedType = expectedType.withNullability(ConeNullability.NULLABLE, context.session.typeContext)
 
         if (csBuilder.addSubtypeConstraintIfCompatible(argumentType, nullableExpectedType, position)) {
-            sink.reportDiagnostic(UnsafeCall(argumentType)) // TODO
+            sink.reportDiagnostic(UnsafeCall(argumentType))
         } else {
             csBuilder.addSubtypeConstraint(argumentType, expectedType, position)
             sink.reportDiagnostic(InapplicableWrongReceiver(expectedType, argumentType))
@@ -443,14 +438,15 @@ internal fun Candidate.resolveArgument(
     sink: CheckerSink,
     context: ResolutionContext
 ) {
-    argument.resultType.ensureResolvedTypeDeclaration(context.session)
+    // Lambdas and callable references can be unresolved at this point
+    @OptIn(UnresolvedExpressionTypeAccess::class)
+    argument.coneTypeOrNull.ensureResolvedTypeDeclaration(context.session)
     val expectedType =
         prepareExpectedType(context.session, context.bodyResolveComponents.scopeSession, callInfo, argument, parameter, context)
     resolveArgumentExpression(
         this.system.getBuilder(),
         argument,
         expectedType,
-        parameter?.returnTypeRef,
         sink,
         context,
         isReceiver,
@@ -502,8 +498,6 @@ private fun Candidate.getExpectedTypeWithSAMConversion(
 ): ConeKotlinType? {
     if (candidateExpectedType.isSomeFunctionType(session)) return null
 
-    // TODO: resolvedCall.registerArgumentWithSamConversion(argument, SamConversionDescription(convertedTypeByOriginal, convertedTypeByCandidate!!))
-
     val expectedFunctionType = context.bodyResolveComponents.samResolver.getFunctionTypeForPossibleSamType(candidateExpectedType)
         ?: return null
     return runIf(argument.isFunctional(session, scopeSession, expectedFunctionType, context.returnTypeCalculator)) {
@@ -521,16 +515,16 @@ private fun getExpectedTypeWithImplicintIntegerCoercion(
     if (!session.languageVersionSettings.supportsFeature(LanguageFeature.ImplicitSignedToUnsignedIntegerConversion)) return null
 
     if (!parameter.isMarkedWithImplicitIntegerCoercion) return null
+    if (!candidateExpectedType.fullyExpandedType(session).isUnsignedTypeOrNullableUnsignedType) return null
 
     val argumentType =
-        if (argument.isIntegerLiteralOrOperatorCall()) argument.resultType.coneType
-        else {
+        if (argument.isIntegerLiteralOrOperatorCall()) {
+            argument.resolvedType
+        } else {
             argument.calleeReference?.toResolvedCallableSymbol()?.takeIf {
                 it.rawStatus.isConst && it.isMarkedWithImplicitIntegerCoercion
             }?.resolvedReturnType
         }
-
-    // TODO: consider adding a check that argument could be converted to the parameter type (maybe difficult for platform types)
 
     return argumentType?.withNullability(candidateExpectedType.nullability, session.typeContext)
 }
@@ -545,7 +539,7 @@ fun FirExpression.isFunctional(
         is FirAnonymousFunctionExpression, is FirCallableReferenceAccess -> return true
         else -> {
             // Either a functional type or a subtype of a class that has a contributed `invoke`.
-            val coneType = typeRef.coneTypeSafe<ConeKotlinType>() ?: return false
+            val coneType = resolvedType
             if (coneType.isSomeFunctionType(session)) {
                 return true
             }

@@ -38,6 +38,7 @@ import org.jetbrains.kotlin.resolve.jvm.jvmSignature.JvmClassSignature
 import org.jetbrains.kotlin.utils.addIfNotNull
 import org.jetbrains.org.objectweb.asm.Opcodes
 import org.jetbrains.org.objectweb.asm.Type
+import org.jetbrains.org.objectweb.asm.tree.FieldInsnNode
 import kotlin.collections.set
 
 class IrFrameMap : FrameMapBase<IrSymbol>() {
@@ -241,8 +242,8 @@ internal fun IrTypeMapper.mapClassSignature(irClass: IrClass, type: Type, genera
     if (generateBodies && irClass.superTypes.any { it.isSuspendFunction() || it.isKSuspendFunction() }) {
         // Do not generate this class in the kapt3 mode (generateBodies=false), because kapt3 transforms supertypes correctly in the
         // "correctErrorTypes" mode only when the number of supertypes between PSI and bytecode is equal. Otherwise it tries to "correct"
-        // the FunctionN type and fails, because that type doesn't need an import in the Kotlin source (kotlin.FunctionN), but needs one
-        // in the Java source (kotlin.jvm.functions.FunctionN), and kapt3 doesn't perform any Kotlin->Java name lookup.
+        // the Function{n} type and fails, because that type doesn't need an import in the Kotlin source (kotlin.Function{n}), but needs one
+        // in the Java source (kotlin.jvm.functions.Function{n}), and kapt3 doesn't perform any Kotlin->Java name lookup.
         kotlinMarkerInterfaces.add("kotlin/coroutines/jvm/internal/SuspendFunction")
     }
 
@@ -349,3 +350,15 @@ val IrClass.reifiedTypeParameters: ReifiedTypeParametersUsages
 
         return tempReifiedTypeParametersUsages
     }
+
+internal fun generateExternalEntriesForEnumTypeIfNeeded(type: IrType, containingCodegen: ClassCodegen): FieldInsnNode? {
+    val irClass = type.getClass()
+    if (irClass == null || !irClass.isEnumClassWhichRequiresExternalEntries()) return null
+
+    val mappingsCache = containingCodegen.context.enumEntriesIntrinsicMappingsCache
+    val field = mappingsCache.getEnumEntriesIntrinsicMappings(containingCodegen.irClass, irClass)
+    return FieldInsnNode(
+        Opcodes.GETSTATIC, containingCodegen.typeMapper.mapClass(field.parentAsClass).internalName,
+        field.name.asString(), AsmTypes.ENUM_ENTRIES.descriptor
+    )
+}

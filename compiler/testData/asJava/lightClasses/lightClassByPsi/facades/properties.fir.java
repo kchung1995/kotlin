@@ -6,7 +6,7 @@ public final class PropertiesKt /* PropertiesKt*/ {
   private static final error.NonExistentClass delegatedProp2$delegate;
 
   @org.jetbrains.annotations.NotNull()
-  private static final java.lang.Object arrayConst;
+  private static final java.lang.Object arrayConst = {1, 2} /* initializer type: null */;
 
   @org.jetbrains.annotations.NotNull()
   private static final java.lang.String x = "" /* initializer type: java.lang.String */;
@@ -63,7 +63,7 @@ public final class PropertiesKt /* PropertiesKt*/ {
 
   private static java.lang.String internalVarPrivateSet;
 
-  private static java.lang.String protectedLateinitVar;
+  protected static java.lang.String protectedLateinitVar;
 
   public static Unresolved subject;
 
@@ -151,7 +151,7 @@ public final class PropertiesKt /* PropertiesKt*/ {
 
   public static final int getPlainField();//  getPlainField()
 
-  public static final int getValue(T, @org.jetbrains.annotations.NotNull() kotlin.reflect.KProperty<?>);//  getValue(T, kotlin.reflect.KProperty<?>)
+  public static final int getValue(@org.jetbrains.annotations.NotNull() T, @org.jetbrains.annotations.NotNull() kotlin.reflect.KProperty<?>);//  getValue(T, kotlin.reflect.KProperty<?>)
 
   public static final void setCounter(int);//  setCounter(int)
 
@@ -181,5 +181,5 @@ public final class PropertiesKt /* PropertiesKt*/ {
 
   public static final void setSubject(@org.jetbrains.annotations.NotNull() Unresolved);//  setSubject(Unresolved)
 
-  public static final void setValue(T, @org.jetbrains.annotations.NotNull() kotlin.reflect.KProperty<?>, int);//  setValue(T, kotlin.reflect.KProperty<?>, int)
+  public static final void setValue(@org.jetbrains.annotations.NotNull() T, @org.jetbrains.annotations.NotNull() kotlin.reflect.KProperty<?>, int);//  setValue(T, kotlin.reflect.KProperty<?>, int)
 }

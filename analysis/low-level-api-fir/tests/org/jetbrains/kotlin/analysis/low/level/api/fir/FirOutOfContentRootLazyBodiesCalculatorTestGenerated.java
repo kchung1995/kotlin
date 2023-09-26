@@ -40,6 +40,18 @@ public class FirOutOfContentRootLazyBodiesCalculatorTestGenerated extends Abstra
         }
 
         @Test
+        @TestMetadata("annotationOnField.kt")
+        public void testAnnotationOnField() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/annotationOnField.kt");
+        }
+
+        @Test
+        @TestMetadata("annotationOnProperty.kt")
+        public void testAnnotationOnProperty() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/annotationOnProperty.kt");
+        }
+
+        @Test
         @TestMetadata("annotationsOnNullableParenthesizedTypes.kt")
         public void testAnnotationsOnNullableParenthesizedTypes() throws Exception {
             runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/annotationsOnNullableParenthesizedTypes.kt");
@@ -49,6 +61,12 @@ public class FirOutOfContentRootLazyBodiesCalculatorTestGenerated extends Abstra
         @TestMetadata("annotationsOnParenthesizedTypes.kt")
         public void testAnnotationsOnParenthesizedTypes() throws Exception {
             runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/annotationsOnParenthesizedTypes.kt");
+        }
+
+        @Test
+        @TestMetadata("classWithWrongSuperCall.kt")
+        public void testClassWithWrongSuperCall() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/classWithWrongSuperCall.kt");
         }
 
         @Test
@@ -130,6 +148,30 @@ public class FirOutOfContentRootLazyBodiesCalculatorTestGenerated extends Abstra
         }
 
         @Test
+        @TestMetadata("expectClassesAndFunctions.kt")
+        public void testExpectClassesAndFunctions() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/expectClassesAndFunctions.kt");
+        }
+
+        @Test
+        @TestMetadata("expectNestedAnnotationClassWithConstructorParameter.kt")
+        public void testExpectNestedAnnotationClassWithConstructorParameter() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/expectNestedAnnotationClassWithConstructorParameter.kt");
+        }
+
+        @Test
+        @TestMetadata("expectNestedClassMembers.kt")
+        public void testExpectNestedClassMembers() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/expectNestedClassMembers.kt");
+        }
+
+        @Test
+        @TestMetadata("expectNestedEnumClassGeneratedMembers.kt")
+        public void testExpectNestedEnumClassGeneratedMembers() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/expectNestedEnumClassGeneratedMembers.kt");
+        }
+
+        @Test
         @TestMetadata("external.kt")
         public void testExternal() throws Exception {
             runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/external.kt");
@@ -163,6 +205,12 @@ public class FirOutOfContentRootLazyBodiesCalculatorTestGenerated extends Abstra
         @TestMetadata("initBlockWithDeclarations.kt")
         public void testInitBlockWithDeclarations() throws Exception {
             runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/initBlockWithDeclarations.kt");
+        }
+
+        @Test
+        @TestMetadata("invalidDestructing.kt")
+        public void testInvalidDestructing() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/invalidDestructing.kt");
         }
 
         @Test
@@ -349,9 +397,21 @@ public class FirOutOfContentRootLazyBodiesCalculatorTestGenerated extends Abstra
             }
 
             @Test
+            @TestMetadata("noParameterTypRefInPrimaryConstructorWithVararg.kt")
+            public void testNoParameterTypRefInPrimaryConstructorWithVararg() throws Exception {
+                runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType/noParameterTypRefInPrimaryConstructorWithVararg.kt");
+            }
+
+            @Test
             @TestMetadata("noParameterTypRefInPrimaryConsturctorVal.kt")
             public void testNoParameterTypRefInPrimaryConsturctorVal() throws Exception {
                 runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType/noParameterTypRefInPrimaryConsturctorVal.kt");
+            }
+
+            @Test
+            @TestMetadata("noParameterTypRefInPrimaryConsturctorValWithVararg.kt")
+            public void testNoParameterTypRefInPrimaryConsturctorValWithVararg() throws Exception {
+                runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType/noParameterTypRefInPrimaryConsturctorValWithVararg.kt");
             }
 
             @Test
@@ -364,6 +424,18 @@ public class FirOutOfContentRootLazyBodiesCalculatorTestGenerated extends Abstra
             @TestMetadata("noParameterTypRefInSetter.kt")
             public void testNoParameterTypRefInSetter() throws Exception {
                 runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType/noParameterTypRefInSetter.kt");
+            }
+
+            @Test
+            @TestMetadata("uncompletedTypRefInPrimaryConstructorWithVararg.kt")
+            public void testUncompletedTypRefInPrimaryConstructorWithVararg() throws Exception {
+                runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType/uncompletedTypRefInPrimaryConstructorWithVararg.kt");
+            }
+
+            @Test
+            @TestMetadata("uncompletedTypRefInPrimaryConsturctorValWithVararg.kt")
+            public void testUncompletedTypRefInPrimaryConsturctorValWithVararg() throws Exception {
+                runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType/uncompletedTypRefInPrimaryConsturctorValWithVararg.kt");
             }
         }
     }
@@ -465,6 +537,12 @@ public class FirOutOfContentRootLazyBodiesCalculatorTestGenerated extends Abstra
         @TestMetadata("init.kt")
         public void testInit() throws Exception {
             runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/expressions/init.kt");
+        }
+
+        @Test
+        @TestMetadata("invalidWhen.kt")
+        public void testInvalidWhen() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/expressions/invalidWhen.kt");
         }
 
         @Test

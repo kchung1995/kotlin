@@ -7,7 +7,7 @@ package org.jetbrains.kotlin.backend.jvm.lower
 
 import org.jetbrains.kotlin.backend.common.FileLoweringPass
 import org.jetbrains.kotlin.backend.common.IrElementTransformerVoidWithContext
-import org.jetbrains.kotlin.backend.common.phaser.makeIrModulePhase
+import org.jetbrains.kotlin.backend.common.phaser.makeIrFilePhase
 import org.jetbrains.kotlin.backend.jvm.JvmBackendContext
 import org.jetbrains.kotlin.backend.jvm.ir.IrArrayBuilder
 import org.jetbrains.kotlin.backend.jvm.ir.createJvmIrBuilder
@@ -26,7 +26,7 @@ import org.jetbrains.kotlin.ir.types.makeNotNull
 import org.jetbrains.kotlin.ir.util.*
 import org.jetbrains.kotlin.util.capitalizeDecapitalize.toLowerCaseAsciiOnly
 
-val varargPhase = makeIrModulePhase(
+val varargPhase = makeIrFilePhase(
     ::VarargLowering,
     name = "VarargLowering",
     description = "Replace varargs with array arguments and lower arrayOf and emptyArray calls",
@@ -105,7 +105,7 @@ internal fun IrFunction.isArrayOf(): Boolean {
         is IrPackageFragment -> directParent
         else -> return false
     }
-    return parent.fqName == StandardNames.BUILT_INS_PACKAGE_FQ_NAME &&
+    return parent.packageFqName == StandardNames.BUILT_INS_PACKAGE_FQ_NAME &&
             name.asString().let { it in PRIMITIVE_ARRAY_OF_NAMES || it == ARRAY_OF_NAME } &&
             extensionReceiverParameter == null &&
             dispatchReceiverParameter == null &&
@@ -115,4 +115,4 @@ internal fun IrFunction.isArrayOf(): Boolean {
 
 internal fun IrFunction.isEmptyArray(): Boolean =
     name.asString() == "emptyArray" &&
-            (parent as? IrPackageFragment)?.fqName == StandardNames.BUILT_INS_PACKAGE_FQ_NAME
+            (parent as? IrPackageFragment)?.packageFqName == StandardNames.BUILT_INS_PACKAGE_FQ_NAME

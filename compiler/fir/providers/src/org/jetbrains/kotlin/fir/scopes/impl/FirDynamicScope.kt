@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2022 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -26,7 +26,7 @@ import org.jetbrains.kotlin.fir.expressions.FirOperationNameConventions
 import org.jetbrains.kotlin.fir.moduleData
 import org.jetbrains.kotlin.fir.resolve.ScopeSession
 import org.jetbrains.kotlin.fir.resolve.scope
-import org.jetbrains.kotlin.fir.scopes.FakeOverrideTypeCalculator
+import org.jetbrains.kotlin.fir.scopes.CallableCopyTypeCalculator
 import org.jetbrains.kotlin.fir.scopes.FirTypeScope
 import org.jetbrains.kotlin.fir.scopes.ProcessorAction
 import org.jetbrains.kotlin.fir.symbols.impl.*
@@ -62,7 +62,12 @@ class FirDynamicScope @FirDynamicScopeConstructor constructor(
     override fun getClassifierNames(): Set<Name> = emptySet()
 
     private val anyTypeScope by lazy {
-        session.builtinTypes.anyType.type.scope(session, scopeSession, FakeOverrideTypeCalculator.DoNothing, requiredPhase = null)
+        session.builtinTypes.anyType.type.scope(
+            session,
+            scopeSession,
+            CallableCopyTypeCalculator.DoNothing,
+            requiredMembersPhase = null,
+        )
     }
 
     override fun processFunctionsByName(
@@ -128,7 +133,7 @@ class FirDynamicMembersStorage(val session: FirSession) : FirSessionComponent {
     private val anyArrayTypeRef = buildResolvedTypeRef {
         type = ConeClassLikeTypeImpl(
             StandardClassIds.Array.toLookupTag(),
-            arrayOf(session.builtinTypes.nullableAnyType.coneType),
+            arrayOf(dynamicTypeRef.coneType),
             isNullable = false
         )
     }

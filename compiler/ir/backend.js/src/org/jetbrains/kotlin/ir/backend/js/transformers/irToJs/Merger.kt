@@ -22,6 +22,7 @@ class Merger(
 
     private val isEsModules = moduleKind == ModuleKind.ES
     private val importStatements = mutableMapOf<String, JsStatement>()
+    private val importStatementsWithEffect = mutableListOf<JsStatement>()
     private val importedModulesMap = mutableMapOf<JsImportedModuleKey, JsImportedModule>()
 
     private val additionalExports = mutableListOf<JsStatement>()
@@ -34,9 +35,14 @@ class Merger(
                 rename(f.declarations)
                 rename(f.exports)
 
-                f.imports.entries.forEach { (declaration, importExpression) ->
-                    val importName = nameMap[declaration] ?: error("Missing name for declaration '${declaration}'")
-                    importStatements.putIfAbsent(declaration, JsVars(JsVars.JsVar(importName, rename(importExpression))))
+                f.imports.entries.forEach { (declaration, importStatement) ->
+                    val importName = nameMap[declaration]
+
+                    if (importName == null && !isEsModules) {
+                        error("Missing name for declaration '${declaration}'")
+                    }
+
+                    importStatements.putIfAbsent(declaration, rename(importStatement.importStatementWithName(importName)))
                 }
 
                 val classModels = (mutableMapOf<JsName, JsIrIcClassModel>() + f.classes)
@@ -52,6 +58,7 @@ class Merger(
                 }
 
                 rename(f.initializers)
+                rename(f.eagerInitializers)
                 f.mainFunction?.let { rename(it) }
                 f.testFunInvocation?.let { rename(it) }
                 f.suiteFn?.let { f.suiteFn = rename(it) }
@@ -60,9 +67,10 @@ class Merger(
 
         for ((tag, crossModuleJsImport) in crossModuleReferences.jsImports) {
             val importName = nameMap[tag] ?: error("Missing name for declaration '$tag'")
-
             importStatements.putIfAbsent(tag, crossModuleJsImport.renameImportedSymbolInternalName(importName))
         }
+
+        importStatementsWithEffect.addAll(crossModuleReferences.jsImportsWithEffect)
 
         if (crossModuleReferences.exports.isNotEmpty()) {
             val internalModuleName = ReservedJsNames.makeInternalModuleName()
@@ -144,7 +152,6 @@ class Merger(
                 ?.asSequence()
                 ?.flatMap { (it.subject as JsExport.Subject.Elements).elements }
                 ?.distinctBy { it.alias?.ident ?: it.name.ident }
-                ?.map { if (it.name.ident == it.alias?.ident) JsExport.Element(it.name, null) else it }
                 ?.toList()
 
             val oneLargeExportStatement = exportedElements?.let { JsExport(JsExport.Subject.Elements(it)) }
@@ -175,14 +182,14 @@ class Merger(
 
     private fun transitiveJsExport(): List<JsStatement> {
         return if (isEsModules) {
-            crossModuleReferences.transitiveJsExportFrom.map {
+            crossModuleReferences.transitiveExportFrom.map {
                 JsExport(JsExport.Subject.All, it.getRequireEsmName())
             }
         } else {
             val internalModuleName = ReservedJsNames.makeInternalModuleName()
             val exporterName = ReservedJsNames.makeJsExporterName()
 
-            crossModuleReferences.transitiveJsExportFrom.map {
+            crossModuleReferences.transitiveExportFrom.map {
                 JsInvocation(
                     JsNameRef(exporterName, it.internalName.makeRef()),
                     internalModuleName.makeRef()
@@ -210,7 +217,7 @@ class Merger(
         fragments.forEach {
             moduleBody += it.declarations.statements
             classModels += it.classes
-            initializerBlock.statements += it.initializers.statements
+            initializerBlock.statements += it.initializers.statements + it.eagerInitializers.statements
             polyfillDeclarationBlock.statements += it.polyfills.statements
         }
 
@@ -245,7 +252,7 @@ class Merger(
         val exportStatements = declareAndCallJsExporter() + additionalExports + transitiveJsExport()
 
         val importedJsModules = this.importedModulesMap.values.toList() + this.crossModuleReferences.importedModules
-        val importStatements = this.importStatements.values.toList()
+        val importStatements = this.importStatements.values.toList() + this.importStatementsWithEffect.toList()
 
         val program = JsProgram()
 
@@ -329,5 +336,85 @@ class Merger(
         startRegion(regionDescription)
         this += statements
         endRegion()
+    }
+
+    private fun JsStatement.importStatementWithName(name: JsName?): JsStatement {
+        if (name == null) return this
+
+        return when (this) {
+            is JsVars -> JsVars(JsVars.JsVar(name, vars.single().initExpression))
+            is JsImport -> JsImport(
+                module,
+                when (target) {
+                    is JsImport.Target.Effect -> JsImport.Target.Effect
+                    is JsImport.Target.All -> JsImport.Target.All(alias = name.makeRef())
+                    is JsImport.Target.Default -> JsImport.Target.Default(name = name.makeRef())
+                    is JsImport.Target.Elements -> JsImport.Target.Elements(
+                        mutableListOf(
+                            JsImport.Element(
+                                elements.single().name,
+                                name.makeRef()
+                            )
+                        )
+                    )
+                }
+            )
+            is JsCompositeBlock -> JsCompositeBlock(statements.dropLast(1) + statements.last().importStatementWithName(name))
+            else -> error("Unexpected import statement ${this::class.qualifiedName}")
+        }
+    }
+}
+
+fun List<JsIrModule>.merge(): JsIrModule {
+    assert(isNotEmpty()) { "Can't merge empty list of modules" }
+    val firstModule = first()
+
+    return if (size == 1) {
+        firstModule
+    } else {
+        val fragments = mutableListOf<JsIrProgramFragment>()
+        var reexportedInModuleWithName: String? = null
+
+        for (module in this) {
+            fragments.addAll(module.fragments)
+            module.reexportedInModuleWithName?.let { reexportedInModuleWithName = it }
+        }
+
+        JsIrModule(firstModule.moduleName, firstModule.externalModuleName, fragments, reexportedInModuleWithName)
+    }
+}
+
+fun List<JsIrModuleHeader>.merge(): JsIrModuleHeader {
+    assert(isNotEmpty()) { "Can't merge empty list of module headers" }
+    val firstModule = first()
+
+    return if (size == 1) {
+        firstModule
+    } else {
+        val definitions = mutableSetOf<String>()
+        val nameBindings = mutableMapOf<String, String>()
+        val optionalCrossModuleImports = mutableSetOf<String>()
+        var reexportedInModuleWithName: String? = null
+        var importedWithEffectInModuleWithName: String? = null
+
+        for (header in this) {
+            definitions.addAll(header.definitions)
+            nameBindings.putAll(header.nameBindings)
+            optionalCrossModuleImports.addAll(header.optionalCrossModuleImports)
+
+            header.reexportedInModuleWithName?.let { reexportedInModuleWithName = it }
+            header.importedWithEffectInModuleWithName?.let { importedWithEffectInModuleWithName = it }
+        }
+
+        JsIrModuleHeader(
+            firstModule.moduleName,
+            firstModule.externalModuleName,
+            definitions,
+            nameBindings,
+            optionalCrossModuleImports,
+            reexportedInModuleWithName,
+            importedWithEffectInModuleWithName,
+            null
+        )
     }
 }

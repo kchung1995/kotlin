@@ -15,10 +15,15 @@ public interface KtBackingFieldSymbolRenderer {
     context(KtAnalysisSession, KtDeclarationRenderer)
     public fun renderSymbol(symbol: KtBackingFieldSymbol, printer: PrettyPrinter)
 
-    public object AS_FIELD_KEYWROD : KtBackingFieldSymbolRenderer {
+    public object AS_FIELD_KEYWORD : KtBackingFieldSymbolRenderer {
         context(KtAnalysisSession, KtDeclarationRenderer)
         override fun renderSymbol(symbol: KtBackingFieldSymbol, printer: PrettyPrinter): Unit = printer {
-            keywordRenderer.renderKeyword(KtTokens.FIELD_KEYWORD, symbol, printer)
+            codeStyle.getSeparatorBetweenAnnotationAndOwner(symbol).separated(
+                { annotationRenderer.renderAnnotations(symbol, printer) },
+                {
+                    keywordsRenderer.renderKeyword(KtTokens.FIELD_KEYWORD, symbol, printer)
+                },
+            )
         }
     }
 }

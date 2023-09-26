@@ -10,6 +10,7 @@ import org.gradle.api.tasks.TaskProvider
 import org.jetbrains.kotlin.gradle.plugin.KotlinCompilation
 import org.jetbrains.kotlin.gradle.plugin.KotlinTarget
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinJsCompilation
+import org.jetbrains.kotlin.gradle.targets.js.binaryen.BinaryenExec
 import org.jetbrains.kotlin.gradle.targets.js.dsl.Distribution
 import org.jetbrains.kotlin.gradle.targets.js.dsl.KotlinJsBinaryMode
 import org.jetbrains.kotlin.gradle.targets.js.ir.KotlinJsBinaryContainer.Companion.generateBinaryName
@@ -32,7 +33,7 @@ sealed class JsIrBinary(
     override val mode: KotlinJsBinaryMode
 ) : JsBinary {
     override val distribution: Distribution =
-        createDefaultDistribution(compilation.target.project, name)
+        createDefaultDistribution(compilation.target.project, compilation.target.targetName, name)
 
     val linkTaskName: String = linkTaskName()
 
@@ -83,7 +84,7 @@ sealed class JsIrBinary(
         get() = target.project
 }
 
-class Executable(
+open class Executable(
     compilation: KotlinJsCompilation,
     name: String,
     mode: KotlinJsBinaryMode
@@ -95,7 +96,8 @@ class Executable(
     override val distribution: Distribution =
         createDefaultDistribution(
             compilation.target.project,
-            if (mode == KotlinJsBinaryMode.PRODUCTION) null else super.distribution.distributionName
+            compilation.target.targetName,
+            super.distribution.distributionName
         )
 
     val executeTaskBaseName: String =
@@ -104,6 +106,26 @@ class Executable(
             mode,
             null
         )
+}
+
+open class ExecutableWasm(
+    compilation: KotlinJsCompilation,
+    name: String,
+    mode: KotlinJsBinaryMode
+) : Executable(
+    compilation,
+    name,
+    mode
+) {
+    val optimizeTaskName: String = optimizeTaskName()
+
+    val optimizeTask: TaskProvider<BinaryenExec>
+        get() = target.project.tasks
+            .withType<BinaryenExec>()
+            .named(optimizeTaskName)
+
+    private fun optimizeTaskName(): String =
+        "${linkTaskName}Optimize"
 }
 
 class Library(
@@ -131,4 +153,4 @@ internal val JsBinary.executeTaskBaseName: String
         null
     )
 
-internal val COMPILE_SYNC = "compileSync"
+internal const val COMPILE_SYNC = "compileSync"

@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2022 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -15,6 +15,7 @@ import org.jetbrains.kotlin.fir.declarations.builder.buildReceiverParameter
 import org.jetbrains.kotlin.fir.declarations.impl.FirDefaultPropertyBackingField
 import org.jetbrains.kotlin.fir.declarations.impl.FirDefaultPropertyGetter
 import org.jetbrains.kotlin.fir.declarations.impl.FirDefaultPropertySetter
+import org.jetbrains.kotlin.fir.declarations.utils.isExpect
 import org.jetbrains.kotlin.fir.extensions.FirExtension
 import org.jetbrains.kotlin.fir.moduleData
 import org.jetbrains.kotlin.fir.resolve.defaultType
@@ -93,18 +94,31 @@ public class PropertyBuildingContext(
             isVar = !isVal
             getter = FirDefaultPropertyGetter(
                 source = null, session.moduleData, key.origin, returnTypeRef, status.visibility, symbol,
-                Modality.FINAL, resolvedStatus.effectiveVisibility
+                Modality.FINAL, resolvedStatus.effectiveVisibility,
+                resolvePhase = FirResolvePhase.BODY_RESOLVE,
             )
             if (isVar) {
                 setter = FirDefaultPropertySetter(
                     source = null, session.moduleData, key.origin, returnTypeRef, setterVisibility ?: status.visibility,
-                    symbol, Modality.FINAL, resolvedStatus.effectiveVisibility
+                    symbol, Modality.FINAL, resolvedStatus.effectiveVisibility,
+                    resolvePhase = FirResolvePhase.BODY_RESOLVE,
                 )
             } else {
                 require(setterVisibility == null) { "isVar = false but setterVisibility is specified. Did you forget to set isVar = true?" }
             }
+
             if (hasBackingField) {
-                backingField = FirDefaultPropertyBackingField(session.moduleData, mutableListOf(), returnTypeRef, isVar, symbol, status)
+                backingField = FirDefaultPropertyBackingField(
+                    session.moduleData,
+                    key.origin,
+                    source = null,
+                    mutableListOf(),
+                    returnTypeRef,
+                    isVar,
+                    symbol,
+                    status,
+                    resolvePhase = FirResolvePhase.BODY_RESOLVE,
+                )
             }
             isLocal = false
             bodyResolveState = FirPropertyBodyResolveState.EVERYTHING_RESOLVED
@@ -143,7 +157,11 @@ public fun FirExtension.createMemberProperty(
     config: PropertyBuildingContext.() -> Unit = {}
 ): FirProperty {
     val callableId = CallableId(owner.classId, name)
-    return PropertyBuildingContext(session, key, owner, callableId, returnTypeProvider, isVal, hasBackingField).apply(config).build()
+    return PropertyBuildingContext(session, key, owner, callableId, returnTypeProvider, isVal, hasBackingField).apply(config).apply {
+        status {
+            isExpect = owner.isExpect
+        }
+    }.build()
 }
 
 /**

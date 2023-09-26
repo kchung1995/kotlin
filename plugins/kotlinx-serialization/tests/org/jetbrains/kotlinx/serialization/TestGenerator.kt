@@ -48,6 +48,10 @@ fun main(args: Array<String>) {
                 model("boxIr")
             }
 
+            testClass<AbstractSerializationJdk11IrBoxTest> {
+                model("jdk11BoxIr")
+            }
+
             testClass<AbstractSerializationFirLightTreeBlackBoxTest> {
                 model("boxIr")
                 model("firMembers")
@@ -58,6 +62,10 @@ fun main(args: Array<String>) {
             }
 
             testClass<AbstractSerializationIrJsBoxTest> {
+                model("boxIr")
+            }
+
+            testClass<AbstractSerializationFirJsBoxTest> {
                 model("boxIr")
             }
         }

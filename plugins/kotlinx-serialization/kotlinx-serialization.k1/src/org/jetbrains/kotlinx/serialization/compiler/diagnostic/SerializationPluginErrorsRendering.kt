@@ -108,6 +108,12 @@ object SerializationPluginErrorsRendering : DefaultErrorMessages.Extension {
             Renderers.RENDER_TYPE
         )
         MAP.put(
+            SerializationErrors.ABSTRACT_SERIALIZER_TYPE,
+            "Custom serializer ''{1}'' on serializable type ''{0}'' can not be instantiated. It is not allowed to specify the interface, abstract or sealed class as a custom serializer.",
+            Renderers.RENDER_TYPE,
+            Renderers.RENDER_TYPE
+        )
+        MAP.put(
             SerializationErrors.LOCAL_SERIALIZER_USAGE,
             "Class ''{0}'' can't be used as a serializer since it is local",
             Renderers.RENDER_TYPE
@@ -163,6 +169,10 @@ object SerializationPluginErrorsRendering : DefaultErrorMessages.Extension {
         MAP.put(
             SerializationErrors.META_SERIALIZABLE_NOT_APPLICABLE,
             "@MetaSerializable annotation should be used only on top-level annotation classes. Usage on nested annotation classes is deprecated and will yield errors in the future."
+        )
+        MAP.put(
+           SerializationErrors.INHERITABLE_SERIALINFO_CANT_BE_REPEATABLE,
+           "Repeatable serial info annotations can not be inheritable. Either remove @Repeatable or use a regular @SerialInfo annotation."
         )
 
         MAP.put(

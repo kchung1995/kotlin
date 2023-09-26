@@ -46,6 +46,16 @@ public class LightTree2FirConverterTestCaseGenerated extends AbstractLightTree2F
             runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/annotation.kt");
         }
 
+        @TestMetadata("annotationOnField.kt")
+        public void testAnnotationOnField() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/annotationOnField.kt");
+        }
+
+        @TestMetadata("annotationOnProperty.kt")
+        public void testAnnotationOnProperty() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/annotationOnProperty.kt");
+        }
+
         @TestMetadata("annotationsOnNullableParenthesizedTypes.kt")
         public void testAnnotationsOnNullableParenthesizedTypes() throws Exception {
             runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/annotationsOnNullableParenthesizedTypes.kt");
@@ -54,6 +64,11 @@ public class LightTree2FirConverterTestCaseGenerated extends AbstractLightTree2F
         @TestMetadata("annotationsOnParenthesizedTypes.kt")
         public void testAnnotationsOnParenthesizedTypes() throws Exception {
             runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/annotationsOnParenthesizedTypes.kt");
+        }
+
+        @TestMetadata("classWithWrongSuperCall.kt")
+        public void testClassWithWrongSuperCall() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/classWithWrongSuperCall.kt");
         }
 
         @TestMetadata("complexTypes.kt")
@@ -121,6 +136,26 @@ public class LightTree2FirConverterTestCaseGenerated extends AbstractLightTree2F
             runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/expectActual.kt");
         }
 
+        @TestMetadata("expectClassesAndFunctions.kt")
+        public void testExpectClassesAndFunctions() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/expectClassesAndFunctions.kt");
+        }
+
+        @TestMetadata("expectNestedAnnotationClassWithConstructorParameter.kt")
+        public void testExpectNestedAnnotationClassWithConstructorParameter() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/expectNestedAnnotationClassWithConstructorParameter.kt");
+        }
+
+        @TestMetadata("expectNestedClassMembers.kt")
+        public void testExpectNestedClassMembers() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/expectNestedClassMembers.kt");
+        }
+
+        @TestMetadata("expectNestedEnumClassGeneratedMembers.kt")
+        public void testExpectNestedEnumClassGeneratedMembers() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/expectNestedEnumClassGeneratedMembers.kt");
+        }
+
         @TestMetadata("external.kt")
         public void testExternal() throws Exception {
             runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/external.kt");
@@ -149,6 +184,11 @@ public class LightTree2FirConverterTestCaseGenerated extends AbstractLightTree2F
         @TestMetadata("initBlockWithDeclarations.kt")
         public void testInitBlockWithDeclarations() throws Exception {
             runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/initBlockWithDeclarations.kt");
+        }
+
+        @TestMetadata("invalidDestructing.kt")
+        public void testInvalidDestructing() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/invalidDestructing.kt");
         }
 
         @TestMetadata("nestedClass.kt")
@@ -322,9 +362,19 @@ public class LightTree2FirConverterTestCaseGenerated extends AbstractLightTree2F
                 runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType/noParameterTypRefInPrimaryConstructor.kt");
             }
 
+            @TestMetadata("noParameterTypRefInPrimaryConstructorWithVararg.kt")
+            public void testNoParameterTypRefInPrimaryConstructorWithVararg() throws Exception {
+                runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType/noParameterTypRefInPrimaryConstructorWithVararg.kt");
+            }
+
             @TestMetadata("noParameterTypRefInPrimaryConsturctorVal.kt")
             public void testNoParameterTypRefInPrimaryConsturctorVal() throws Exception {
                 runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType/noParameterTypRefInPrimaryConsturctorVal.kt");
+            }
+
+            @TestMetadata("noParameterTypRefInPrimaryConsturctorValWithVararg.kt")
+            public void testNoParameterTypRefInPrimaryConsturctorValWithVararg() throws Exception {
+                runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType/noParameterTypRefInPrimaryConsturctorValWithVararg.kt");
             }
 
             @TestMetadata("noParameterTypRefInSecondaryConstructor.kt")
@@ -335,6 +385,16 @@ public class LightTree2FirConverterTestCaseGenerated extends AbstractLightTree2F
             @TestMetadata("noParameterTypRefInSetter.kt")
             public void testNoParameterTypRefInSetter() throws Exception {
                 runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType/noParameterTypRefInSetter.kt");
+            }
+
+            @TestMetadata("uncompletedTypRefInPrimaryConstructorWithVararg.kt")
+            public void testUncompletedTypRefInPrimaryConstructorWithVararg() throws Exception {
+                runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType/uncompletedTypRefInPrimaryConstructorWithVararg.kt");
+            }
+
+            @TestMetadata("uncompletedTypRefInPrimaryConsturctorValWithVararg.kt")
+            public void testUncompletedTypRefInPrimaryConsturctorValWithVararg() throws Exception {
+                runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/declarations/noParameterType/uncompletedTypRefInPrimaryConsturctorValWithVararg.kt");
             }
         }
     }
@@ -424,6 +484,11 @@ public class LightTree2FirConverterTestCaseGenerated extends AbstractLightTree2F
         @TestMetadata("init.kt")
         public void testInit() throws Exception {
             runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/expressions/init.kt");
+        }
+
+        @TestMetadata("invalidWhen.kt")
+        public void testInvalidWhen() throws Exception {
+            runTest("compiler/fir/raw-fir/psi2fir/testData/rawBuilder/expressions/invalidWhen.kt");
         }
 
         @TestMetadata("labelForInfix.kt")

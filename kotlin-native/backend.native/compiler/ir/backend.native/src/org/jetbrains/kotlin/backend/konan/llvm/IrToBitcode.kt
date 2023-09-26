@@ -7,7 +7,8 @@ package org.jetbrains.kotlin.backend.konan.llvm
 
 import kotlinx.cinterop.*
 import llvm.*
-import org.jetbrains.kotlin.backend.common.ir.inlineFunction
+import org.jetbrains.kotlin.ir.util.inlineFunction
+import org.jetbrains.kotlin.backend.common.ir.isUnconditional
 import org.jetbrains.kotlin.backend.common.lower.coroutines.getOrCreateFunctionWithContinuationStub
 import org.jetbrains.kotlin.backend.common.lower.inline.InlinerExpressionLocationHint
 import org.jetbrains.kotlin.backend.konan.*
@@ -20,7 +21,6 @@ import org.jetbrains.kotlin.backend.konan.llvm.coverage.LLVMCoverageInstrumentat
 import org.jetbrains.kotlin.backend.konan.lower.*
 import org.jetbrains.kotlin.builtins.UnsignedType
 import org.jetbrains.kotlin.descriptors.Modality
-import org.jetbrains.kotlin.descriptors.PackageFragmentDescriptor
 import org.jetbrains.kotlin.ir.IrBuiltIns
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.IrStatement
@@ -30,6 +30,7 @@ import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.symbols.IrFunctionSymbol
 import org.jetbrains.kotlin.ir.types.*
 import org.jetbrains.kotlin.ir.util.*
+import org.jetbrains.kotlin.ir.objcinterop.*
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
 import org.jetbrains.kotlin.ir.visitors.acceptChildrenVoid
 import org.jetbrains.kotlin.ir.visitors.acceptVoid
@@ -39,7 +40,6 @@ import org.jetbrains.kotlin.konan.target.Family
 import org.jetbrains.kotlin.library.KotlinLibrary
 import org.jetbrains.kotlin.library.uniqueName
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.resolve.descriptorUtil.classId
 
 internal enum class FieldStorageKind {
     GLOBAL, // In the old memory model these are only accessible from the "main" thread.
@@ -762,7 +762,7 @@ internal class CodeGeneratorVisitor(
     }
 
     private val IrDeclarationContainer.initVariableSuffix get() = when (this) {
-        is IrFile -> "${fqName}\$${fileEntry.name}"
+        is IrFile -> "${packageFqName}\$${fileEntry.name}"
         else -> fqNameForIrSerialization.asString()
     }
 
@@ -782,8 +782,15 @@ internal class CodeGeneratorVisitor(
                 }
             }
 
+    private fun buildVirtualFunctionTrampoline(irFunction: IrSimpleFunction) {
+        codegen.getVirtualFunctionTrampoline(irFunction)
+    }
+
     override fun visitFunction(declaration: IrFunction) {
         context.log{"visitFunction                  : ${ir2string(declaration)}"}
+
+        if (declaration is IrSimpleFunction && declaration.isOverridable && declaration.origin !is DECLARATION_ORIGIN_BRIDGE_METHOD)
+            buildVirtualFunctionTrampoline(declaration)
 
         val scopeState = llvm.initializersGenerationState.scopeState
         if (declaration.origin == DECLARATION_ORIGIN_STATIC_GLOBAL_INITIALIZER) {
@@ -807,15 +814,22 @@ internal class CodeGeneratorVisitor(
 
         if (!declaration.shouldGenerateBody())
             return
+
         // Some special functions may have empty body, thay are handled separetely.
         val body = declaration.body ?: return
-        val file = if (declaration.origin != IrDeclarationOrigin.LOCAL_FUNCTION_FOR_LAMBDA)
-            null
-        else ((declaration as? IrSimpleFunction)?.attributeOwnerId as? IrSimpleFunction)?.let { context.irLinker.getFileOf(it) }?.takeIf {
-            (currentCodeContext.fileScope() as FileScope).file != it
+        val file = run {
+            val original = (declaration as? IrSimpleFunction)?.attributeOwnerId ?: return@run null
+            val originalFunction = when (original) {
+                is IrFunctionExpression -> original.function
+                is IrFunction -> original
+                else -> return@run null
+            }
+            context.irLinker.getFileOf(originalFunction)
         }
-        val scope = file?.let {
-            FileScope(it)
+        val scope = if (file != null && file != (currentCodeContext.fileScope() as FileScope).file) {
+            FileScope(file)
+        } else {
+            null
         }
         using(scope) {
             generateFunction(codegen, declaration,
@@ -851,7 +865,7 @@ internal class CodeGeneratorVisitor(
         }
 
         if (context.shouldVerifyBitCode())
-            verifyModule(llvm.module, "${declaration.descriptor.containingDeclaration}::${ir2string(declaration)}")
+            verifyModule(llvm.module, "${ir2string(declaration.parent)}::${ir2string(declaration)}")
     }
 
     private fun IrFunction.location(start: Boolean) =
@@ -889,7 +903,7 @@ internal class CodeGeneratorVisitor(
     }
 
     private fun needGlobalInit(field: IrField): Boolean {
-        if (field.descriptor.containingDeclaration !is PackageFragmentDescriptor) return field.isStatic
+        if (field.parent !is IrPackageFragment) return field.isStatic
         // TODO: add some smartness here. Maybe if package of the field is in never accessed
         // assume its global init can be actually omitted.
         return true
@@ -1172,11 +1186,11 @@ internal class CodeGeneratorVisitor(
                     }
                 }
 
-                if (catch.catchParameter.descriptor.type == context.builtIns.throwable.defaultType) {
+                if (catch.catchParameter.type == context.irBuiltIns.throwableType) {
                     genCatchBlock()
                     return      // Remaining catch clauses are unreachable.
                 } else {
-                    val isInstance = genInstanceOf(exception, catch.catchParameter.type.getClass()!!)
+                    val isInstance = genInstanceOfImpl(exception, catch.catchParameter.type.getClass()!!)
                     val body = functionGenerationContext.basicBlock("catch", catch.startLocation)
                     val nextCheck = functionGenerationContext.basicBlock("catchCheck", catch.endLocation)
                     functionGenerationContext.condBr(isInstance, body, nextCheck)
@@ -1389,7 +1403,7 @@ internal class CodeGeneratorVisitor(
         if (function == null || !element.needDebugInfo(context) || currentCodeContext.scope() == null) return null
         val locationInfo = element.startLocation ?: return null
         val location = codegen.generateLocationInfo(locationInfo)
-        val file = (currentCodeContext.fileScope() as FileScope).file.file()
+        val file = (currentCodeContext.fileScope() as FileScope).file.diFileScope()
         return when (element) {
             is IrVariable -> if (shouldGenerateDebugInfo(element)) debugInfoLocalVariableLocation(
                     builder       = debugInfo.builder,
@@ -1473,7 +1487,7 @@ internal class CodeGeneratorVisitor(
     }
 
     private fun IrType.isUnsignedInteger(): Boolean = !isNullable() &&
-                    UnsignedType.values().any { it.classId == this.getClass()?.descriptor?.classId }
+                    UnsignedType.values().any { it.classId == this.getClass()?.classId }
 
     private fun evaluateIntegerCoercion(value: IrTypeOperatorCall): LLVMValueRef {
         context.log{"evaluateIntegerCoercion        : ${ir2string(value)}"}
@@ -1510,95 +1524,131 @@ internal class CodeGeneratorVisitor(
         val dstClass = value.typeOperand.getClass()
                 ?: error("No class for ${value.typeOperand.render()} from \n${functionGenerationContext.irFunction?.render()}")
 
-        val srcArg = evaluateExpression(value.argument, resultSlot)
-        assert(srcArg.type == codegen.kObjHeaderPtr)
-
-        with(functionGenerationContext) {
-            ifThen(not(genInstanceOf(srcArg, dstClass))) {
-                if (dstClass.defaultType.isObjCObjectType()) {
-                    val dstFullClassName = dstClass.fqNameWhenAvailable?.toString() ?: dstClass.name.toString()
-                    callDirect(
-                            context.ir.symbols.throwTypeCastException.owner,
-                            listOf(srcArg, codegen.staticData.kotlinStringLiteral(dstFullClassName).llvm),
-                            Lifetime.GLOBAL,
-                            null
-                    )
-                } else {
-                    val dstTypeInfo = functionGenerationContext.bitcast(llvm.int8PtrType, codegen.typeInfoValue(dstClass))
-                    callDirect(
-                            context.ir.symbols.throwClassCastException.owner,
-                            listOf(srcArg, dstTypeInfo),
-                            Lifetime.GLOBAL,
-                            null
-                    )
+        return genInstanceOf(
+                value,
+                dstClass,
+                resultSlot,
+                onSuperClassCast = {
+                    it.takeIf { value.typeOperand.isNullable() }
+                },
+                onNull = {
+                    if (value.typeOperand.isNullable()) {
+                        codegen.kNullObjHeaderPtr
+                    } else {
+                        callDirect(
+                                context.ir.symbols.throwNullPointerException.owner,
+                                listOf(),
+                                Lifetime.GLOBAL,
+                                null
+                        )
+                    }
+                },
+                onCheck = { argument, checkResult ->
+                    with(functionGenerationContext) {
+                        if (checkResult != kTrue) {
+                            ifThen(not(checkResult)) {
+                                if (dstClass.defaultType.isObjCObjectType()) {
+                                    val dstFullClassName = dstClass.fqNameWhenAvailable?.toString() ?: dstClass.name.toString()
+                                    callDirect(
+                                            context.ir.symbols.throwTypeCastException.owner,
+                                            listOf(argument, codegen.staticData.kotlinStringLiteral(dstFullClassName).llvm),
+                                            Lifetime.GLOBAL,
+                                            null
+                                    )
+                                } else {
+                                    val dstTypeInfo = functionGenerationContext.bitcast(llvm.int8PtrType, codegen.typeInfoValue(dstClass))
+                                    callDirect(
+                                            context.ir.symbols.throwClassCastException.owner,
+                                            listOf(argument, dstTypeInfo),
+                                            Lifetime.GLOBAL,
+                                            null
+                                    )
+                                }
+                            }
+                        }
+                        argument
+                    }
                 }
-            }
-        }
-        return srcArg
+        )
     }
 
     //-------------------------------------------------------------------------//
 
     private fun evaluateInstanceOf(value: IrTypeOperatorCall): LLVMValueRef {
         context.log{"evaluateInstanceOf             : ${ir2string(value)}"}
-
         val type     = value.typeOperand
-        val srcArg   = evaluateExpression(value.argument)     // Evaluate src expression.
-
-        val bbExit       = functionGenerationContext.basicBlock("instance_of_exit", value.startLocation)
-        val bbInstanceOf = functionGenerationContext.basicBlock("instance_of_notnull", value.startLocation)
-        val bbNull       = functionGenerationContext.basicBlock("instance_of_null", value.startLocation)
-
-        val condition = functionGenerationContext.icmpEq(srcArg, codegen.kNullObjHeaderPtr)
-        functionGenerationContext.condBr(condition, bbNull, bbInstanceOf)
-
-        functionGenerationContext.positionAtEnd(bbNull)
-        val resultNull = if (type.isNullable()) kTrue else kFalse
-        functionGenerationContext.br(bbExit)
-
-        functionGenerationContext.positionAtEnd(bbInstanceOf)
-        val typeOperandClass = value.typeOperand.getClass()
-        val resultInstanceOf = if (typeOperandClass != null) {
-            genInstanceOf(srcArg, typeOperandClass)
-        } else {
-            // E.g. when generating type operation with reified type parameter in the original body of inline function.
-            kTrue
-            // TODO: this code should be unreachable, recheck.
-        }
-        functionGenerationContext.br(bbExit)
-        val bbInstanceOfResult = functionGenerationContext.currentBlock
-
-        functionGenerationContext.positionAtEnd(bbExit)
-        val result = functionGenerationContext.phi(llvm.int1Type)
-        functionGenerationContext.addPhiIncoming(result, bbNull to resultNull, bbInstanceOfResult to resultInstanceOf)
-        return result
+        return genInstanceOf(
+                value,
+                type.getClass() ?: context.ir.symbols.any.owner,
+                resultSlot = null,
+                onSuperClassCast = { arg ->
+                    if (type.isNullable())
+                        kTrue
+                    else
+                        functionGenerationContext.icmpNe(arg, codegen.kNullObjHeaderPtr)
+                },
+                onNull = { if (type.isNullable()) kTrue else kFalse },
+                onCheck = { _, checkResult -> checkResult }
+        )
     }
 
     //-------------------------------------------------------------------------//
 
-    private fun genInstanceOf(obj: LLVMValueRef, dstClass: IrClass): LLVMValueRef {
-        if (dstClass.defaultType.isObjCObjectType()) {
-            return genInstanceOfObjC(obj, dstClass)
+    private inline fun genInstanceOf(
+            value: IrTypeOperatorCall,
+            dstClass: IrClass,
+            resultSlot: LLVMValueRef?,
+            onSuperClassCast: (LLVMValueRef) -> LLVMValueRef?,
+            onNull: () -> LLVMValueRef,
+            onCheck: (argument: LLVMValueRef, checkResult: LLVMValueRef) -> LLVMValueRef,
+    ) : LLVMValueRef {
+        val srcArg = evaluateExpression(value.argument, resultSlot)
+        require(srcArg.type == codegen.kObjHeaderPtr)
+        val isSuperClassCast = value.argument.type.isSubtypeOfClass(dstClass.symbol)
+
+        if (isSuperClassCast) {
+            onSuperClassCast(srcArg)?.let { return it }
         }
+        return with(functionGenerationContext) {
+            val bbInstanceOf = basicBlock("instance_of_notnull", value.startLocation)
+            val bbNull = basicBlock("instance_of_null", value.startLocation)
 
-        val srcObjInfoPtr = functionGenerationContext.bitcast(codegen.kObjHeaderPtr, obj)
 
-        return if (!context.ghaEnabled()) {
-            call(llvm.isInstanceFunction, listOf(srcObjInfoPtr, codegen.typeInfoValue(dstClass)))
-        } else {
-            val dstHierarchyInfo = context.getLayoutBuilder(dstClass).hierarchyInfo
-            if (!dstClass.isInterface) {
-                call(llvm.isInstanceOfClassFastFunction,
-                        listOf(srcObjInfoPtr, llvm.int32(dstHierarchyInfo.classIdLo), llvm.int32(dstHierarchyInfo.classIdHi)))
+            val condition = icmpEq(srcArg, codegen.kNullObjHeaderPtr)
+            condBr(condition, bbNull, bbInstanceOf)
+
+            positionAtEnd(bbNull)
+            val resultNull = onNull()
+            val resultNullBB = currentBlock.takeIf { !isAfterTerminator() }
+
+            positionAtEnd(bbInstanceOf)
+            val resultInstanceOf = onCheck(srcArg, if (isSuperClassCast) kTrue else genInstanceOfImpl(srcArg, dstClass))
+            val resultInstanceOfBB = currentBlock.also { require(!isAfterTerminator()) }
+
+
+            if (resultNullBB == null) {
+                resultInstanceOf
             } else {
-                // Essentially: typeInfo.itable[place(interfaceId)].id == interfaceId
-                val interfaceId = dstHierarchyInfo.interfaceId
-                val typeInfo = functionGenerationContext.loadTypeInfo(srcObjInfoPtr)
-                with(functionGenerationContext) {
-                    val interfaceTableRecord = lookupInterfaceTableRecord(typeInfo, interfaceId)
-                    icmpEq(load(structGep(interfaceTableRecord, 0 /* id */)), llvm.int32(interfaceId))
-                }
+                val bbExit = basicBlock("instance_of_exit", value.startLocation)
+                positionAtEnd(bbExit)
+                appendingTo(resultInstanceOfBB) { br(bbExit) }
+                appendingTo(resultNullBB) { br(bbExit) }
+                require(resultNull.type == resultInstanceOf.type)
+                val result = phi(resultNull.type)
+                addPhiIncoming(result, resultNullBB to resultNull, resultInstanceOfBB to resultInstanceOf)
+                result
             }
+        }
+    }
+
+    private fun genInstanceOfImpl(obj: LLVMValueRef, dstClass: IrClass) = with(functionGenerationContext) {
+        if (dstClass.defaultType.isObjCObjectType()) {
+            genInstanceOfObjC(obj, dstClass)
+        } else with(VirtualTablesLookup) {
+            checkIsSubtype(
+                    objTypeInfo = loadTypeInfo(bitcast(codegen.kObjHeaderPtr, obj)),
+                    dstClass
+            )
         }
     }
 
@@ -1708,7 +1758,8 @@ internal class CodeGeneratorVisitor(
 
     private fun needLifetimeConstraintsCheck(valueToAssign: LLVMValueRef, irClass: IrClass): Boolean {
         // TODO: Likely, we don't need isFrozen check here at all.
-        return functionGenerationContext.isObjectType(valueToAssign.type) && !irClass.isFrozen(context)
+        return context.config.memoryModel != MemoryModel.EXPERIMENTAL
+                && functionGenerationContext.isObjectType(valueToAssign.type) && !irClass.isFrozen(context)
     }
 
     private fun isZeroConstValue(value: IrExpression): Boolean {
@@ -1798,6 +1849,25 @@ internal class CodeGeneratorVisitor(
     private fun evaluateStringConst(value: IrConst<String>) =
             codegen.staticData.kotlinStringLiteral(value.value)
 
+    /**
+     * Normalizing nans to single value is useful for build reproducibility.
+     *
+     * It's possible that it can lead to some bad consequences for interop libraries,
+     * for which exact nan value is important. We are not aware of the existence of
+     * any such useful library, at least on priority targets.
+     *
+     * On the other side, the semantics of exact cases, NaN values should be not normalized, is unclear.
+     * E.g., in previous implementation, storing constant to another constant could change the exact bit pattern.
+     *
+     * So for now, we would just normalize all NaN constants. At least this leads to predictable result
+     * useful in almost all cases.
+     *
+     * Also, java.lang classes are used here to avoid unexpected NaN values if a compiler and stdlib
+     * are built in an arm64 architecture environment.
+     */
+    private fun Float.normalizeNan() = if (isNaN()) java.lang.Float.NaN else this
+    private fun Double.normalizeNan() = if (isNaN()) java.lang.Double.NaN else this
+
     private fun evaluateConst(value: IrConst<*>): ConstValue {
         context.log{"evaluateConst                  : ${ir2string(value)}"}
         /* This suppression against IrConst<String> */
@@ -1811,8 +1881,8 @@ internal class CodeGeneratorVisitor(
             IrConstKind.Int -> llvm.constInt32(value.value as Int)
             IrConstKind.Long -> llvm.constInt64(value.value as Long)
             IrConstKind.String -> evaluateStringConst(value as IrConst<String>)
-            IrConstKind.Float -> llvm.constFloat32(value.value as Float)
-            IrConstKind.Double -> llvm.constFloat64(value.value as Double)
+            IrConstKind.Float -> llvm.constFloat32((value.value as Float).normalizeNan())
+            IrConstKind.Double -> llvm.constFloat64((value.value as Double).normalizeNan())
         }
     }
 
@@ -2019,8 +2089,8 @@ internal class CodeGeneratorVisitor(
         private val scope by lazy {
             if (!context.shouldContainLocationDebugInfo() || returnableBlock.startOffset == UNDEFINED_OFFSET)
                 return@lazy null
-            val lexicalBlockFile = DICreateLexicalBlockFile(debugInfo.builder, functionScope()!!.scope(), super.file.file())
-            DICreateLexicalBlock(debugInfo.builder, lexicalBlockFile, super.file.file(), returnableBlock.startLine(), returnableBlock.startColumn())!!
+            val lexicalBlockFile = DICreateLexicalBlockFile(debugInfo.builder, functionScope()!!.scope(), super.file.diFileScope())
+            DICreateLexicalBlock(debugInfo.builder, lexicalBlockFile, super.file.diFileScope(), returnableBlock.startLine(), returnableBlock.startColumn())!!
         }
 
         override fun scope() = scope
@@ -2038,7 +2108,7 @@ internal class CodeGeneratorVisitor(
         private val scope by lazy {
             if (!context.shouldContainLocationDebugInfo())
                 return@lazy null
-            file.file() as DIScopeOpaqueRef?
+            file.diFileScope() as DIScopeOpaqueRef?
         }
 
         override fun scope() = scope
@@ -2180,7 +2250,7 @@ internal class CodeGeneratorVisitor(
                     refBuilder = builder,
                     refScope = scope.scope as DIScopeOpaqueRef,
                     name = expression.computeSymbolName(),
-                    file = irFile.file(),
+                    file = irFile.diFileScope(),
                     lineNum = expression.startLine(),
                     sizeInBits = sizeInBits,
                     alignInBits = alignInBits,
@@ -2191,16 +2261,7 @@ internal class CodeGeneratorVisitor(
         }
     }
 
-
-    //-------------------------------------------------------------------------//
-    private fun IrFile.file(): DIFileRef {
-        return debugInfo.files.getOrPut(this.fileEntry.name) {
-            val path = this.fileEntry.name.toFileAndFolder(context.config)
-            DICreateFile(debugInfo.builder, path.file, path.folder)!!
-        }
-    }
-
-    //-------------------------------------------------------------------------//
+    private fun IrFile.diFileScope() = with(debugInfo) { diFileScope() }
 
     // Saved calculated IrFunction scope which is used several time for getting locations and generating debug info.
     private var irFunctionSavedScope: Pair<IrFunction, DIScopeOpaqueRef?>? = null
@@ -2232,20 +2293,14 @@ internal class CodeGeneratorVisitor(
             val nodebug = f is IrConstructor && f.parentAsClass.isSubclassOf(context.irBuiltIns.throwableClass.owner)
             if (functionLlvmValue != null) {
                 subprograms.getOrPut(functionLlvmValue) {
-                    memScoped {
-                        val subroutineType = subroutineType(codegen.llvmTargetData)
-                        diFunctionScope(name.asString(), functionLlvmValue.name!!, startLine, subroutineType, nodebug).also {
-                            if (!this@scope.isInline)
-                                functionLlvmValue.addDebugInfoSubprogram(it)
-                        }
+                    diFunctionScope(file(), functionLlvmValue.name!!, startLine, nodebug).also {
+                        if (!this@scope.isInline)
+                            functionLlvmValue.addDebugInfoSubprogram(it)
                     }
                 } as DIScopeOpaqueRef
             } else {
                 inlinedSubprograms.getOrPut(this@scope) {
-                    memScoped {
-                        val subroutineType = subroutineType(codegen.llvmTargetData)
-                        diFunctionScope(name.asString(), "<inlined-out:$name>", startLine, subroutineType, nodebug)
-                    }
+                    diFunctionScope(file(), "<inlined-out:$name>", startLine, nodebug)
                 } as DIScopeOpaqueRef
             }
         }
@@ -2253,30 +2308,14 @@ internal class CodeGeneratorVisitor(
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun LlvmCallable.scope(startLine:Int, subroutineType: DISubroutineTypeRef, nodebug: Boolean): DIScopeOpaqueRef? {
-        return debugInfo.subprograms.getOrPut(this) {
-            diFunctionScope(name!!, name!!, startLine, subroutineType, nodebug).also {
-                this@scope.addDebugInfoSubprogram(it)
+    private fun LlvmCallable.scope(startLine: Int, subroutineType: DISubroutineTypeRef, nodebug: Boolean) =
+            with(debugInfo) {
+                subprograms.getOrPut(this@scope) {
+                    diFunctionScope(file(), name!!, name!!, startLine, subroutineType, nodebug).also {
+                        this@scope.addDebugInfoSubprogram(it)
+                    }
+                } as DIScopeOpaqueRef
             }
-        }  as DIScopeOpaqueRef
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun diFunctionScope(name: String, linkageName: String, startLine: Int, subroutineType: DISubroutineTypeRef, nodebug: Boolean) = DICreateFunction(
-                builder = debugInfo.builder,
-                scope = debugInfo.compilationUnit,
-                name = (if (nodebug) "<NODEBUG>" else "") + name,
-                linkageName = linkageName,
-                file = file().file(),
-                lineNo = startLine,
-                type = subroutineType,
-                //TODO: need more investigations.
-                isLocal = 0,
-                isDefinition = 1,
-                scopeLine = 0)!!
-
-    //-------------------------------------------------------------------------//
-
 
     private fun IrFunction.returnsUnit() = returnType.isUnit().also {
         require(!isSuspend) { "Suspend functions should be lowered out at this point"}
@@ -2303,11 +2342,11 @@ internal class CodeGeneratorVisitor(
 
     private fun evaluateFunctionReference(expression: IrFunctionReference): LLVMValueRef {
         // TODO: consider creating separate IR element for pointer to function.
-        assert (expression.type.getClass()?.descriptor == context.interopBuiltIns.cPointer) {
-            "assert: ${expression.type.getClass()?.descriptor} == ${context.interopBuiltIns.cPointer}"
+        assert (expression.type.getClass()?.symbol?.hasEqualFqName(InteropFqNames.cPointer.toSafe()) == true) {
+            "assert: should be ${InteropFqNames.cPointer}, ${expression.type.render()} found"
         }
 
-        assert (expression.getArguments().isEmpty())
+        assert (expression.getArgumentsWithIr().isEmpty())
 
         val function = expression.symbol.owner
         assert (function.dispatchReceiverParameter == null)
@@ -2614,8 +2653,8 @@ internal class CodeGeneratorVisitor(
 
     //-------------------------------------------------------------------------//
 
-    fun callVirtual(function: IrFunction, args: List<LLVMValueRef>, resultLifetime: Lifetime, resultSlot: LLVMValueRef?): LLVMValueRef {
-        val functionDeclarations = functionGenerationContext.lookupVirtualImpl(args.first(), function)
+    fun callVirtual(function: IrSimpleFunction, args: List<LLVMValueRef>, resultLifetime: Lifetime, resultSlot: LLVMValueRef?): LLVMValueRef {
+        val functionDeclarations = codegen.getVirtualFunctionTrampoline(function)
         return call(function, functionDeclarations, args, resultLifetime, resultSlot)
     }
 
@@ -2719,7 +2758,8 @@ internal class CodeGeneratorVisitor(
             return
 
         overrideRuntimeGlobal("Kotlin_destroyRuntimeMode", llvm.constInt32(context.config.destroyRuntimeMode.value))
-        overrideRuntimeGlobal("Kotlin_gcMarkSingleThreaded", llvm.constInt32(if (context.config.gcMarkSingleThreaded) 1 else 0))
+        overrideRuntimeGlobal("Kotlin_gcMutatorsCooperate", llvm.constInt32(if (context.config.gcMutatorsCooperate) 1 else 0))
+        overrideRuntimeGlobal("Kotlin_auxGCThreads", llvm.constInt32(context.config.auxGCThreads.toInt()))
         overrideRuntimeGlobal("Kotlin_workerExceptionHandling", llvm.constInt32(context.config.workerExceptionHandling.value))
         overrideRuntimeGlobal("Kotlin_suspendFunctionsFromAnyThreadFromObjC", llvm.constInt32(if (context.config.suspendFunctionsFromAnyThreadFromObjC) 1 else 0))
         val getSourceInfoFunctionName = when (context.config.sourceInfoType) {
@@ -2741,6 +2781,7 @@ internal class CodeGeneratorVisitor(
         overrideRuntimeGlobal("Kotlin_appStateTracking", llvm.constInt32(context.config.appStateTracking.value))
         overrideRuntimeGlobal("Kotlin_mimallocUseDefaultOptions", llvm.constInt32(if (context.config.mimallocUseDefaultOptions) 1 else 0))
         overrideRuntimeGlobal("Kotlin_mimallocUseCompaction", llvm.constInt32(if (context.config.mimallocUseCompaction) 1 else 0))
+        overrideRuntimeGlobal("Kotlin_objcDisposeOnMain", llvm.constInt32(if (context.config.objcDisposeOnMain) 1 else 0))
     }
 
     //-------------------------------------------------------------------------//
@@ -2918,7 +2959,6 @@ private val doubleUnderscoreThisName = Name.identifier("__this")
  *   2. this is reserved name and compiled in special way.
  */
 private fun IrValueDeclaration.debugNameConversion(): Name {
-    val name = descriptor.name
     if (name == thisName) {
         return when (origin) {
             IrDeclarationOrigin.IR_TEMPORARY_VARIABLE_FOR_INLINED_EXTENSION_RECEIVER -> doubleUnderscoreThisName
@@ -2946,13 +2986,15 @@ internal fun NativeGenerationState.generateRuntimeConstantsModule() : LLVMModule
 
     setRuntimeConstGlobal("Kotlin_needDebugInfo", llvm.constInt32(if (shouldContainDebugInfo()) 1 else 0))
     setRuntimeConstGlobal("Kotlin_runtimeAssertsMode", llvm.constInt32(config.runtimeAssertsMode.value))
+    setRuntimeConstGlobal("Kotlin_disableMmap", llvm.constInt32(if (config.disableMmap) 1 else 0))
     val runtimeLogs = config.runtimeLogs?.let {
         static.cStringLiteral(it)
     } ?: NullPointer(llvm.int8Type)
     setRuntimeConstGlobal("Kotlin_runtimeLogs", runtimeLogs)
     setRuntimeConstGlobal("Kotlin_freezingEnabled", llvm.constInt32(if (config.freezing.enableFreezeAtRuntime) 1 else 0))
     setRuntimeConstGlobal("Kotlin_freezingChecksEnabled", llvm.constInt32(if (config.freezing.enableFreezeChecks) 1 else 0))
-    setRuntimeConstGlobal("Kotlin_gcSchedulerType", llvm.constInt32(config.gcSchedulerType.value))
+    setRuntimeConstGlobal("Kotlin_concurrentWeakSweep", llvm.constInt32(if (context.config.concurrentWeakSweep) 1 else 0))
+    setRuntimeConstGlobal("Kotlin_gcMarkSingleThreaded", llvm.constInt32(if (config.gcMarkSingleThreaded) 1 else 0))
 
     return llvmModule
 }

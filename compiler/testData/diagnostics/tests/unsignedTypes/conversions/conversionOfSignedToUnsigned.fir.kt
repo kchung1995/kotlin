@@ -36,7 +36,7 @@ fun takeUInt(@ImplicitIntegerCoercion u: UInt) {}
 fun takeULong(@ImplicitIntegerCoercion u: ULong) {}
 
 @ExperimentalUnsignedTypes
-fun takeUBytes(@ImplicitIntegerCoercion vararg u: <!OPT_IN_USAGE!>UByte<!>) {}
+fun takeUBytes(@ImplicitIntegerCoercion vararg u: UByte) {}
 
 fun takeLong(@ImplicitIntegerCoercion l: Long) {}
 
@@ -57,7 +57,7 @@ fun test() {
 
     <!OPT_IN_USAGE!>takeUBytes<!>(IMPLICIT_INT, EXPLICIT_INT, 42u)
 
-    takeLong(IMPLICIT_INT)
+    takeLong(<!ARGUMENT_TYPE_MISMATCH!>IMPLICIT_INT<!>)
 
     takeIntWithoutAnnotation(IMPLICIT_INT)
 

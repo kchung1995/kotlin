@@ -17,9 +17,8 @@ import org.jetbrains.kotlin.gradle.plugin.KotlinCompilation
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinJsCompilation
 import org.jetbrains.kotlin.gradle.plugin.mpp.isMain
 import org.jetbrains.kotlin.gradle.plugin.mpp.isTest
-import org.jetbrains.kotlin.gradle.plugin.mpp.pm20.util.archivesName
-import org.jetbrains.kotlin.gradle.plugin.mpp.pm20.util.distsDirectory
-import org.jetbrains.kotlin.gradle.report.BuildMetricsService
+import org.jetbrains.kotlin.gradle.utils.archivesName
+import org.jetbrains.kotlin.gradle.utils.distsDirectory
 import org.jetbrains.kotlin.gradle.targets.js.KotlinJsTarget
 import org.jetbrains.kotlin.gradle.targets.js.dsl.*
 import org.jetbrains.kotlin.gradle.targets.js.ir.executeTaskBaseName
@@ -48,7 +47,7 @@ abstract class KotlinBrowserJs @Inject constructor(target: KotlinJsTarget) :
     private val webpackTaskConfigurations: MutableList<Action<KotlinWebpack>> = mutableListOf()
     private val runTaskConfigurations: MutableList<Action<KotlinWebpack>> = mutableListOf()
     private val dceConfigurations: MutableList<Action<KotlinJsDce>> = mutableListOf()
-    private val distribution: Distribution = createDefaultDistribution(project)
+    private val distribution: Distribution = createDefaultDistribution(project, target.targetName)
 
     override val testTaskDescription: String
         get() = "Run all ${target.name} tests inside browser using karma and webpack"
@@ -66,13 +65,13 @@ abstract class KotlinBrowserJs @Inject constructor(target: KotlinJsTarget) :
         runTaskConfigurations.add {
             it.webpackConfigApplier(body)
         }
-        testTask {
+        testTask(Action {
             it.onTestFrameworkSet {
                 if (it is KotlinKarma) {
                     body.execute(it.webpackConfig)
                 }
             }
-        }
+        })
     }
 
     override fun runTask(body: Action<KotlinWebpack>) {
@@ -230,10 +229,6 @@ abstract class KotlinBrowserJs @Inject constructor(target: KotlinJsTarget) :
                     task.description = "build webpack ${type.name.toLowerCaseAsciiOnly()} bundle"
                     task.outputDirectory.fileValue(distribution.directory).finalizeValueOnRead()
 
-                    BuildMetricsService.registerIfAbsent(project)?.let {
-                        task.buildMetricsService.value(it)
-                    }
-
                     task.commonConfigure(
                         compilation = compilation,
                         dceTaskProvider = dceTaskProvider,
@@ -300,6 +295,8 @@ abstract class KotlinBrowserJs @Inject constructor(target: KotlinJsTarget) :
             }
         )
 
+        this.esModules.convention(false).finalizeValueOnRead()
+
         resolveFromModulesFirst = true
 
         mainOutputFileName.convention(defaultArchivesName.orElse("main").map { "$it.js" }).finalizeValueOnRead()
@@ -342,7 +339,7 @@ abstract class KotlinBrowserJs @Inject constructor(target: KotlinJsTarget) :
                     ?: compilation.npmProject.dir.resolve(if (dev) DCE_DEV_DIR else DCE_DIR)
             )
             it.defaultCompilerClasspath.setFrom(project.configurations.named(COMPILER_CLASSPATH_CONFIGURATION_NAME))
-
+            it.runViaBuildToolsApi.value(false).disallowChanges() // The legacy backend task is not going to be supported
             it.setSource(kotlinTask.map { it.outputFileProperty })
         }
     }

@@ -43,7 +43,8 @@ project.logger.info("kotlin_root: $kotlin_root")
 globalProperties.load(new java.io.FileReader(project.file("$kotlin_root/gradle.properties")))
 ext.kotlinNativeVersionInResources = true
 
-def platformManager = new PlatformManager(DistributionKt.buildDistribution(UtilsKt.getKotlinNativeDist(project).path), false)
+def konanDataDir = project.hasProperty('konan.data.dir') ? project.property('konan.data.dir').toString() : null
+def platformManager = new PlatformManager(DistributionKt.buildDistribution(UtilsKt.getKotlinNativeDist(project).path, konanDataDir), false)
 def kotlinDist = null
 if (hasProperty("kotlin_dist")) {
     kotlinDist = file(findProperty("kotlin_dist"))
@@ -88,7 +89,7 @@ subprojects { proj ->
 
 def rootBuildDirectory = projectDir.parentFile
 
-task buildAnalyzer(type: GradleBuild) {
+tasks.register("buildAnalyzer", GradleBuild) {
     buildFile = "../tools/benchmarksAnalyzer/build.gradle"
     tasks = [":${getAnalyzerTargetName()}Binaries".toString()]
     startParameter.setProjectProperties(this.project.gradle.startParameter.projectProperties)
@@ -235,7 +236,7 @@ task registerExternalBenchmarks {
     }
 }
 
-task registerBuild(type: BuildRegister) {
+tasks.register("registerBuild", BuildRegister) {
     onlyBranch = project.findProperty('kotlin.register.branch')
     def uploadedFile = getUploadedFile(nativeJson)
     if (uploadedFile != null) {
@@ -252,7 +253,7 @@ task registerBuild(type: BuildRegister) {
     buildNumberSuffix = project.findProperty('buildNumberSuffix')
 }
 
-task registerExternalBuild(type: BuildRegister) {
+tasks.register("registerExternalBuild", BuildRegister) {
     onlyBranch = project.findProperty('kotlin.register.branch')
     def uploadedFile = getUploadedFile(externalBenchmarksReport)
     if (uploadedFile != null) {

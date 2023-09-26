@@ -8,17 +8,17 @@ package org.jetbrains.kotlin.cli.metadata
 import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VirtualFileManager
 import org.jetbrains.kotlin.analyzer.common.CommonPlatformAnalyzerServices
-import org.jetbrains.kotlin.backend.common.CommonJsKLibResolver
+import org.jetbrains.kotlin.backend.common.CommonKLibResolver
 import org.jetbrains.kotlin.cli.common.*
 import org.jetbrains.kotlin.cli.common.fir.FirDiagnosticsCompilerResultsReporter
 import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
 import org.jetbrains.kotlin.cli.jvm.compiler.VfsBasedProjectEnvironment
 import org.jetbrains.kotlin.cli.jvm.compiler.createContextForIncrementalCompilation
-import org.jetbrains.kotlin.cli.jvm.compiler.pipeline.collectSources
 import org.jetbrains.kotlin.cli.jvm.compiler.pipeline.createContextForIncrementalCompilation
 import org.jetbrains.kotlin.cli.jvm.compiler.pipeline.createIncrementalCompilationScope
 import org.jetbrains.kotlin.cli.jvm.compiler.toAbstractProjectEnvironment
 import org.jetbrains.kotlin.cli.jvm.config.JvmClasspathRoot
+import org.jetbrains.kotlin.cli.jvm.config.K2MetadataConfigurationKeys
 import org.jetbrains.kotlin.cli.jvm.config.jvmClasspathRoots
 import org.jetbrains.kotlin.cli.jvm.config.jvmModularRoots
 import org.jetbrains.kotlin.config.CommonConfigurationKeys
@@ -35,10 +35,9 @@ import org.jetbrains.kotlin.fir.pipeline.ModuleCompilerAnalyzedOutput
 import org.jetbrains.kotlin.fir.pipeline.buildFirFromKtFiles
 import org.jetbrains.kotlin.fir.pipeline.buildFirViaLightTree
 import org.jetbrains.kotlin.fir.pipeline.resolveAndCheckFir
-import org.jetbrains.kotlin.fir.serialization.FirElementAwareSerializableStringTable
 import org.jetbrains.kotlin.fir.serialization.FirKLibSerializerExtension
 import org.jetbrains.kotlin.fir.serialization.serializeSingleFirFile
-import org.jetbrains.kotlin.library.*
+import org.jetbrains.kotlin.library.SerializedMetadata
 import org.jetbrains.kotlin.library.metadata.KlibMetadataHeaderFlags
 import org.jetbrains.kotlin.library.metadata.KlibMetadataProtoBuf
 import org.jetbrains.kotlin.modules.TargetId
@@ -66,9 +65,11 @@ internal class FirMetadataSerializer(
             CommonPlatformAnalyzerServices
         )
         val libraryList = DependencyListForCliModule.build(binaryModuleData) {
-            dependencies(configuration.jvmClasspathRoots.map { it.toPath() })
+            val refinedPaths = configuration.get(K2MetadataConfigurationKeys.REFINES_PATHS)?.map { File(it) }.orEmpty()
+            dependencies(configuration.jvmClasspathRoots.filter { it !in refinedPaths }.map { it.toPath() })
             dependencies(configuration.jvmModularRoots.map { it.toPath() })
-            friendDependencies(configuration[JVMConfigurationKeys.FRIEND_PATHS] ?: emptyList())
+            friendDependencies(configuration[K2MetadataConfigurationKeys.FRIEND_PATHS] ?: emptyList())
+            dependsOnDependencies(refinedPaths.map { it.toPath() })
         }
 
         val diagnosticsReporter = DiagnosticReporterFactory.createPendingReporter()
@@ -77,7 +78,7 @@ internal class FirMetadataSerializer(
             .filterIsInstance<JvmClasspathRoot>()
             .filter { it.file.isDirectory || it.file.extension == "klib" }
             .map { it.file.absolutePath }
-        val resolvedLibraries = CommonJsKLibResolver.resolve(klibFiles, DummyLogger).getFullResolvedList()
+        val resolvedLibraries = CommonKLibResolver.resolve(klibFiles, DummyLogger).getFullResolvedList()
 
         val outputs = if (isLightTree) {
             val projectEnvironment = environment.toAbstractProjectEnvironment() as VfsBasedProjectEnvironment
@@ -163,8 +164,13 @@ internal class FirMetadataSerializer(
                     firFile,
                     session,
                     scopeSession,
-                    FirKLibSerializerExtension(session, metadataVersion, FirElementAwareSerializableStringTable()),
-                    languageVersionSettings
+                    actualizedExpectDeclarations = null,
+                    FirKLibSerializerExtension(
+                        session, metadataVersion, constValueProvider = null,
+                        allowErrorTypes = false, exportKDoc = false,
+                        additionalAnnotationsProvider = null
+                    ),
+                    languageVersionSettings,
                 )
                 fragments.getOrPut(firFile.packageFqName.asString()) { mutableListOf() }.add(packageFragment.toByteArray())
             }

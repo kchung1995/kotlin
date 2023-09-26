@@ -7,11 +7,15 @@ package org.jetbrains.kotlin.analysis.low.level.api.fir.project.structure
 
 import com.intellij.openapi.project.Project
 import com.intellij.psi.search.GlobalSearchScope
+import org.jetbrains.kotlin.analysis.api.resolve.extensions.KtResolveExtensionProvider
 import org.jetbrains.kotlin.analysis.low.level.api.fir.IdeSessionComponents
 import org.jetbrains.kotlin.analysis.low.level.api.fir.api.services.createSealedInheritorsProvider
+import org.jetbrains.kotlin.analysis.low.level.api.fir.compile.CodeFragmentScopeProvider
 import org.jetbrains.kotlin.analysis.low.level.api.fir.fir.caches.FirThreadSafeCachesFactory
 import org.jetbrains.kotlin.analysis.low.level.api.fir.providers.LLFirIdePredicateBasedProvider
 import org.jetbrains.kotlin.analysis.low.level.api.fir.providers.LLFirIdeRegisteredPluginAnnotations
+import org.jetbrains.kotlin.analysis.low.level.api.fir.resolve.extensions.LLFirNonEmptyResolveExtensionTool
+import org.jetbrains.kotlin.analysis.low.level.api.fir.resolve.extensions.LLFirResolveExtensionTool
 import org.jetbrains.kotlin.analysis.low.level.api.fir.sessions.LLFirSession
 import org.jetbrains.kotlin.analysis.low.level.api.fir.sessions.LLFirSourcesSession
 import org.jetbrains.kotlin.analysis.low.level.api.fir.util.LLFirExceptionHandler
@@ -29,12 +33,9 @@ import org.jetbrains.kotlin.fir.extensions.FirExtensionRegistrar
 import org.jetbrains.kotlin.fir.extensions.FirExtensionRegistrarAdapter
 import org.jetbrains.kotlin.fir.extensions.FirPredicateBasedProvider
 import org.jetbrains.kotlin.fir.extensions.FirRegisteredPluginAnnotations
-import org.jetbrains.kotlin.fir.java.FirJavaFacadeForSource
-import org.jetbrains.kotlin.fir.java.JavaSymbolProvider
 import org.jetbrains.kotlin.fir.resolve.providers.FirSymbolProvider
 import org.jetbrains.kotlin.fir.resolve.providers.impl.FirCompositeSymbolProvider
 import org.jetbrains.kotlin.fir.session.FirSessionConfigurator
-import org.jetbrains.kotlin.load.java.createJavaClassFinder
 
 @SessionConfiguration
 internal fun LLFirSession.registerIdeComponents(project: Project) {
@@ -42,7 +43,18 @@ internal fun LLFirSession.registerIdeComponents(project: Project) {
     register(FirCachesFactory::class, FirThreadSafeCachesFactory)
     register(SealedClassInheritorsProvider::class, project.createSealedInheritorsProvider())
     register(FirExceptionHandler::class, LLFirExceptionHandler)
+    register(CodeFragmentScopeProvider::class, CodeFragmentScopeProvider(this))
+    createResolveExtensionTool()?.let {
+        register(LLFirResolveExtensionTool::class, it)
+    }
 }
+
+private fun LLFirSession.createResolveExtensionTool(): LLFirResolveExtensionTool? {
+    val extensions = KtResolveExtensionProvider.provideExtensionsFor(ktModule)
+    if (extensions.isEmpty()) return null
+    return LLFirNonEmptyResolveExtensionTool(this, extensions)
+}
+
 
 internal inline fun createCompositeSymbolProvider(
     session: FirSession,
@@ -52,15 +64,12 @@ internal inline fun createCompositeSymbolProvider(
 
 @SessionConfiguration
 internal fun FirSession.registerCompilerPluginExtensions(project: Project, module: KtSourceModule) {
-    val extensionProvider = project.getService(KtCompilerPluginsProvider::class.java) ?: return
+    val extensionProvider = project.getService<KtCompilerPluginsProvider>(KtCompilerPluginsProvider::class.java) ?: return
     FirSessionConfigurator(this).apply {
-        @Suppress("UNCHECKED_CAST")
-        val registrars = extensionProvider.getRegisteredExtensions(
-            module,
-            FirExtensionRegistrarAdapter,
-        ) as List<FirExtensionRegistrar>
+        val registrars = FirExtensionRegistrarAdapter.getInstances(project) +
+                extensionProvider.getRegisteredExtensions(module, FirExtensionRegistrarAdapter)
         for (extensionRegistrar in registrars) {
-            registerExtensions(extensionRegistrar.configure())
+            registerExtensions((extensionRegistrar as FirExtensionRegistrar).configure())
         }
     }.configure()
 }
@@ -78,19 +87,7 @@ internal fun LLFirSourcesSession.registerCompilerPluginServices(
     register(FirRegisteredPluginAnnotations::class, LLFirIdeRegisteredPluginAnnotations(this, annotationsResolver))
     register(
         FirPredicateBasedProvider::class,
-        LLFirIdePredicateBasedProvider(this, annotationsResolver, project.createDeclarationProvider(projectWithDependenciesScope))
+        LLFirIdePredicateBasedProvider(this, annotationsResolver, project.createDeclarationProvider(projectWithDependenciesScope, module))
     )
 
-}
-
-internal fun createJavaSymbolProvider(
-    firSession: LLFirSession,
-    moduleData: LLFirModuleData,
-    project: Project,
-    contentScope: GlobalSearchScope
-): JavaSymbolProvider {
-    return JavaSymbolProvider(
-        firSession,
-        FirJavaFacadeForSource(firSession, moduleData, project.createJavaClassFinder(contentScope))
-    )
 }

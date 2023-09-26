@@ -46,14 +46,8 @@ class ResolvedLambdaAtom(
     val parameters: List<ConeKotlinType>,
     var returnType: ConeKotlinType,
     typeVariableForLambdaReturnType: ConeTypeVariableForLambdaReturnType?,
-    candidateOfOuterCall: Candidate?,
     val coerceFirstParameterToExtensionReceiver: Boolean
 ) : PostponedResolvedAtom() {
-    init {
-        candidateOfOuterCall?.let {
-            it.postponedAtoms += this
-        }
-    }
 
     var typeVariableForLambdaReturnType = typeVariableForLambdaReturnType
         private set
@@ -88,12 +82,8 @@ class ResolvedLambdaAtom(
 class LambdaWithTypeVariableAsExpectedTypeAtom(
     override val atom: FirAnonymousFunctionExpression,
     private val initialExpectedTypeType: ConeKotlinType,
-    val expectedTypeRef: FirTypeRef,
     val candidateOfOuterCall: Candidate,
 ) : PostponedResolvedAtom(), LambdaWithTypeVariableAsExpectedTypeMarker {
-    init {
-        candidateOfOuterCall.postponedAtoms += this
-    }
 
     override var parameterTypesFromDeclaration: List<ConeKotlinType?>? = null
         private set

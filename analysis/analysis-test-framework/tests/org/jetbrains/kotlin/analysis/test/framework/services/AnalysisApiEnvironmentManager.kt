@@ -43,6 +43,7 @@ class AnalysisApiEnvironmentManagerImpl(
         StandaloneProjectFactory.createProjectEnvironment(
             testRootDisposable,
             testServices.applicationDisposableProvider.getApplicationRootDisposable(),
+            unitTestMode = true
         )
     }
 
@@ -63,11 +64,11 @@ class AnalysisApiEnvironmentManagerImpl(
             getProject()
         )
 
+        val globalLanguageVersionSettings = useSiteModule.languageVersionSettings
+
         StandaloneProjectFactory.registerServicesForProjectEnvironment(
             _projectEnvironment,
-            KtStaticModuleProvider(builtinsModule, ktModuleProjectStructure),
-            ktModuleProjectStructure.allKtModules(),
-            ktModuleProjectStructure.allSourceFiles(),
+            KtStaticModuleProvider(globalLanguageVersionSettings, builtinsModule, ktModuleProjectStructure),
             useSiteCompilerConfiguration.languageVersionSettings,
             useSiteCompilerConfiguration.get(JVMConfigurationKeys.JDK_HOME)?.toPath(),
         )

@@ -17,7 +17,6 @@
 package org.jetbrains.kotlin.psi
 
 import com.intellij.extapi.psi.PsiFileBase
-import com.intellij.openapi.components.ServiceManager
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.vfs.VirtualFileWithId
 import com.intellij.psi.*
@@ -61,8 +60,20 @@ open class KtFile(viewProvider: FileViewProvider, val isCompiled: Boolean) :
     val importList: KtImportList?
         get() = importLists.firstOrNull()
 
-    private val importLists: Array<out KtImportList>
-        get() = findChildrenByTypeOrClass(KtStubElementTypes.IMPORT_LIST, KtImportList::class.java)
+    @Volatile
+    private var hasImportAlias: Boolean? = null
+
+    fun hasImportAlias(): Boolean {
+        val hasImportAlias = hasImportAlias
+        if (hasImportAlias != null) return hasImportAlias
+
+        val newValue = importLists.any(KtImportList::computeHasImportAlias)
+        this.hasImportAlias = newValue
+        return newValue
+    }
+
+    protected open val importLists: List<KtImportList>
+        get() = findChildrenByTypeOrClass(KtStubElementTypes.IMPORT_LIST, KtImportList::class.java).asList()
 
     val fileAnnotationList: KtFileAnnotationList?
         get() = findChildByTypeOrClass(KtStubElementTypes.FILE_ANNOTATION_LIST, KtFileAnnotationList::class.java)
@@ -180,15 +191,25 @@ open class KtFile(viewProvider: FileViewProvider, val isCompiled: Boolean) :
     }
 
 
-    fun findImportByAlias(name: String): KtImportDirective? =
-        importDirectives.firstOrNull { name == it.aliasName }
+    fun findImportByAlias(name: String): KtImportDirective? {
+        if (!hasImportAlias()) return null
 
-    fun findAliasByFqName(fqName: FqName): KtImportAlias? = importDirectives.firstOrNull {
-        it.alias != null && fqName == it.importedFqName
-    }?.alias
+        return importDirectives.firstOrNull { name == it.aliasName }
+    }
 
-    fun getNameForGivenImportAlias(name: Name): Name? =
-        importDirectives.find { it.importedName == name }?.importedFqName?.pathSegments()?.last()
+    fun findAliasByFqName(fqName: FqName): KtImportAlias? {
+        if (!hasImportAlias()) return null
+
+        return importDirectives.firstOrNull {
+            it.alias != null && fqName == it.importedFqName
+        }?.alias
+    }
+
+    fun getNameForGivenImportAlias(name: Name): Name? {
+        if (!hasImportAlias()) return null
+
+        return importDirectives.find { it.importedName == name }?.importedFqName?.pathSegments()?.last()
+    }
 
     @Deprecated("") // getPackageFqName should be used instead
     override fun getPackageName(): String {
@@ -206,7 +227,7 @@ open class KtFile(viewProvider: FileViewProvider, val isCompiled: Boolean) :
     }
 
     override fun getClasses(): Array<PsiClass> {
-        val fileClassProvider = ServiceManager.getService(project, KtFileClassProvider::class.java)
+        val fileClassProvider = project.getService(KtFileClassProvider::class.java)
         return fileClassProvider?.getFileClasses(this) ?: PsiClass.EMPTY_ARRAY
     }
 
@@ -218,6 +239,7 @@ open class KtFile(viewProvider: FileViewProvider, val isCompiled: Boolean) :
         isScript = null
         hasTopLevelCallables = null
         pathCached = null
+        hasImportAlias = null
     }
 
     fun isScript(): Boolean = isScript ?: stub?.isScript() ?: isScriptByTree
@@ -281,4 +303,17 @@ open class KtFile(viewProvider: FileViewProvider, val isCompiled: Boolean) :
     companion object {
         val FILE_DECLARATION_TYPES = TokenSet.orSet(KtTokenSets.DECLARATION_TYPES, TokenSet.create(KtStubElementTypes.SCRIPT))
     }
+}
+
+private fun KtImportList.computeHasImportAlias(): Boolean {
+    var child: PsiElement? = firstChild
+    while (child != null) {
+        if (child is KtImportDirective && child.alias != null) {
+            return true
+        }
+
+        child = child.nextSibling
+    }
+
+    return false
 }

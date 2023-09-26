@@ -49,6 +49,12 @@ public class KaptToolIntegrationTestGenerated extends AbstractKaptToolIntegratio
     }
 
     @Test
+    @TestMetadata("fallback")
+    public void testFallback() throws Exception {
+        runTest("plugins/kapt3/kapt3-cli/testData/integration/fallback/");
+    }
+
+    @Test
     @TestMetadata("kotlinFileGeneration")
     public void testKotlinFileGeneration() throws Exception {
         runTest("plugins/kapt3/kapt3-cli/testData/integration/kotlinFileGeneration/");
@@ -70,6 +76,12 @@ public class KaptToolIntegrationTestGenerated extends AbstractKaptToolIntegratio
     @TestMetadata("kt33800")
     public void testKt33800() throws Exception {
         runTest("plugins/kapt3/kapt3-cli/testData/integration/kt33800/");
+    }
+
+    @Test
+    @TestMetadata("multipass")
+    public void testMultipass() throws Exception {
+        runTest("plugins/kapt3/kapt3-cli/testData/integration/multipass/");
     }
 
     @Test

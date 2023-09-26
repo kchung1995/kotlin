@@ -43,6 +43,12 @@ public class SymbolLightClassesEqualityByFqNameForSourceTestGenerated extends Ab
     }
 
     @Test
+    @TestMetadata("annotationBinaryRetention.kt")
+    public void testAnnotationBinaryRetention() throws Exception {
+        runTest("compiler/testData/asJava/lightClasses/lightClassByFqName/annotationBinaryRetention.kt");
+    }
+
+    @Test
     @TestMetadata("AnnotationClass.kt")
     public void testAnnotationClass() throws Exception {
         runTest("compiler/testData/asJava/lightClasses/lightClassByFqName/AnnotationClass.kt");
@@ -100,6 +106,12 @@ public class SymbolLightClassesEqualityByFqNameForSourceTestGenerated extends Ab
     @TestMetadata("DataClassWithCustomImplementedMembers.kt")
     public void testDataClassWithCustomImplementedMembers() throws Exception {
         runTest("compiler/testData/asJava/lightClasses/lightClassByFqName/DataClassWithCustomImplementedMembers.kt");
+    }
+
+    @Test
+    @TestMetadata("DefaultImplsWithTypeParameters.kt")
+    public void testDefaultImplsWithTypeParameters() throws Exception {
+        runTest("compiler/testData/asJava/lightClasses/lightClassByFqName/DefaultImplsWithTypeParameters.kt");
     }
 
     @Test
@@ -193,6 +205,12 @@ public class SymbolLightClassesEqualityByFqNameForSourceTestGenerated extends Ab
     }
 
     @Test
+    @TestMetadata("InvalidJavaIdentifierAsPropertyInitializer.kt")
+    public void testInvalidJavaIdentifierAsPropertyInitializer() throws Exception {
+        runTest("compiler/testData/asJava/lightClasses/lightClassByFqName/InvalidJavaIdentifierAsPropertyInitializer.kt");
+    }
+
+    @Test
     @TestMetadata("JavaBetween.kt")
     public void testJavaBetween() throws Exception {
         runTest("compiler/testData/asJava/lightClasses/lightClassByFqName/JavaBetween.kt");
@@ -274,6 +292,12 @@ public class SymbolLightClassesEqualityByFqNameForSourceTestGenerated extends Ab
     @TestMetadata("StubOrderForOverloads.kt")
     public void testStubOrderForOverloads() throws Exception {
         runTest("compiler/testData/asJava/lightClasses/lightClassByFqName/StubOrderForOverloads.kt");
+    }
+
+    @Test
+    @TestMetadata("SubstitutionOverride.kt")
+    public void testSubstitutionOverride() throws Exception {
+        runTest("compiler/testData/asJava/lightClasses/lightClassByFqName/SubstitutionOverride.kt");
     }
 
     @Test
@@ -361,6 +385,24 @@ public class SymbolLightClassesEqualityByFqNameForSourceTestGenerated extends Ab
         @TestMetadata("ExpectedNestedClassInObject.kt")
         public void testExpectedNestedClassInObject() throws Exception {
             runTest("compiler/testData/asJava/lightClasses/lightClassByFqName/compilationErrors/ExpectedNestedClassInObject.kt");
+        }
+
+        @Test
+        @TestMetadata("FieldWithoutName.kt")
+        public void testFieldWithoutName() throws Exception {
+            runTest("compiler/testData/asJava/lightClasses/lightClassByFqName/compilationErrors/FieldWithoutName.kt");
+        }
+
+        @Test
+        @TestMetadata("FieldWithoutName2.kt")
+        public void testFieldWithoutName2() throws Exception {
+            runTest("compiler/testData/asJava/lightClasses/lightClassByFqName/compilationErrors/FieldWithoutName2.kt");
+        }
+
+        @Test
+        @TestMetadata("FieldWithoutName3.kt")
+        public void testFieldWithoutName3() throws Exception {
+            runTest("compiler/testData/asJava/lightClasses/lightClassByFqName/compilationErrors/FieldWithoutName3.kt");
         }
 
         @Test
@@ -455,6 +497,12 @@ public class SymbolLightClassesEqualityByFqNameForSourceTestGenerated extends Ab
         @TestMetadata("Property.kt")
         public void testProperty() throws Exception {
             runTest("compiler/testData/asJava/lightClasses/lightClassByFqName/delegation/Property.kt");
+        }
+
+        @Test
+        @TestMetadata("WithImplicitType.kt")
+        public void testWithImplicitType() throws Exception {
+            runTest("compiler/testData/asJava/lightClasses/lightClassByFqName/delegation/WithImplicitType.kt");
         }
     }
 
@@ -693,6 +741,22 @@ public class SymbolLightClassesEqualityByFqNameForSourceTestGenerated extends Ab
         @Test
         public void testAllFilesPresentInScript() throws Exception {
             KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/testData/asJava/lightClasses/lightClassByFqName/script"), Pattern.compile("^([^.]+)\\.kt$"), null, true);
+        }
+    }
+
+    @Nested
+    @TestMetadata("compiler/testData/asJava/lightClasses/lightClassByFqName/withTestCompilerPluginEnabled")
+    @TestDataPath("$PROJECT_ROOT")
+    public class WithTestCompilerPluginEnabled {
+        @Test
+        public void testAllFilesPresentInWithTestCompilerPluginEnabled() throws Exception {
+            KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/testData/asJava/lightClasses/lightClassByFqName/withTestCompilerPluginEnabled"), Pattern.compile("^([^.]+)\\.kt$"), null, true);
+        }
+
+        @Test
+        @TestMetadata("allOpen.kt")
+        public void testAllOpen() throws Exception {
+            runTest("compiler/testData/asJava/lightClasses/lightClassByFqName/withTestCompilerPluginEnabled/allOpen.kt");
         }
     }
 }

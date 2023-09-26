@@ -19,7 +19,7 @@ private fun defaultDeviceId(target: KonanTarget) = when (target.family) {
 }
 
 private fun Executor.run(executableAbsolutePath: String, vararg args: String) = ByteArrayOutputStream().let {
-    this.execute(executeRequest(executableAbsolutePath).apply {
+    this.execute(ExecuteRequest(executableAbsolutePath).apply {
         this.args.addAll(args)
         stdout = it
         workingDirectory = File("").absoluteFile
@@ -143,16 +143,10 @@ class XcodeSimulatorExecutor(
 
     private fun downloadRuntimeFor(osName: String) {
         val version = Xcode.findCurrent().version
-        val versionSplit = version.split(".")
-        check(versionSplit.size >= 2) {
-            "Unrecognised version of Xcode $version was split to $versionSplit"
-        }
-        val major = versionSplit[0].toInt()
-        val minor = versionSplit[1].toInt()
-        check(major >= 14) {
+        check(version.major >= 14) {
             "Was unable to get the required runtimes running on Xcode $version. Check the Xcode installation"
         }
-        if (minor >= 1) {
+        if (version.minor >= 1) {
             // Option -downloadPlatform NAME available only since 14.1
             hostExecutor.run("/usr/bin/xcrun", "xcodebuild", "-downloadPlatform", osName)
         } else {

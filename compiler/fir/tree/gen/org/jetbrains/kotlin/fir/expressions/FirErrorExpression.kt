@@ -9,8 +9,9 @@ import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.diagnostics.ConeDiagnostic
 import org.jetbrains.kotlin.fir.diagnostics.FirDiagnosticHolder
-import org.jetbrains.kotlin.fir.types.FirTypeRef
+import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.visitors.*
+import org.jetbrains.kotlin.fir.expressions.UnresolvedExpressionTypeAccess
 
 /*
  * This file was generated automatically
@@ -19,7 +20,8 @@ import org.jetbrains.kotlin.fir.visitors.*
 
 abstract class FirErrorExpression : FirExpression(), FirDiagnosticHolder {
     abstract override val source: KtSourceElement?
-    abstract override val typeRef: FirTypeRef
+    @UnresolvedExpressionTypeAccess
+    abstract override val coneTypeOrNull: ConeKotlinType?
     abstract override val annotations: List<FirAnnotation>
     abstract override val diagnostic: ConeDiagnostic
     abstract val expression: FirExpression?
@@ -31,7 +33,7 @@ abstract class FirErrorExpression : FirExpression(), FirDiagnosticHolder {
     override fun <E : FirElement, D> transform(transformer: FirTransformer<D>, data: D): E =
         transformer.transformErrorExpression(this, data) as E
 
-    abstract override fun replaceTypeRef(newTypeRef: FirTypeRef)
+    abstract override fun replaceConeTypeOrNull(newConeTypeOrNull: ConeKotlinType?)
 
     abstract override fun replaceAnnotations(newAnnotations: List<FirAnnotation>)
 

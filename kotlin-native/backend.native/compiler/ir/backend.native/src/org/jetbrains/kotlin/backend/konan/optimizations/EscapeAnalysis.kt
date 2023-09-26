@@ -5,7 +5,7 @@
 
 package org.jetbrains.kotlin.backend.konan.optimizations
 
-import org.jetbrains.kotlin.backend.common.atMostOne
+import org.jetbrains.kotlin.utils.atMostOne
 import org.jetbrains.kotlin.backend.common.peek
 import org.jetbrains.kotlin.backend.common.pop
 import org.jetbrains.kotlin.backend.common.push
@@ -803,7 +803,8 @@ internal object EscapeAnalysis {
                 context.log { "An external call: $callee" }
                 if (callee.name?.startsWith("kfun:kotlin.") == true
                         // TODO: Is it possible to do it in a more fine-grained fashion?
-                        && !callee.name.startsWith("kfun:kotlin.native.concurrent")) {
+                        && !callee.name.startsWith("kfun:kotlin.native.concurrent")
+                        && !callee.name.startsWith("kfun:kotlin.concurrent")) {
                     context.log { "A function from K/N runtime - can use annotations" }
                     FunctionEscapeAnalysisResult.fromBits(
                             callee.escapes ?: 0,
@@ -1174,11 +1175,11 @@ internal object EscapeAnalysis {
                             is PointsToGraphEdge.Assignment ->
                                 compressedEdges += CompressedPointsToGraph.Edge(fromCompressedNode, toCompressedNode)
 
-                            is PointsToGraphEdge.Field ->
-                                if (edge.node == from /* A loop */) {
-                                    compressedEdges += CompressedPointsToGraph.Edge(
-                                            fromCompressedNode.goto(edge.field), toCompressedNode)
-                                }
+                            is PointsToGraphEdge.Field -> {
+                                val next = fromCompressedNode.goto(edge.field)
+                                if (next != toCompressedNode) // Skip loops.
+                                    compressedEdges += CompressedPointsToGraph.Edge(next, toCompressedNode)
+                            }
                         }
                     }
                 }
@@ -1352,7 +1353,7 @@ internal object EscapeAnalysis {
                 // (picking a leaf drain with only one incoming edge at a time).
                 // They can be removed because they don't add any relations between the parameters.
                 val reversedEdges = interestingDrains.associateWith {
-                    mutableListOf<Pair<PointsToGraphNode, PointsToGraphEdge>>()
+                    mutableListOf<PointsToGraphNode>()
                 }
                 val edgesCount = mutableMapOf<PointsToGraphNode, Int>()
                 val leaves = mutableListOf<PointsToGraphNode>()
@@ -1360,7 +1361,7 @@ internal object EscapeAnalysis {
                     var count = 0
                     for (edge in drain.edges) {
                         val nextDrain = edge.node.drain
-                        reversedEdges[nextDrain]!! += drain to edge
+                        reversedEdges[nextDrain]!! += drain
                         if (nextDrain in interestingDrains)
                             ++count
                     }
@@ -1382,10 +1383,10 @@ internal object EscapeAnalysis {
                     if (drain in parameterDrains)
                         continue
                     if (incomingEdges.size == 1
-                            && incomingEdges[0].let { (node, edge) -> escapes(node) || !escapes(edge.node) }
+                            && (escapes(incomingEdges[0]) || !escapes(drain))
                     ) {
                         interestingDrains.remove(drain)
-                        val prevDrain = incomingEdges[0].first
+                        val prevDrain = incomingEdges[0]
                         val count = edgesCount[prevDrain]!! - 1
                         edgesCount[prevDrain] = count
                         if (count == 0)
@@ -1522,19 +1523,24 @@ internal object EscapeAnalysis {
                         .filter { nodeIds[it] == null } // Was optimized away.
                         .forEach { drain ->
                             val referencingNodes = findReferencing(drain).filter { nodeIds[it] != null }
-                            var needDrain = false
-                            outerLoop@ for (i in referencingNodes.indices)
-                                for (j in i + 1 until referencingNodes.size) {
-                                    val firstNode = referencingNodes[i]
-                                    val secondNode = referencingNodes[j]
-                                    val pair = Pair(firstNode, secondNode)
-                                    if (pair !in connectedNodes) {
-                                        needDrain = true
-                                        break@outerLoop
-                                    }
-                                }
-                            if (needDrain)
+                            if (escapes(drain) && referencingNodes.all { !escapes(it) }) {
                                 nodeIds[drain] = drainFactory()
+                                escapeOrigins += drain
+                            } else {
+                                var needDrain = false
+                                outerLoop@ for (i in referencingNodes.indices)
+                                    for (j in i + 1 until referencingNodes.size) {
+                                        val firstNode = referencingNodes[i]
+                                        val secondNode = referencingNodes[j]
+                                        val pair = Pair(firstNode, secondNode)
+                                        if (pair !in connectedNodes) {
+                                            needDrain = true
+                                            break@outerLoop
+                                        }
+                                    }
+                                if (needDrain)
+                                    nodeIds[drain] = drainFactory()
+                            }
                         }
             }
 
@@ -1688,7 +1694,7 @@ internal object EscapeAnalysis {
                             val itemSize = arrayItemSizeOf(irClass)
                             if (itemSize != null) {
                                 val sizeArgument = node.arguments.first().node
-                                val arrayLength = arrayLengthOf(sizeArgument)
+                                val arrayLength = arrayLengthOf(sizeArgument)?.takeIf { it >= 0 }
                                 val arraySize = arraySize(itemSize, arrayLength ?: Int.MAX_VALUE)
                                 if (arraySize <= allowedToAlloc) {
                                     stackArrayCandidates += ArrayStaticAllocation(ptgNode, irClass, arraySize.toInt())
@@ -1767,30 +1773,40 @@ internal object EscapeAnalysis {
                         nodeIds[drain] = drainFactory()
                 }
 
-                var front = nodeIds.keys.toList()
-                while (front.isNotEmpty()) {
-                    val nextFront = mutableListOf<PointsToGraphNode>()
-                    for (node in front) {
-                        val nodeId = nodeIds[node]!!
-                        node.edges.filterIsInstance<PointsToGraphEdge.Field>().forEach { edge ->
-                            val field = edge.field
-                            val nextNode = edge.node
-                            if (nextNode.drain in interestingDrains && nextNode != node /* Skip loops */) {
-                                val nextNodeId = nodeId.goto(field)
-                                if (nodeIds[nextNode] != null)
-                                    error("Expected only one incoming field edge. ${nodeIds[nextNode]} != $nextNodeId")
-                                nodeIds[nextNode] = nextNodeId
-                                if (nextNode.isDrain)
-                                    nextFront += nextNode
+                var front = nodeIds.keys.toMutableList()
+                do {
+                    while (front.isNotEmpty()) {
+                        val nextFront = mutableListOf<PointsToGraphNode>()
+                        for (node in front) {
+                            val nodeId = nodeIds[node]!!
+                            node.edges.filterIsInstance<PointsToGraphEdge.Field>().forEach { edge ->
+                                val field = edge.field
+                                val nextNode = edge.node
+                                if (nextNode.drain in interestingDrains && nextNode != node /* Skip loops */) {
+                                    val nextNodeId = nodeId.goto(field)
+                                    if (nodeIds[nextNode] == null) {
+                                        nodeIds[nextNode] = nextNodeId
+                                        if (nextNode.isDrain)
+                                            nextFront += nextNode
+                                    }
+                                }
                             }
                         }
+                        front = nextFront
                     }
-                    front = nextFront
-                }
-                for (drain in interestingDrains) {
-                    if (nodeIds[drain] == null && drain.edges.any { it.node.drain in interestingDrains })
-                        error("Drains have not been painted properly")
-                }
+
+                    // Find unpainted drain.
+                    for (drain in interestingDrains) {
+                        if (nodeIds[drain] == null
+                                // A little optimization - skip leaf drains.
+                                && drain.edges.any { it.node.drain in interestingDrains }
+                        ) {
+                            nodeIds[drain] = drainFactory()
+                            front += drain
+                            break
+                        }
+                    }
+                } while (front.isNotEmpty()) // Loop until all drains have been painted.
 
                 return nodeIds
             }
@@ -1811,10 +1827,7 @@ internal object EscapeAnalysis {
             val intraproceduralAnalysisResult =
                     IntraproceduralAnalysis(context, moduleDFG, externalModulesDFG, callGraph).analyze()
             InterproceduralAnalysis(context, generationState, callGraph, intraproceduralAnalysisResult, externalModulesDFG, lifetimes,
-                    // TODO: This is a bit conservative, but for more aggressive option some support from runtime is
-                    // needed (namely, determining that a pointer is from the stack; this is easy for x86 or x64,
-                    //         but what about all other platforms?).
-                    propagateExiledToHeapObjects = true
+                    propagateExiledToHeapObjects = context.config.memoryModel != MemoryModel.EXPERIMENTAL
             ).analyze()
         } catch (t: Throwable) {
             val extraUserInfo =

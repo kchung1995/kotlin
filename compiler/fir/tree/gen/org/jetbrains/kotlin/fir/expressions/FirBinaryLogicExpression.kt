@@ -6,9 +6,11 @@
 package org.jetbrains.kotlin.fir.expressions
 
 import org.jetbrains.kotlin.KtSourceElement
+import org.jetbrains.kotlin.contracts.description.LogicOperationKind
 import org.jetbrains.kotlin.fir.FirElement
-import org.jetbrains.kotlin.fir.types.FirTypeRef
+import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.visitors.*
+import org.jetbrains.kotlin.fir.expressions.UnresolvedExpressionTypeAccess
 
 /*
  * This file was generated automatically
@@ -17,7 +19,8 @@ import org.jetbrains.kotlin.fir.visitors.*
 
 abstract class FirBinaryLogicExpression : FirExpression() {
     abstract override val source: KtSourceElement?
-    abstract override val typeRef: FirTypeRef
+    @UnresolvedExpressionTypeAccess
+    abstract override val coneTypeOrNull: ConeKotlinType?
     abstract override val annotations: List<FirAnnotation>
     abstract val leftOperand: FirExpression
     abstract val rightOperand: FirExpression
@@ -29,7 +32,7 @@ abstract class FirBinaryLogicExpression : FirExpression() {
     override fun <E : FirElement, D> transform(transformer: FirTransformer<D>, data: D): E =
         transformer.transformBinaryLogicExpression(this, data) as E
 
-    abstract override fun replaceTypeRef(newTypeRef: FirTypeRef)
+    abstract override fun replaceConeTypeOrNull(newConeTypeOrNull: ConeKotlinType?)
 
     abstract override fun replaceAnnotations(newAnnotations: List<FirAnnotation>)
 

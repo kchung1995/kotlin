@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2022 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -12,29 +12,26 @@ import org.jetbrains.kotlin.builtins.functions.isBasicFunctionOrKFunction
 import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.fir.*
 import org.jetbrains.kotlin.fir.declarations.*
-import org.jetbrains.kotlin.fir.expressions.FirAnnotation
-import org.jetbrains.kotlin.fir.expressions.FirExpression
-import org.jetbrains.kotlin.fir.expressions.FirNamedArgumentExpression
-import org.jetbrains.kotlin.fir.expressions.FirResolvedQualifier
+import org.jetbrains.kotlin.fir.expressions.*
 import org.jetbrains.kotlin.fir.expressions.builder.buildNamedArgumentExpression
-import org.jetbrains.kotlin.fir.resolve.BodyResolveComponents
-import org.jetbrains.kotlin.fir.resolve.DoubleColonLHS
-import org.jetbrains.kotlin.fir.resolve.createFunctionType
+import org.jetbrains.kotlin.fir.resolve.*
 import org.jetbrains.kotlin.fir.resolve.diagnostics.ConeUnsupportedCallableReferenceTarget
 import org.jetbrains.kotlin.fir.resolve.inference.extractInputOutputTypesFromCallableReferenceExpectedType
-import org.jetbrains.kotlin.fir.resolve.scope
-import org.jetbrains.kotlin.fir.scopes.FakeOverrideTypeCalculator
+import org.jetbrains.kotlin.fir.resolve.inference.model.ConeArgumentConstraintPosition
+import org.jetbrains.kotlin.fir.scopes.CallableCopyTypeCalculator
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.types.*
+import org.jetbrains.kotlin.fir.utils.exceptions.withConeTypeEntry
+import org.jetbrains.kotlin.fir.utils.exceptions.withFirEntry
 import org.jetbrains.kotlin.fir.visitors.FirTransformer
 import org.jetbrains.kotlin.fir.visitors.FirVisitor
 import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.resolve.calls.inference.ConstraintSystemOperation
-import org.jetbrains.kotlin.resolve.calls.inference.model.SimpleConstraintSystemConstraintPosition
 import org.jetbrains.kotlin.resolve.calls.inference.runTransaction
 import org.jetbrains.kotlin.resolve.calls.tower.isSuccess
 import org.jetbrains.kotlin.types.expressions.CoercionStrategy
 import org.jetbrains.kotlin.utils.addToStdlib.shouldNotBeCalled
+import org.jetbrains.kotlin.utils.exceptions.errorWithAttachment
 
 
 internal object CheckCallableReferenceExpectedType : CheckerStage() {
@@ -48,7 +45,7 @@ internal object CheckCallableReferenceExpectedType : CheckerStage() {
             else -> null
         }
 
-        val fir: FirCallableDeclaration = candidate.symbol.fir
+        val fir: FirCallableDeclaration = candidate.symbol.fir as FirCallableDeclaration
 
         val (rawResultingType, callableReferenceAdaptation) = buildReflectionType(fir, resultingReceiverType, candidate, context)
         val resultingType = candidate.substitutor.substituteOrSelf(rawResultingType)
@@ -64,7 +61,8 @@ internal object CheckCallableReferenceExpectedType : CheckerStage() {
         candidate.outerConstraintBuilderEffect = fun ConstraintSystemOperation.() {
             addOtherSystem(candidate.system.currentStorage())
 
-            val position = SimpleConstraintSystemConstraintPosition //TODO
+            // Callable references are either arguments to a call or are wrapped in a synthetic call for resolution.
+            val position = ConeArgumentConstraintPosition(callInfo.callSite)
 
             if (expectedType != null && !resultingType.contains {
                     it is ConeTypeVariableType && it.lookupTag !in outerCsBuilder.currentStorage().allTypeVariables
@@ -175,8 +173,13 @@ private fun BodyResolveComponents.getCallableReferenceAdaptation(
     if (expectedArgumentsCount < 0) return null
 
     val fakeArguments = createFakeArgumentsForReference(function, expectedArgumentsCount, inputTypes, unboundReceiverCount)
-    val originScope = function.dispatchReceiverType
-        ?.scope(session, scopeSession, FakeOverrideTypeCalculator.DoNothing, requiredPhase = FirResolvePhase.STATUS)
+    val originScope = function.dispatchReceiverType?.scope(
+        useSiteSession = session,
+        scopeSession = scopeSession,
+        callableCopyTypeCalculator = CallableCopyTypeCalculator.DoNothing,
+        requiredMembersPhase = FirResolvePhase.STATUS,
+    )
+
     val argumentMapping = mapArguments(fakeArguments, function, originScope = originScope, callSiteIsOperatorCall = false)
     if (argumentMapping.diagnostics.any { !it.applicability.isSuccess }) return null
 
@@ -242,10 +245,14 @@ private fun BodyResolveComponents.getCallableReferenceAdaptation(
         }
     }
 
-    val coercionStrategy = if (returnExpectedType.isUnitOrFlexibleUnit && !function.returnTypeRef.isUnit)
-        CoercionStrategy.COERCION_TO_UNIT
-    else
-        CoercionStrategy.NO_COERCION
+    val returnTypeRef = function.returnTypeRef
+    val coercionStrategy =
+        if (returnExpectedType.isUnitOrFlexibleUnit &&
+            returnTypeRef.coneTypeSafe<ConeKotlinType>()?.fullyExpandedType(session)?.isUnit != true
+        )
+            CoercionStrategy.COERCION_TO_UNIT
+        else
+            CoercionStrategy.NO_COERCION
 
     val adaptedArguments = if (expectedType.isBaseTypeForNumberedReferenceTypes)
         emptyMap()
@@ -298,7 +305,11 @@ private fun varargParameterTypeByExpectedParameter(
     varargMappingState: VarargMappingState,
 ): Pair<ConeKotlinType?, VarargMappingState> {
     val elementType = substitutedParameter.returnTypeRef.coneType.arrayElementType()
-        ?: error("Vararg parameter $substitutedParameter does not have vararg type")
+        ?: errorWithAttachment("Vararg parameter ${substitutedParameter::class.java} does not have vararg type") {
+            withConeTypeEntry("expectedParameterType", expectedParameterType)
+            withFirEntry("substitutedParameter", substitutedParameter)
+            withEntry("varargMappingState", varargMappingState.toString())
+        }
 
     return when (varargMappingState) {
         VarargMappingState.UNMAPPED -> {
@@ -390,18 +401,19 @@ private fun createFakeArgumentsForReference(
 }
 
 class FirFakeArgumentForCallableReference(
-    val index: Int
+    val index: Int,
 ) : FirExpression() {
     override val source: KtSourceElement?
         get() = null
 
-    override val typeRef: FirTypeRef
+    @UnresolvedExpressionTypeAccess
+    override val coneTypeOrNull: ConeKotlinType
         get() = shouldNotBeCalled()
 
     override val annotations: List<FirAnnotation>
         get() = shouldNotBeCalled()
 
-    override fun replaceTypeRef(newTypeRef: FirTypeRef) {
+    override fun replaceConeTypeOrNull(newConeTypeOrNull: ConeKotlinType?) {
         shouldNotBeCalled()
     }
 

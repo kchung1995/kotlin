@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2022 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -26,7 +26,7 @@ class FirSyntheticProperty(
     override val isVar: Boolean,
     override val symbol: FirSyntheticPropertySymbol,
     override val status: FirDeclarationStatus,
-    override var resolvePhase: FirResolvePhase,
+    resolvePhase: FirResolvePhase,
     override val getter: FirSyntheticPropertyAccessor,
     override val setter: FirSyntheticPropertyAccessor? = null,
     override val backingField: FirBackingField? = null,
@@ -34,6 +34,11 @@ class FirSyntheticProperty(
 ) : FirProperty() {
     init {
         symbol.bind(this)
+    }
+
+    init {
+        @OptIn(ResolveStateAccess::class)
+        this.resolveState = resolvePhase.asResolveState()
     }
 
     override val returnTypeRef: FirTypeRef
@@ -46,7 +51,7 @@ class FirSyntheticProperty(
         get() = null
 
     override val origin: FirDeclarationOrigin
-        get() = FirDeclarationOrigin.Synthetic
+        get() = FirDeclarationOrigin.Synthetic.JavaProperty
 
     override val initializer: FirExpression?
         get() = null
@@ -142,10 +147,6 @@ class FirSyntheticProperty(
         notSupported()
     }
 
-    override fun replaceResolvePhase(newResolvePhase: FirResolvePhase) {
-        resolvePhase = newResolvePhase
-    }
-
     override fun replaceReturnTypeRef(newReturnTypeRef: FirTypeRef) {
         notSupported()
     }
@@ -163,6 +164,10 @@ class FirSyntheticProperty(
     }
 
     override fun replaceInitializer(newInitializer: FirExpression?) {
+        notSupported()
+    }
+
+    override fun replaceDelegate(newDelegate: FirExpression?) {
         notSupported()
     }
 

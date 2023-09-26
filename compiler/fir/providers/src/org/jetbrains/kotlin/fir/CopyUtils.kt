@@ -5,10 +5,10 @@
 
 package org.jetbrains.kotlin.fir
 
+import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.fir.declarations.FirDeclaration
 import org.jetbrains.kotlin.fir.declarations.utils.expandedConeType
-import org.jetbrains.kotlin.fir.diagnostics.ConeDiagnostic
 import org.jetbrains.kotlin.fir.expressions.*
 import org.jetbrains.kotlin.fir.expressions.builder.FirImplicitInvokeCallBuilder
 import org.jetbrains.kotlin.fir.expressions.builder.buildImplicitInvokeCall
@@ -41,17 +41,18 @@ inline fun FirFunctionCall.copyAsImplicitInvokeCall(
 }
 
 fun FirTypeRef.resolvedTypeFromPrototype(
-    type: ConeKotlinType
+    type: ConeKotlinType,
+    fallbackSource: KtSourceElement? = null,
 ): FirResolvedTypeRef {
     return if (type is ConeErrorType) {
         buildErrorTypeRef {
-            source = this@resolvedTypeFromPrototype.source
+            source = this@resolvedTypeFromPrototype.source ?: fallbackSource
             this.type = type
             diagnostic = type.diagnostic
         }
     } else {
         buildResolvedTypeRef {
-            source = this@resolvedTypeFromPrototype.source
+            source = this@resolvedTypeFromPrototype.source ?: fallbackSource
             this.type = type
             delegatedTypeRef = when (val original = this@resolvedTypeFromPrototype) {
                 is FirResolvedTypeRef -> original.delegatedTypeRef
@@ -63,19 +64,15 @@ fun FirTypeRef.resolvedTypeFromPrototype(
     }
 }
 
-fun FirTypeRef.errorTypeFromPrototype(
-    diagnostic: ConeDiagnostic
-): FirErrorTypeRef {
-    return buildErrorTypeRef {
-        source = this@errorTypeFromPrototype.source
-        this.diagnostic = diagnostic
-    }
-}
-
+/**
+ * [shouldExpandTypeAliases] should be set to `false` if this function is called during deserialization of some binary declaration
+ * For details see KT-57876
+ */
 fun List<FirAnnotation>.computeTypeAttributes(
     session: FirSession,
     predefined: List<ConeAttribute<*>> = emptyList(),
     containerDeclaration: FirDeclaration? = null,
+    shouldExpandTypeAliases: Boolean
 ): ConeAttributes {
     if (this.isEmpty()) {
         if (predefined.isEmpty()) return ConeAttributes.Empty
@@ -85,7 +82,11 @@ fun List<FirAnnotation>.computeTypeAttributes(
     attributes += predefined
     val customAnnotations = mutableListOf<FirAnnotation>()
     for (annotation in this) {
-        when (annotation.tryExpandClassId(session)) {
+        val classId = when (shouldExpandTypeAliases) {
+            true -> annotation.tryExpandClassId(session)
+            false -> annotation.resolvedType.classId
+        }
+        when (classId) {
             CompilerConeAttributes.Exact.ANNOTATION_CLASS_ID -> attributes += CompilerConeAttributes.Exact
             CompilerConeAttributes.NoInfer.ANNOTATION_CLASS_ID -> attributes += CompilerConeAttributes.NoInfer
             CompilerConeAttributes.ExtensionFunctionType.ANNOTATION_CLASS_ID -> attributes += CompilerConeAttributes.ExtensionFunctionType

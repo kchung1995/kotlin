@@ -5,7 +5,6 @@
 
 package org.jetbrains.kotlin.fir.deserialization
 
-import org.jetbrains.kotlin.builtins.jvm.JvmBuiltInsSignatures
 import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.descriptors.EffectiveVisibility
 import org.jetbrains.kotlin.descriptors.Modality
@@ -13,28 +12,33 @@ import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.fir.*
 import org.jetbrains.kotlin.fir.declarations.*
 import org.jetbrains.kotlin.fir.declarations.builder.*
-import org.jetbrains.kotlin.fir.declarations.comparators.FirMemberDeclarationComparator
 import org.jetbrains.kotlin.fir.declarations.impl.FirResolvedDeclarationStatusImpl
 import org.jetbrains.kotlin.fir.declarations.utils.addDeclarations
 import org.jetbrains.kotlin.fir.declarations.utils.isCompanion
 import org.jetbrains.kotlin.fir.declarations.utils.moduleName
 import org.jetbrains.kotlin.fir.declarations.utils.sourceElement
+import org.jetbrains.kotlin.fir.resolve.providers.getRegularClassSymbolByClassId
+import org.jetbrains.kotlin.fir.resolve.providers.symbolProvider
+import org.jetbrains.kotlin.fir.resolve.transformers.setLazyPublishedVisibility
 import org.jetbrains.kotlin.fir.scopes.FirScopeProvider
 import org.jetbrains.kotlin.fir.symbols.ConeTypeParameterLookupTag
 import org.jetbrains.kotlin.fir.symbols.impl.FirEnumEntrySymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
+import org.jetbrains.kotlin.fir.types.ConeTypeProjection
 import org.jetbrains.kotlin.fir.types.builder.buildResolvedTypeRef
 import org.jetbrains.kotlin.fir.types.coneTypeSafe
 import org.jetbrains.kotlin.fir.types.impl.ConeClassLikeTypeImpl
 import org.jetbrains.kotlin.fir.types.impl.ConeTypeParameterTypeImpl
 import org.jetbrains.kotlin.fir.types.toLookupTag
-import org.jetbrains.kotlin.load.kotlin.KotlinJvmBinarySourceElement
 import org.jetbrains.kotlin.metadata.ProtoBuf
+import org.jetbrains.kotlin.metadata.SerializationPluginMetadataExtensions
 import org.jetbrains.kotlin.metadata.deserialization.*
-import org.jetbrains.kotlin.metadata.jvm.JvmProtoBuf
-import org.jetbrains.kotlin.name.*
+import org.jetbrains.kotlin.name.CallableId
+import org.jetbrains.kotlin.name.ClassId
+import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.serialization.SerializerExtensionProtocol
 import org.jetbrains.kotlin.serialization.deserialization.ProtoEnumFlags
 import org.jetbrains.kotlin.serialization.deserialization.descriptors.DeserializedContainerSource
@@ -76,12 +80,9 @@ fun deserializeClassToSymbol(
     }
     val isSealed = modality == Modality.SEALED
     val annotationDeserializer = defaultAnnotationDeserializer ?: FirBuiltinAnnotationDeserializer(session)
-    val jvmBinaryClass = (containerSource as? KotlinJvmBinarySourceElement)?.binaryClass
-    val constDeserializer = if (jvmBinaryClass != null) {
-        FirJvmConstDeserializer(session, jvmBinaryClass, serializerExtensionProtocol)
-    } else {
-        FirConstDeserializer(session, serializerExtensionProtocol)
-    }
+    val platformConstDeserializer =
+        session.deserializationExtension?.createConstDeserializer(containerSource, session, serializerExtensionProtocol)
+    val constDeserializer = platformConstDeserializer ?: FirConstDeserializer(session, serializerExtensionProtocol)
     val context =
         parentContext?.childContext(
             classProto.typeParameterList,
@@ -92,12 +93,9 @@ fun deserializeClassToSymbol(
             containerSource,
             outerClassSymbol = symbol,
             annotationDeserializer,
-            if (status.isCompanion) {
-                parentContext.constDeserializer
-            } else {
-                ((containerSource as? KotlinJvmBinarySourceElement)?.binaryClass)?.let {
-                    FirJvmConstDeserializer(session, it, serializerExtensionProtocol)
-                } ?: parentContext.constDeserializer
+            when {
+                status.isCompanion || platformConstDeserializer == null -> parentContext.constDeserializer
+                else -> constDeserializer // platformConstDeserializer != null => FirJvmConstDeserializer will be used on JVM
             },
             status.isInner
         ) ?: FirDeserializationContext.createForClass(
@@ -115,6 +113,9 @@ fun deserializeClassToSymbol(
             context.annotationDeserializer.inheritAnnotationInfo(it.annotationDeserializer)
         }
     }
+
+    val versionRequirements = VersionRequirement.create(classProto, context)
+
     buildRegularClass {
         this.moduleData = moduleData
         this.origin = origin
@@ -142,7 +143,7 @@ fun deserializeClassToSymbol(
         )
 
         addDeclarations(
-            classProto.propertyList.map {
+            classProto.propertiesInOrder(versionRequirements).map {
                 classDeserializer.loadProperty(it, classProto, symbol)
             }
         )
@@ -161,10 +162,14 @@ fun deserializeClassToSymbol(
         )
 
         addDeclarations(
+            classProto.typeAliasList.mapNotNull(classDeserializer::loadTypeAlias)
+        )
+
+        addDeclarations(
             classProto.enumEntryList.mapNotNull { enumEntryProto ->
                 val enumEntryName = nameResolver.getName(enumEntryProto.name)
 
-                val enumType = ConeClassLikeTypeImpl(symbol.toLookupTag(), emptyArray(), false)
+                val enumType = ConeClassLikeTypeImpl(symbol.toLookupTag(), ConeTypeProjection.EMPTY_ARRAY, false)
                 val property = buildEnumEntry {
                     this.moduleData = moduleData
                     this.origin = FirDeclarationOrigin.Library
@@ -197,21 +202,11 @@ fun deserializeClassToSymbol(
             generateEntriesGetter(moduleData, classId.packageFqName, classId.relativeClassName)
         }
 
-        addCloneForArrayIfNeeded(classId, context.dispatchReceiver)
-        session.deserializedClassConfigurator?.run {
-            configure(classId)
+        addCloneForArrayIfNeeded(classId, context.dispatchReceiver, session)
+        session.deserializationExtension?.run {
+            configureDeserializedClass(classId)
         }
 
-        declarations.sortWith(object : Comparator<FirDeclaration> {
-            override fun compare(a: FirDeclaration, b: FirDeclaration): Int {
-                // Reorder members based on their type and name only.
-                // See FE 1.0's [DeserializedMemberScope#addMembers].
-                if (a is FirMemberDeclaration && b is FirMemberDeclaration) {
-                    return FirMemberDeclarationComparator.TypeAndNameComparator.compare(a, b)
-                }
-                return 0
-            }
-        })
         companionObjectSymbol = (declarations.firstOrNull { it is FirRegularClass && it.isCompanion } as FirRegularClass?)?.symbol
 
         contextReceivers.addAll(classDeserializer.createContextReceiversForClass(classProto))
@@ -233,22 +228,21 @@ fun deserializeClassToSymbol(
             context.annotationDeserializer.loadClassAnnotations(classProto, context.nameResolver)
         )
 
-        versionRequirementsTable = context.versionRequirementTable
+        this.versionRequirements = versionRequirements
 
         sourceElement = containerSource
 
         replaceDeprecationsProvider(getDeprecationsProvider(session))
 
-        classProto.getExtensionOrNull(JvmProtoBuf.classModuleName)?.let { idx ->
-            moduleName = nameResolver.getString(idx)
-        }
-        session.deserializedClassConfigurator?.run {
-            configure(classId)
+        session.deserializationExtension?.loadModuleName(classProto, nameResolver)?.let {
+            moduleName = it
         }
 
         if (!Flags.HAS_ENUM_ENTRIES.get(flags)) {
             hasNoEnumEntriesAttr = true
         }
+
+        setLazyPublishedVisibility(session)
     }
 }
 
@@ -265,26 +259,14 @@ private val ARRAY_CLASSES: Set<Name> = setOf(
     Name.identifier("BooleanArray"),
 )
 
-private val JAVA_IO_SERIALIZABLE = ClassId.topLevel(FqName("java.io.Serializable"))
-
-private fun FirRegularClassBuilder.addSerializableIfNeeded(classId: ClassId) {
-    if (!JvmBuiltInsSignatures.isSerializableInJava(classId.asSingleFqName().toUnsafe())) return
-    superTypeRefs += buildResolvedTypeRef {
-        type = ConeClassLikeTypeImpl(
-            JAVA_IO_SERIALIZABLE.toLookupTag(),
-            typeArguments = emptyArray(),
-            isNullable = false
-        )
-    }
-}
-
-private fun FirRegularClassBuilder.addCloneForArrayIfNeeded(classId: ClassId, dispatchReceiver: ConeClassLikeType?) {
+fun FirRegularClassBuilder.addCloneForArrayIfNeeded(classId: ClassId, dispatchReceiver: ConeClassLikeType?, session: FirSession) {
     if (classId.packageFqName != StandardClassIds.BASE_KOTLIN_PACKAGE) return
     if (classId.shortClassName !in ARRAY_CLASSES) return
+    if (session.symbolProvider.getRegularClassSymbolByClassId(StandardClassIds.Cloneable) == null) return
     superTypeRefs += buildResolvedTypeRef {
         type = ConeClassLikeTypeImpl(
             StandardClassIds.Cloneable.toLookupTag(),
-            typeArguments = emptyArray(),
+            typeArguments = ConeTypeProjection.EMPTY_ARRAY,
             isNullable = false
         )
     }
@@ -317,16 +299,21 @@ private fun FirRegularClassBuilder.addCloneForArrayIfNeeded(classId: ClassId, di
     }
 }
 
-abstract class DeserializedClassConfigurator(val session: FirSession) : FirSessionComponent {
-    open fun FirRegularClassBuilder.configure(classId: ClassId) {}
-
-    open fun FirRegularClass.configure(classId: ClassId) {}
-}
-
-class JvmDeserializedClassConfigurator(session: FirSession): DeserializedClassConfigurator(session) {
-    override fun FirRegularClassBuilder.configure(classId: ClassId) {
-        addSerializableIfNeeded(classId)
+private fun ProtoBuf.ClassOrBuilder.propertiesInOrder(versionRequirements: List<VersionRequirement>): List<ProtoBuf.Property> {
+    val properties = propertyList
+    if (versionRequirements.any { it.version.major >= 2 }) return properties
+    val order = getExtension(SerializationPluginMetadataExtensions.propertiesNamesInProgramOrder)
+        .takeIf { it.isNotEmpty() }
+        ?.toSet()
+        ?: return properties
+    val propertiesByName = properties.groupBy { it.name }
+    val orderedProperties = order.flatMap { propertiesByName[it] ?: emptyList() }
+    // non-serializable properties are not saved in SerializationPluginMetadataExtensions, so we need to pick up them if any
+    return if (orderedProperties.size == properties.size) {
+        orderedProperties
+    } else {
+        orderedProperties + properties.filter { it.name !in order }
     }
 }
 
-val FirSession.deserializedClassConfigurator: DeserializedClassConfigurator? by FirSession.nullableSessionComponentAccessor()
+val FirSession.deserializationExtension: FirDeserializationExtension? by FirSession.nullableSessionComponentAccessor()

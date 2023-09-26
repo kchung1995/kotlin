@@ -124,7 +124,7 @@ class MppPublicationTest {
 
         for ((targetName, sourceElements) in sourcesElements) {
             assertTrue(
-                message = "Sources Elements of target $targetName doesn't have 'userAttribute'"
+                message = "$sourceElements of target $targetName doesn't have 'userAttribute'"
             ) { sourceElements.attributes.toMapOfStrings().containsKey("userAttribute") }
         }
     }
@@ -143,6 +143,7 @@ class MppPublicationTest {
     @Test
     fun `sourcesJar task should be available during configuration time`() {
         kotlin.linuxX64("linux")
+        project.evaluate()
 
         val sourcesJars = listOf(
             "sourcesJar", // sources of common source sets i.e. root module
@@ -187,6 +188,7 @@ class MppPublicationTest {
     fun `test that sourcesJar tasks still exist even if sources should not be published`() {
         kotlin.linuxX64("linux")
         kotlin.withSourcesJar(publish = false)
+        project.evaluate()
 
         val sourcesJars = listOf(
             "sourcesJar", // sources of common source sets i.e. root module
@@ -198,6 +200,30 @@ class MppPublicationTest {
         for (sourcesJarTaskName in sourcesJars) {
             val sourcesJar = project.tasks.findByName(sourcesJarTaskName)
             assertNotNull(sourcesJar, "Task '$sourcesJarTaskName' should exist during project configuration time")
+        }
+    }
+
+    @Test
+    fun `test that no sourcesElements should be consumable when sources are published`() {
+        kotlin.linuxX64("linux")
+        kotlin.withSourcesJar(publish = true)
+
+        project.evaluate()
+        kotlin.targets.forEach {
+            val sourcesElements = project.configurations.getByName(it.sourcesElementsConfigurationName)
+            if (!sourcesElements.isCanBeConsumed) fail("Configuration '${it.sourcesElementsConfigurationName}' should be consumable")
+        }
+    }
+
+    @Test
+    fun `test that no sourcesElements should be consumable when sources are not published`() {
+        kotlin.linuxX64("linux")
+        kotlin.withSourcesJar(publish = false)
+
+        project.evaluate()
+        kotlin.targets.forEach {
+            val sourcesElements = project.configurations.getByName(it.sourcesElementsConfigurationName)
+            if (sourcesElements.isCanBeConsumed) fail("Configuration '${it.sourcesElementsConfigurationName}' should not be consumable")
         }
     }
 

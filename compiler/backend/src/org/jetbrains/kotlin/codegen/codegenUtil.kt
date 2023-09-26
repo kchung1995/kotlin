@@ -317,7 +317,7 @@ val CallableDescriptor.arity: Int
             (if (extensionReceiverParameter != null) 1 else 0) +
             (if (dispatchReceiverParameter != null) 1 else 0)
 
-fun FqName.topLevelClassInternalName() = JvmClassName.byClassId(ClassId(parent(), shortName())).internalName
+fun FqName.topLevelClassInternalName() = JvmClassName.internalNameByClassId(ClassId(parent(), shortName()))
 fun FqName.topLevelClassAsmType(): Type = Type.getObjectType(topLevelClassInternalName())
 
 fun initializeVariablesForDestructuredLambdaParameters(codegen: ExpressionCodegen, valueParameters: List<ValueParameterDescriptor>, endLabel: Label?) {
@@ -593,7 +593,7 @@ private fun generateLambdaForRunSuspend(
     )
 
     lambdaBuilder.defineClass(
-        originElement, state.classFileVersion,
+        originElement, state.config.classFileVersion,
         ACC_FINAL or ACC_SUPER or ACC_SYNTHETIC,
         internalName, null,
         AsmTypes.LAMBDA.internalName,
@@ -676,7 +676,7 @@ private fun generateLambdaForRunSuspend(
 
     writeSyntheticClassMetadata(lambdaBuilder, state, false)
 
-    lambdaBuilder.done(state.generateSmapCopyToAnnotation)
+    lambdaBuilder.done(state.config.generateSmapCopyToAnnotation)
     return lambdaBuilder.thisName
 }
 

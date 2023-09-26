@@ -18,6 +18,7 @@ import org.jetbrains.kotlin.analysis.api.symbols.markers.KtAnnotatedSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KtSymbolWithVisibility
 import org.jetbrains.kotlin.analysis.project.structure.KtSourceModule
 import org.jetbrains.kotlin.asJava.builder.LightMemberOrigin
+import org.jetbrains.kotlin.asJava.checkIsMangled
 import org.jetbrains.kotlin.asJava.classes.KotlinLightReferenceListBuilder
 import org.jetbrains.kotlin.asJava.classes.KtLightClassForFacade
 import org.jetbrains.kotlin.asJava.classes.cannotModify
@@ -25,6 +26,7 @@ import org.jetbrains.kotlin.asJava.classes.lazyPub
 import org.jetbrains.kotlin.asJava.elements.KtLightMethod
 import org.jetbrains.kotlin.asJava.mangleInternalName
 import org.jetbrains.kotlin.descriptors.Visibilities
+import org.jetbrains.kotlin.descriptors.Visibility
 import org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget
 import org.jetbrains.kotlin.light.classes.symbol.SymbolLightMemberBase
 import org.jetbrains.kotlin.light.classes.symbol.annotations.getJvmNameFromAnnotation
@@ -77,7 +79,7 @@ internal abstract class SymbolLightMethodBase(
         }
     }
 
-    override val isMangled: Boolean = false // TODO: checkIsMangled ?
+    override val isMangled: Boolean get() = checkIsMangled()
 
     abstract override fun getTypeParameters(): Array<PsiTypeParameter>
     abstract override fun hasTypeParameters(): Boolean
@@ -108,6 +110,7 @@ internal abstract class SymbolLightMethodBase(
         defaultName: String,
         containingClass: SymbolLightClassBase,
         annotationUseSiteTarget: AnnotationUseSiteTarget? = null,
+        visibility: Visibility = this.visibility,
     ): String where T : KtAnnotatedSymbol, T : KtSymbolWithVisibility, T : KtCallableSymbol {
         getJvmNameFromAnnotation(annotationUseSiteTarget.toOptionalFilter())?.let { return it }
 
@@ -115,8 +118,8 @@ internal abstract class SymbolLightMethodBase(
         if (containingClass is KtLightClassForFacade) return defaultName
         if (hasPublishedApiAnnotation(annotationUseSiteTarget.toFilter())) return defaultName
 
-        val moduleName = (ktModule as? KtSourceModule)?.moduleName ?: return defaultName
-        return mangleInternalName(defaultName, moduleName)
+        val sourceModule = ktModule as? KtSourceModule ?: return defaultName
+        return mangleInternalName(defaultName, sourceModule)
     }
 
     abstract fun isOverride(): Boolean

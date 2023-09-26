@@ -96,7 +96,7 @@ private class TypeOperatorLowering(private val backendContext: JvmBackendContext
                 with(builder) {
                     irLetS(argument, irType = context.irBuiltIns.anyNType) { tmp ->
                         val message = irString("null cannot be cast to non-null type ${type.render()}")
-                        if (backendContext.state.unifiedNullChecks) {
+                        if (backendContext.config.unifiedNullChecks) {
                             // Avoid branching to improve code coverage (KT-27427).
                             // We have to generate a null check here, because even if argument is of non-null type,
                             // it can be uninitialized value, which is 'null' for reference types in JMM.
@@ -736,26 +736,19 @@ private class TypeOperatorLowering(private val backendContext: JvmBackendContext
                 irNot(lowerInstanceOf(expression.argument.transformVoid(), expression.typeOperand))
 
             IrTypeOperator.IMPLICIT_NOTNULL -> {
-                val owner = scope.scopeOwnerSymbol.owner
-                val source = if (owner is IrFunction && owner.isDelegated()) {
-                    "${owner.name.asString()}(...)"
-                } else {
-                    val declarationParent = parent as? IrDeclaration
-                    val sourceView = declarationParent?.let(::sourceViewFor)
-                    val (startOffset, endOffset) = expression.extents()
-                    if (sourceView?.validSourcePosition(startOffset, endOffset) == true) {
-                        sourceView.subSequence(startOffset, endOffset).toString()
-                    } else {
-                        // Fallback for inconsistent line numbers
-                        (declarationParent as? IrDeclarationWithName)?.name?.asString() ?: "Unknown Declaration"
-                    }
-                }
+                val text = computeNotNullAssertionText(expression)
 
                 irLetS(expression.argument.transformVoid(), irType = context.irBuiltIns.anyNType) { valueSymbol ->
                     irComposite(resultType = expression.type) {
-                        +irCall(checkExpressionValueIsNotNull).apply {
-                            putValueArgument(0, irGet(valueSymbol.owner))
-                            putValueArgument(1, irString(source.trimForRuntimeAssertion()))
+                        if (text != null) {
+                            +irCall(checkExpressionValueIsNotNull).apply {
+                                putValueArgument(0, irGet(valueSymbol.owner))
+                                putValueArgument(1, irString(text.trimForRuntimeAssertion()))
+                            }
+                        } else {
+                            +irCall(backendContext.ir.symbols.checkNotNull).apply {
+                                putValueArgument(0, irGet(valueSymbol.owner))
+                            }
                         }
                         +irGet(valueSymbol.owner)
                     }
@@ -766,6 +759,30 @@ private class TypeOperatorLowering(private val backendContext: JvmBackendContext
                 expression.transformChildrenVoid()
                 expression
             }
+        }
+    }
+
+    private fun IrBuilderWithScope.computeNotNullAssertionText(typeOperatorCall: IrTypeOperatorCall): String? {
+        if (backendContext.config.noSourceCodeInNotNullAssertionExceptions) {
+            return when (val argument = typeOperatorCall.argument) {
+                is IrCall -> "${argument.symbol.owner.name.asString()}(...)"
+                is IrGetField -> argument.symbol.owner.name.asString()
+                else -> null
+            }
+        }
+
+        val owner = scope.scopeOwnerSymbol.owner
+        if (owner is IrFunction && owner.isDelegated())
+            return "${owner.name.asString()}(...)"
+
+        val declarationParent = parent as? IrDeclaration
+        val sourceView = declarationParent?.let(::sourceViewFor)
+        val (startOffset, endOffset) = typeOperatorCall.extents()
+        return if (sourceView?.validSourcePosition(startOffset, endOffset) == true) {
+            sourceView.subSequence(startOffset, endOffset).toString()
+        } else {
+            // Fallback for inconsistent line numbers
+            (declarationParent as? IrDeclarationWithName)?.name?.asString() ?: "Unknown Declaration"
         }
     }
 
@@ -800,7 +817,7 @@ private class TypeOperatorLowering(private val backendContext: JvmBackendContext
         backendContext.ir.symbols.throwTypeCastException
 
     private val checkExpressionValueIsNotNull: IrSimpleFunctionSymbol =
-        if (backendContext.state.unifiedNullChecks)
+        if (backendContext.config.unifiedNullChecks)
             backendContext.ir.symbols.checkNotNullExpressionValue
         else
             backendContext.ir.symbols.checkExpressionValueIsNotNull

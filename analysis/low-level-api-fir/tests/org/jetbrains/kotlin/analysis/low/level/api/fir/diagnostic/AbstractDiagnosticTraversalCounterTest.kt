@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2021 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -10,7 +10,7 @@ import org.jetbrains.kotlin.analysis.low.level.api.fir.api.DiagnosticCheckerFilt
 import org.jetbrains.kotlin.analysis.low.level.api.fir.api.collectDiagnosticsForFile
 import org.jetbrains.kotlin.analysis.low.level.api.fir.api.getOrBuildFirOfType
 import org.jetbrains.kotlin.analysis.low.level.api.fir.diagnostics.BeforeElementDiagnosticCollectionHandler
-import org.jetbrains.kotlin.analysis.low.level.api.fir.diagnostics.SingleNonLocalDeclarationDiagnosticRetriever
+import org.jetbrains.kotlin.analysis.low.level.api.fir.diagnostics.ClassDiagnosticRetriever
 import org.jetbrains.kotlin.analysis.low.level.api.fir.diagnostics.beforeElementDiagnosticCollectionHandler
 import org.jetbrains.kotlin.analysis.low.level.api.fir.diagnostics.fir.PersistentCheckerContextFactory
 import org.jetbrains.kotlin.analysis.low.level.api.fir.renderWithClassName
@@ -19,6 +19,7 @@ import org.jetbrains.kotlin.analysis.low.level.api.fir.sessions.LLFirSession
 import org.jetbrains.kotlin.analysis.low.level.api.fir.sessions.LLFirSessionConfigurator
 import org.jetbrains.kotlin.analysis.low.level.api.fir.sessions.llFirSession
 import org.jetbrains.kotlin.analysis.low.level.api.fir.test.base.AbstractLowLevelApiSingleFileTest
+import org.jetbrains.kotlin.analysis.low.level.api.fir.test.configurators.AnalysisApiFirScriptTestConfigurator
 import org.jetbrains.kotlin.analysis.low.level.api.fir.test.configurators.AnalysisApiFirSourceTestConfigurator
 import org.jetbrains.kotlin.analysis.low.level.api.fir.useFirSessionConfigurator
 import org.jetbrains.kotlin.fir.FirElement
@@ -40,8 +41,6 @@ import org.jetbrains.kotlin.test.services.assertions
  * Check that every declaration is visited exactly one time during diagnostic collection
  */
 abstract class AbstractDiagnosticTraversalCounterTest : AbstractLowLevelApiSingleFileTest() {
-    override val configurator = AnalysisApiFirSourceTestConfigurator(analyseInDependentSession = false)
-
     override fun configureTest(builder: TestConfigurationBuilder) {
         super.configureTest(builder)
         builder.apply {
@@ -93,10 +92,11 @@ abstract class AbstractDiagnosticTraversalCounterTest : AbstractLowLevelApiSingl
                     false
                 }
                 element.source?.kind == KtRealSourceElementKind -> true
-                SingleNonLocalDeclarationDiagnosticRetriever.shouldDiagnosticsAlwaysBeCheckedOn(element) -> true
+                ClassDiagnosticRetriever.shouldDiagnosticsAlwaysBeCheckedOn(element) -> true
                 else -> false
             }
         }
+
         firFile.accept(object : FirVisitorVoid() {
             override fun visitElement(element: FirElement) {
                 if (element !in nonDuplicatingElements) return
@@ -107,6 +107,7 @@ abstract class AbstractDiagnosticTraversalCounterTest : AbstractLowLevelApiSingl
                 element.acceptChildren(this)
             }
         })
+
         return errorElements
     }
 
@@ -150,4 +151,12 @@ abstract class AbstractDiagnosticTraversalCounterTest : AbstractLowLevelApiSingl
             }
         }
     }
+}
+
+abstract class AbstractSourceDiagnosticTraversalCounterTest : AbstractDiagnosticTraversalCounterTest() {
+    override val configurator = AnalysisApiFirSourceTestConfigurator(analyseInDependentSession = false)
+}
+
+abstract class AbstractScriptDiagnosticTraversalCounterTest : AbstractDiagnosticTraversalCounterTest() {
+    override val configurator = AnalysisApiFirScriptTestConfigurator(analyseInDependentSession = false)
 }

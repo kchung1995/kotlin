@@ -17,8 +17,6 @@ import org.jetbrains.kotlin.fir.resolve.shouldReturnUnit
 import org.jetbrains.kotlin.fir.resolve.substitution.ConeSubstitutor
 import org.jetbrains.kotlin.fir.resolvedTypeFromPrototype
 import org.jetbrains.kotlin.fir.types.*
-import org.jetbrains.kotlin.fir.types.builder.buildErrorTypeRef
-import org.jetbrains.kotlin.fir.types.builder.buildResolvedTypeRef
 import org.jetbrains.kotlin.resolve.calls.components.PostponedArgumentsAnalyzerContext
 import org.jetbrains.kotlin.resolve.calls.inference.ConstraintSystemBuilder
 import org.jetbrains.kotlin.resolve.calls.inference.components.ConstraintSystemCompletionMode
@@ -63,8 +61,6 @@ class PostponedArgumentsAnalyzer(
                 analyzeLambda(c, argument.transformToResolvedLambda(c.getBuilder(), resolutionContext), candidate, completionMode)
 
             is ResolvedCallableReferenceAtom -> processCallableReference(argument, candidate)
-
-//            is ResolvedCollectionLiteralAtom -> TODO("Not supported")
         }
     }
 
@@ -86,20 +82,14 @@ class PostponedArgumentsAnalyzer(
         callableReferenceAccess.apply {
             replaceCalleeReference(namedReference)
             val typeForCallableReference = atom.resultingTypeForCallableReference
-            val resolvedTypeRef = when {
-                typeForCallableReference != null -> buildResolvedTypeRef {
-                    type = typeForCallableReference
-                }
-                namedReference is FirErrorReferenceWithCandidate -> buildErrorTypeRef {
-                    diagnostic = namedReference.diagnostic
-                }
-                else -> buildErrorTypeRef {
-                    diagnostic = ConeUnresolvedReferenceError(callableReferenceAccess.calleeReference.name)
-                }
+            val resolvedType = when {
+                typeForCallableReference != null -> typeForCallableReference
+                namedReference is FirErrorReferenceWithCandidate -> ConeErrorType(namedReference.diagnostic)
+                else -> ConeErrorType(ConeUnresolvedReferenceError(callableReferenceAccess.calleeReference.name))
             }
-            replaceTypeRef(resolvedTypeRef)
+            replaceConeTypeOrNull(resolvedType)
             resolutionContext.session.lookupTracker?.recordTypeResolveAsLookup(
-                resolvedTypeRef, source, resolutionContext.bodyResolveComponents.file.source
+                resolvedType, source, resolutionContext.bodyResolveComponents.file.source
             )
         }
     }
@@ -120,7 +110,7 @@ class PostponedArgumentsAnalyzer(
         val stubsForPostponedVariables = c.bindingStubsForPostponedVariables()
         val currentSubstitutor = c.buildCurrentSubstitutor(stubsForPostponedVariables.mapKeys { it.key.freshTypeConstructor(c) })
 
-        fun substitute(type: ConeKotlinType) = currentSubstitutor.safeSubstitute(c, type) as ConeKotlinType
+        fun substitute(type: ConeKotlinType) = (currentSubstitutor.safeSubstitute(c, type) as ConeKotlinType).independentInstance()
 
         val receiver = lambda.receiver?.let(::substitute)
         val contextReceivers = lambda.contextReceivers.map(::substitute)
@@ -174,9 +164,16 @@ class PostponedArgumentsAnalyzer(
         val returnTypeRef = lambda.atom.returnTypeRef.let {
             it as? FirResolvedTypeRef ?: it.resolvedTypeFromPrototype(substitute(lambda.returnType))
         }
+        val lambdaExpectedTypeIsUnit = returnTypeRef.type.isUnitOrFlexibleUnit
         returnArguments.forEach {
-            val haveSubsystem = c.addSubsystemFromExpression(it)
             // If the lambda returns Unit, the last expression is not returned and should not be constrained.
+            val isLastExpression = it == lastExpression
+
+            // Don't add last call for builder-inference
+            // Note, that we don't use the same condition "(returnTypeRef.type.isUnitOrFlexibleUnit || lambda.atom.shouldReturnUnit(returnArguments))"
+            // as in the if below, because "lambda.atom.shouldReturnUnit(returnArguments)" might mean that the last statement is not completed
+            if (isLastExpression && lambdaExpectedTypeIsUnit && inferenceSession is FirBuilderInferenceSession) return@forEach
+
             // TODO (KT-55837) questionable moment inherited from FE1.0 (the `haveSubsystem` case):
             //    fun <T> foo(): T
             //    run {
@@ -184,8 +181,10 @@ class PostponedArgumentsAnalyzer(
             //      foo() // T = Unit, even though there is no implicit return
             //    }
             //  Things get even weirder if T has an upper bound incompatible with Unit.
-            if (it == lastExpression && !haveSubsystem &&
-                (returnTypeRef.type.isUnitOrFlexibleUnit || lambda.atom.shouldReturnUnit(returnArguments))
+            // Not calling `addSubsystemFromExpression` for builder-inference is crucial
+            val haveSubsystem = c.addSubsystemFromExpression(it)
+            if (isLastExpression && !haveSubsystem &&
+                (lambdaExpectedTypeIsUnit || lambda.atom.shouldReturnUnit(returnArguments))
             ) return@forEach
 
             hasExpressionInReturnArguments = true
@@ -194,7 +193,6 @@ class PostponedArgumentsAnalyzer(
                     builder,
                     it,
                     returnTypeRef.type,
-                    returnTypeRef,
                     checkerSink,
                     context = resolutionContext,
                     isReceiver = false,
@@ -203,7 +201,7 @@ class PostponedArgumentsAnalyzer(
             }
         }
 
-        if (!hasExpressionInReturnArguments && !returnTypeRef.type.isUnitOrFlexibleUnit) {
+        if (!hasExpressionInReturnArguments && !lambdaExpectedTypeIsUnit) {
             builder.addSubtypeConstraint(
                 components.session.builtinTypes.unitType.type,
                 returnTypeRef.type,
@@ -254,7 +252,6 @@ fun LambdaWithTypeVariableAsExpectedTypeAtom.transformToResolvedLambda(
         csBuilder,
         atom,
         fixedExpectedType,
-        expectedTypeRef,
         context,
         sink = null,
         duringCompletion = true,

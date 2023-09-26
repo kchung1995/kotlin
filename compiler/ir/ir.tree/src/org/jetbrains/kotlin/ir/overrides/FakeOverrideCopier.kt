@@ -12,7 +12,6 @@ class FakeOverrideCopier(
     private val symbolRemapper: SymbolRemapper,
     private val typeRemapper: TypeRemapper,
     private val symbolRenamer: SymbolRenamer,
-    private val makeExternal: Boolean,
     private val parent: IrClass,
     private val unimplementedOverridesStrategy: IrUnimplementedOverridesStrategy
 ) : DeepCopyIrTreeWithSymbols(symbolRemapper, typeRemapper, symbolRenamer) {
@@ -21,19 +20,20 @@ class FakeOverrideCopier(
         val customization = unimplementedOverridesStrategy.computeCustomization(declaration, parent)
 
         return declaration.factory.createFunctionWithLateBinding(
-            declaration.startOffset, declaration.endOffset,
-            customization.origin ?: IrDeclarationOrigin.FAKE_OVERRIDE,
-            symbolRenamer.getFunctionName(declaration.symbol),
-            declaration.visibility,
-            customization.modality ?: declaration.modality,
-            declaration.returnType,
+            startOffset = declaration.startOffset,
+            endOffset = declaration.endOffset,
+            origin = customization.origin ?: IrDeclarationOrigin.FAKE_OVERRIDE,
+            name = symbolRenamer.getFunctionName(declaration.symbol),
+            visibility = declaration.visibility,
             isInline = declaration.isInline,
-            isExternal = makeExternal,
+            isExpect = declaration.isExpect,
+            returnType = declaration.returnType,
+            modality = customization.modality ?: declaration.modality,
             isTailrec = declaration.isTailrec,
             isSuspend = declaration.isSuspend,
-            isExpect = declaration.isExpect,
             isOperator = declaration.isOperator,
-            isInfix = declaration.isInfix
+            isInfix = declaration.isInfix,
+            isExternal = declaration.isExternal,
         ).apply {
             transformAnnotations(declaration)
             copyTypeParametersFrom(declaration)
@@ -62,10 +62,6 @@ class FakeOverrideCopier(
                 extensionReceiverParameter = declaration.extensionReceiverParameter?.transform()
                 returnType = typeRemapper.remapType(declaration.returnType)
                 valueParameters = declaration.valueParameters.transform()
-
-                if (customization.needToCreateBody && body == null) {
-                    body = factory.createBlockBody(startOffset, endOffset)
-                }
             }
         }
     }
@@ -84,7 +80,7 @@ class FakeOverrideCopier(
             isLateinit = declaration.isLateinit,
             isDelegated = declaration.isDelegated,
             isExpect = declaration.isExpect,
-            isExternal = makeExternal
+            isExternal = declaration.isExternal,
         ).apply {
             transformAnnotations(declaration)
             this.getter = declaration.getter?.transform()
@@ -94,17 +90,18 @@ class FakeOverrideCopier(
 
     override fun visitValueParameter(declaration: IrValueParameter): IrValueParameter =
         declaration.factory.createValueParameter(
-            declaration.startOffset, declaration.endOffset,
-            mapDeclarationOrigin(declaration.origin),
-            symbolRemapper.getDeclaredValueParameter(declaration.symbol),
-            symbolRenamer.getValueParameterName(declaration.symbol),
-            declaration.index,
-            declaration.type.remapType(),
-            declaration.varargElementType?.remapType(),
-            declaration.isCrossinline,
-            declaration.isNoinline,
-            declaration.isHidden,
-            declaration.isAssignable
+            startOffset = declaration.startOffset,
+            endOffset = declaration.endOffset,
+            origin = IrDeclarationOrigin.DEFINED,
+            name = symbolRenamer.getValueParameterName(declaration.symbol),
+            type = declaration.type.remapType(),
+            isAssignable = declaration.isAssignable,
+            symbol = symbolRemapper.getDeclaredValueParameter(declaration.symbol),
+            index = declaration.index,
+            varargElementType = declaration.varargElementType?.remapType(),
+            isCrossinline = declaration.isCrossinline,
+            isNoinline = declaration.isNoinline,
+            isHidden = declaration.isHidden,
         ).apply {
             transformAnnotations(declaration)
             // Don't set the default value for fake overrides.

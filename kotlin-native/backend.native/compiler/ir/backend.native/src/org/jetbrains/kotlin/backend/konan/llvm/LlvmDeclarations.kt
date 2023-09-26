@@ -7,16 +7,14 @@ package org.jetbrains.kotlin.backend.konan.llvm
 
 import kotlinx.cinterop.toCValues
 import llvm.*
-import org.jetbrains.kotlin.backend.common.serialization.mangle.MangleConstant
 import org.jetbrains.kotlin.backend.konan.*
 import org.jetbrains.kotlin.backend.konan.descriptors.ClassLayoutBuilder
 import org.jetbrains.kotlin.backend.konan.descriptors.isTypedIntrinsic
 import org.jetbrains.kotlin.backend.konan.descriptors.requiredAlignment
 import org.jetbrains.kotlin.backend.konan.ir.*
-import org.jetbrains.kotlin.backend.konan.lower.isStaticInitializer
-import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.declarations.*
+import org.jetbrains.kotlin.ir.objcinterop.*
 import org.jetbrains.kotlin.ir.symbols.IrFieldSymbol
 import org.jetbrains.kotlin.ir.util.*
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
@@ -160,7 +158,7 @@ private class DeclarationsGeneratorVisitor(override val generationState: NativeG
     private fun getFqName(declaration: IrDeclaration): FqName {
         val parent = declaration.parent
         val parentFqName = when (parent) {
-            is IrPackageFragment -> parent.fqName
+            is IrPackageFragment -> parent.packageFqName
             is IrDeclaration -> getFqName(parent)
             else -> error(parent)
         }
@@ -209,7 +207,7 @@ private class DeclarationsGeneratorVisitor(override val generationState: NativeG
             declaration.computeTypeInfoSymbolName()
         } else {
             if (!context.config.producePerFileCache)
-                "${MangleConstant.CLASS_PREFIX}:$internalName"
+                "${KonanBinaryInterface.MANGLE_CLASS_PREFIX}:$internalName"
             else {
                 val containerName = (generationState.cacheDeserializationStrategy as CacheDeserializationStrategy.SingleFile).filePath
                 declaration.computePrivateTypeInfoSymbolName(containerName)
@@ -219,31 +217,35 @@ private class DeclarationsGeneratorVisitor(override val generationState: NativeG
         if (declaration.typeInfoHasVtableAttached) {
             // Create the special global consisting of TypeInfo and vtable.
 
-            val typeInfoGlobalName = "ktypeglobal:$internalName"
-
             val typeInfoWithVtableType = llvm.structType(
                     runtime.typeInfoType,
                     LLVMArrayType(llvm.int8PtrType, context.getLayoutBuilder(declaration).vtableEntries.size)!!
             )
 
-            typeInfoGlobal = staticData.createGlobal(typeInfoWithVtableType, typeInfoGlobalName, isExported = false)
+            typeInfoGlobal = staticData.createGlobal(typeInfoWithVtableType, typeInfoSymbolName, declaration.isExported())
 
-            val llvmTypeInfoPtr = LLVMAddAlias(llvm.module,
-                    kTypeInfoPtr,
-                    typeInfoGlobal.pointer.getElementPtr(llvm, 0).llvm,
-                    typeInfoSymbolName)!!
+            // Other LLVM modules might import this global as a TypeInfo global.
+            // This works only if there is no gap between the beginning of the global and the TypeInfo part,
+            // which should always be the case, since it is the zeroth element.
+            // Still, better be safe than sorry, checking this explicitly:
+            val typeInfoOffsetInGlobal = LLVMOffsetOfElement(llvmTargetData, typeInfoWithVtableType, 0)
+            check(typeInfoOffsetInGlobal == 0L) { "Offset for $typeInfoSymbolName TypeInfo is $typeInfoOffsetInGlobal" }
 
-            if (declaration.isExported()) {
-                if (llvmTypeInfoPtr.name != typeInfoSymbolName) {
-                    // So alias name has been mangled by LLVM to avoid name clash.
-                    throw IllegalArgumentException("Global '$typeInfoSymbolName' already exists")
-                }
-            } else {
-                if (!context.config.producePerFileCache || declaration !in generationState.constructedFromExportedInlineFunctions)
-                    LLVMSetLinkage(llvmTypeInfoPtr, LLVMLinkage.LLVMInternalLinkage)
+            if (context.config.producePerFileCache && declaration in generationState.constructedFromExportedInlineFunctions) {
+                // This is required because internal inline functions can access private classes.
+                // So, in the generated code, the class type info can be accessed outside the file.
+                // With per-file caches involved, this can mean accessing from a different object file.
+                // Therefore, the class type info has to have external linkage in that case.
+                // Check e.g. `nestedInPrivateClass2.kt` test (it should fail if you remove setting linkage to external).
+                //
+                // This case should be reflected in the `isExported` parameter of `createGlobal` above, instead of
+                // patching the linkage ad hoc.
+                // The problem is: such globals in fact can have clashing names, which makes createGlobal fail.
+                // See https://youtrack.jetbrains.com/issue/KT-61428.
+                typeInfoGlobal.setLinkage(LLVMLinkage.LLVMExternalLinkage)
             }
 
-            typeInfoPtr = constPointer(llvmTypeInfoPtr)
+            typeInfoPtr = typeInfoGlobal.pointer.getElementPtr(llvm, 0)
 
         } else {
             typeInfoGlobal = staticData.createGlobal(runtime.typeInfoType,
@@ -384,7 +386,7 @@ private class DeclarationsGeneratorVisitor(override val generationState: NativeG
                 }
             } else {
                 if (!context.config.producePerFileCache)
-                    "${MangleConstant.FUN_PREFIX}:${qualifyInternalName(declaration)}"
+                    "${KonanBinaryInterface.MANGLE_FUN_PREFIX}:${qualifyInternalName(declaration)}"
                 else {
                     val containerName = declaration.parentClassOrNull?.fqNameForIrSerialization?.asString()
                             ?: (generationState.cacheDeserializationStrategy as CacheDeserializationStrategy.SingleFile).filePath
@@ -392,12 +394,7 @@ private class DeclarationsGeneratorVisitor(override val generationState: NativeG
                 }
             }
 
-            val linkage = when {
-                declaration.isExported() -> LLVMLinkage.LLVMExternalLinkage
-                context.config.producePerFileCache && declaration in generationState.calledFromExportedInlineFunctions -> LLVMLinkage.LLVMExternalLinkage
-                else -> LLVMLinkage.LLVMInternalLinkage
-            }
-            val proto = LlvmFunctionProto(declaration, symbolName, this, linkage)
+            val proto = LlvmFunctionProto(declaration, symbolName, this, linkageOf(declaration))
             context.log {
                 "Creating llvm function ${symbolName} for ${declaration.render()}"
             }
@@ -421,10 +418,3 @@ internal sealed class KonanMetadata(override val name: Name?, val konanLibrary: 
     class StaticField(irField: IrField, val llvm: StaticFieldLlvmDeclarations) : Declaration<IrField>(irField)
 }
 
-private class CodegenStaticFieldMetadata(
-        name: Name?,
-        konanLibrary: KotlinLibrary?,
-        val llvm: StaticFieldLlvmDeclarations
-) : KonanMetadata(name, konanLibrary), MetadataSource.Property {
-    override val isConst = false
-}

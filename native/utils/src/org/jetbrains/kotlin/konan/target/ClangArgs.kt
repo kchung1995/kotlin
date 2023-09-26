@@ -43,8 +43,6 @@ sealed class ClangArgs(
                     "WINDOWS".takeIf { target.family == Family.MINGW },
                     "MACOSX".takeIf { target.family == Family.OSX },
 
-                    "NO_THREADS".takeUnless { target.supportsThreads() },
-                    "NO_EXCEPTIONS".takeUnless { target.supportsExceptions() },
                     "NO_MEMMEM".takeUnless { target.suportsMemMem() },
                     "NO_64BIT_ATOMIC".takeUnless { target.supports64BitAtomics() },
                     "NO_UNALIGNED_ACCESS".takeUnless { target.supportsUnalignedAccess() },
@@ -55,7 +53,6 @@ sealed class ClangArgs(
                     "HAS_UIKIT_FRAMEWORK".takeIf { target.hasUIKitFramework() },
                     "REPORT_BACKTRACE_TO_IOS_CRASH_LOG".takeIf { target.supportsIosCrashLog() },
                     "NEED_SMALL_BINARY".takeIf { target.needSmallBinary() },
-                    "TARGET_HAS_ADDRESS_DEPENDENCY".takeIf { target.hasAddressDependencyInMemoryModel() },
                     "SUPPORTS_GRAND_CENTRAL_DISPATCH".takeIf { target.supportsGrandCentralDispatch },
             ).map { "KONAN_$it=1" }
             val otherOptions = listOfNotNull(
@@ -71,8 +68,7 @@ sealed class ClangArgs(
                     // so just undefine it.
                     "NS_FORMAT_ARGUMENT(A)=".takeIf { target.family.isAppleFamily },
             )
-            val customOptions = target.customArgsForKonanSources()
-            return (konanOptions + otherOptions + customOptions).map { "-D$it" }
+            return (konanOptions + otherOptions).map { "-D$it" }
         }
 
     private val binDir = when (HostManager.host) {
@@ -135,6 +131,21 @@ sealed class ClangArgs(
             // `-fPIC` allows us to avoid some problems when producing dynamic library.
             // See KT-43502.
             add(listOf("-fPIC"))
+        }
+        // See https://github.com/apple/llvm-project/commit/dfa99c49306262eac46becbf1f7f5ba33ecc2fe3
+        // TL;DR: This commit adds an OS-agnostic __ENVIRONMENT_OS_VERSION_MIN_REQUIRED__ macro and now
+        // some of the Xcode headers use it instead of platform-specific ones. Workaround this problem
+        // by manually setting this macro.
+        // YouTrack ticket: KT-59167
+        val environmentOsVersionMinRequired = when (target.family) {
+            Family.OSX -> "__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__"
+            Family.IOS -> "__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__"
+            Family.TVOS -> "__ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__"
+            Family.WATCHOS -> "__ENVIRONMENT_WATCH_OS_VERSION_MIN_REQUIRED__"
+            else -> null
+        }
+        if (environmentOsVersionMinRequired != null) {
+            add(listOf("-D__ENVIRONMENT_OS_VERSION_MIN_REQUIRED__=$environmentOsVersionMinRequired"))
         }
     }.flatten()
 
@@ -212,7 +223,9 @@ sealed class ClangArgs(
      */
     val clangXXArgs: Array<String> = clangArgs + when (configurables) {
         is AppleConfigurables -> arrayOf(
-                "-stdlib=libc++"
+                "-stdlib=libc++",
+                // KT-57848
+                "-Dat_quick_exit=atexit", "-Dquick_exit=exit",
         )
         else -> emptyArray()
     }

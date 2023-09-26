@@ -5,7 +5,9 @@
 
 package org.jetbrains.kotlin.backend.jvm.codegen
 
-import org.jetbrains.kotlin.backend.common.ir.*
+import org.jetbrains.kotlin.backend.common.ir.getDefaultAdditionalStatementsFromInlinedBlock
+import org.jetbrains.kotlin.backend.common.ir.getNonDefaultAdditionalStatementsFromInlinedBlock
+import org.jetbrains.kotlin.backend.common.ir.getOriginalStatementsFromInlinedBlock
 import org.jetbrains.kotlin.backend.common.lower.BOUND_RECEIVER_PARAMETER
 import org.jetbrains.kotlin.backend.common.lower.LoweredStatementOrigins
 import org.jetbrains.kotlin.backend.jvm.*
@@ -62,8 +64,6 @@ import org.jetbrains.org.objectweb.asm.Opcodes
 import org.jetbrains.org.objectweb.asm.Type
 import org.jetbrains.org.objectweb.asm.commons.InstructionAdapter
 import java.util.*
-import kotlin.contracts.ExperimentalContracts
-import kotlin.contracts.contract
 
 sealed class ExpressionInfo {
     var blockInfo: BlockInfo? = null
@@ -142,8 +142,6 @@ class ExpressionCodegen(
     val smap: SourceMapper,
     val reifiedTypeParametersUsages: ReifiedTypeParametersUsages,
 ) : IrElementVisitor<PromisedValue, BlockInfo>, BaseExpressionCodegen {
-    private val lineNumberMapper = LineNumberMapper(this)
-
     override fun toString(): String = signature.toString()
 
     var finallyDepth = 0
@@ -165,10 +163,13 @@ class ExpressionCodegen(
     override val typeSystem: TypeSystemCommonBackendContext
         get() = typeMapper.typeSystem
 
-    override var lastLineNumber: Int = -1
-    var noLineNumberScope: Boolean = false
+    private val lineNumberMapper = LineNumberMapper(this)
 
-    private var isInsideCondition = false
+    override val lastLineNumber: Int
+        get() = lineNumberMapper.getLineNumber()
+
+    var isInsideCondition: Boolean = false
+        private set
 
     private val closureReifiedMarkers = hashMapOf<IrClass, ReifiedTypeParametersUsages>()
 
@@ -190,38 +191,16 @@ class ExpressionCodegen(
 
     private fun markNewLinkedLabel() = linkedLabel().apply { mv.visitLabel(this) }
 
-    private fun IrElement.markLineNumber(startOffset: Boolean) {
-        if (noLineNumberScope) return
-        val offset = if (startOffset) this.startOffset else endOffset
-        if (offset < 0) return
-
-        val lineNumber = lineNumberMapper.getLineNumberForOffset(offset)
-
-        assert(lineNumber > 0)
-        if (lastLineNumber != lineNumber) {
-            lastLineNumber = lineNumber
-            mv.visitLineNumber(lineNumber, markNewLabel())
-        }
-    }
-
-    fun markLineNumber(element: IrElement) = element.markLineNumber(true)
-
-    @OptIn(ExperimentalContracts::class)
-    private inline fun noLineNumberScopeWithCondition(flag: Boolean, block: () -> Unit) {
-        contract {
-            callsInPlace(block, kotlin.contracts.InvocationKind.EXACTLY_ONCE)
-        }
-        val previousState = noLineNumberScope
-        noLineNumberScope = noLineNumberScope || flag
-        block()
-        noLineNumberScope = previousState
+    fun IrElement.markLineNumber(startOffset: Boolean) {
+        lineNumberMapper.markLineNumber(this, startOffset)
     }
 
     fun noLineNumberScope(block: () -> Unit) {
-        val previousState = noLineNumberScope
-        noLineNumberScope = true
-        block()
-        noLineNumberScope = previousState
+        lineNumberMapper.noLineNumberScope(block)
+    }
+
+    override fun markLineNumberAfterInlineIfNeeded(registerLineNumberAfterwards: Boolean) {
+        lineNumberMapper.markLineNumberAfterInlineIfNeeded(registerLineNumberAfterwards)
     }
 
     fun gen(expression: IrExpression, type: Type, irType: IrType, data: BlockInfo) {
@@ -302,7 +281,7 @@ class ExpressionCodegen(
     }
 
     private fun generateNonNullAssertions() {
-        if (state.isParamAssertionsDisabled)
+        if (state.config.isParamAssertionsDisabled)
             return
 
         if ((DescriptorVisibilities.isPrivate(irFunction.visibility) && !shouldGenerateNonNullAssertionsForPrivateFun(irFunction)) ||
@@ -362,7 +341,7 @@ class ExpressionCodegen(
         if (!expandedType.isNullable() && !isPrimitive(asmType)) {
             mv.load(findLocalIndex(param.symbol), asmType)
             mv.aconst(param.name.asString())
-            val methodName = if (state.unifiedNullChecks) "checkNotNullParameter" else "checkParameterIsNotNull"
+            val methodName = if (state.config.unifiedNullChecks) "checkNotNullParameter" else "checkParameterIsNotNull"
             mv.invokestatic(JvmSymbols.INTRINSICS_CLASS_NAME, methodName, "(Ljava/lang/Object;Ljava/lang/String;)V", false)
         }
     }
@@ -422,8 +401,9 @@ class ExpressionCodegen(
             }
         }
 
-        if (expression is IrInlinedFunctionBlock && expression.isFunctionInlining()) {
-            markLineNumberAfterInlineIfNeeded(isInsideCondition)
+        // This block must be executed after `writeLocalVariablesInTable`
+        if (expression is IrInlinedFunctionBlock) {
+            lineNumberMapper.afterIrInline(expression)
         }
 
         if (isSynthesizedInitBlock) {
@@ -482,18 +462,15 @@ class ExpressionCodegen(
     private fun visitInlinedFunctionBlock(inlinedBlock: IrInlinedFunctionBlock, data: BlockInfo): PromisedValue {
         val inlineCall = inlinedBlock.inlineCall
         val callee = inlinedBlock.inlineDeclaration as? IrFunction
-        val callLineNumber = lineNumberMapper.getLineNumberForOffset(inlineCall.startOffset)
 
         // 1. Evaluate NON DEFAULT arguments from inline function call
         inlinedBlock.getNonDefaultAdditionalStatementsFromInlinedBlock().forEach { exp ->
             exp.accept(this, data).discard()
         }
 
-        if (inlinedBlock.isLambdaInlining()) {
-            lineNumberMapper.setUpAdditionalLineNumbersBeforeLambdaInlining(inlinedBlock)
-        }
+        lineNumberMapper.beforeIrInline(inlinedBlock)
 
-        noLineNumberScopeWithCondition(inlinedBlock.inlineDeclaration.isInlineOnly()) {
+        lineNumberMapper.noLineNumberScopeWithCondition(inlinedBlock.inlineDeclaration.isInlineOnly()) {
             inlineCall.markLineNumber(startOffset = true)
             mv.nop()
 
@@ -512,7 +489,7 @@ class ExpressionCodegen(
 
             if (inlineCall.usesDefaultArguments()) {
                 // we must reset LN because at this point in original inliner we will inline non default call
-                lastLineNumber = -1
+                lineNumberMapper.resetLineNumber()
             }
 
             // 3. Evaluate statements from inline function body
@@ -538,13 +515,6 @@ class ExpressionCodegen(
             }
 
             lineNumberMapper.dropCurrentSmap()
-
-            if (inlinedBlock.isLambdaInlining()) {
-                lineNumberMapper.setUpAdditionalLineNumbersAfterLambdaInlining(inlinedBlock)
-            } else {
-                // takeUnless is required to avoid markLineNumberAfterInlineIfNeeded for inline only
-                lastLineNumber = callLineNumber.takeUnless { noLineNumberScope } ?: -1
-            }
 
             return result
         }
@@ -712,7 +682,7 @@ class ExpressionCodegen(
             // Copy-pasted bytecode blocks are not suspension points.
             symbol.owner.isInline ->
                 if (symbol.owner.name.asString() == "suspendCoroutineUninterceptedOrReturn" &&
-                    symbol.owner.getPackageFragment().fqName == FqName("kotlin.coroutines.intrinsics")
+                    symbol.owner.getPackageFragment().packageFqName == FqName("kotlin.coroutines.intrinsics")
                 )
                     SuspensionPointKind.ALWAYS
                 else
@@ -729,7 +699,7 @@ class ExpressionCodegen(
         val owner = typeMapper.mapClass(callee.constructedClass)
         val signature = methodSignatureMapper.mapSignatureSkipGeneric(callee)
 
-        markLineNumber(expression)
+        expression.markLineNumber(startOffset = true)
 
         // In this case the receiver is `this` (not specified in IR) and the return value is discarded anyway.
         mv.load(0, OBJECT_TYPE)
@@ -742,7 +712,7 @@ class ExpressionCodegen(
         }
 
         generateConstructorArguments(expression, signature, data)
-        markLineNumber(expression)
+        expression.markLineNumber(startOffset = true)
 
         mv.visitMethodInsn(Opcodes.INVOKESPECIAL, owner.internalName, signature.asmMethod.name, signature.asmMethod.descriptor, false)
 
@@ -759,13 +729,13 @@ class ExpressionCodegen(
 
         // IR constructors have no receiver and return the new instance, but on JVM they are void-returning
         // instance methods named <init>.
-        markLineNumber(expression)
+        expression.markLineNumber(startOffset = true)
         putNeedClassReificationMarker(callee.constructedClass)
         mv.anew(owner)
         mv.dup()
 
         generateConstructorArguments(expression, signature, data)
-        markLineNumber(expression)
+        expression.markLineNumber(startOffset = true)
 
         mv.visitMethodInsn(Opcodes.INVOKESPECIAL, owner.internalName, signature.asmMethod.name, signature.asmMethod.descriptor, false)
 
@@ -792,6 +762,7 @@ class ExpressionCodegen(
             declaration.markLineNumber(startOffset = true)
             mv.store(index, varType)
         } else if (declaration.isVisibleInLVT) {
+            declaration.markLineNumber(startOffset = true)
             pushDefaultValueOnStack(varType, mv)
             mv.store(index, varType)
         }
@@ -824,7 +795,7 @@ class ExpressionCodegen(
         get() = parent.let { parent ->
             val isBoxedResult = this is IrValueParameter && parent is IrSimpleFunction &&
                     parent.dispatchReceiverParameter != this &&
-                    (parent.parent as? IrClass)?.fqNameWhenAvailable != StandardNames.RESULT_FQ_NAME &&
+                    (parent.parent as? IrClass)?.isClassWithFqName(StandardNames.RESULT_FQ_NAME) != true &&
                     parent.resultIsActuallyAny(index) == true
             return if (isBoxedResult) context.irBuiltIns.anyNType else type
         }
@@ -839,7 +810,7 @@ class ExpressionCodegen(
             index < 0 -> extensionReceiverParameter!!.type
             else -> valueParameters[index].type
         }
-        if (!type.eraseTypeParameters().isKotlinResult()) return null
+        if (!type.eraseIfTypeParameter().isKotlinResult()) return null
         // If there's a bridge, it will unbox `Result` along with transforming all other arguments.
         // Otherwise, we need to treat `Result` as boxed if it overrides a non-`Result` or boxed `Result` type.
         // TODO: if results of `needsResultArgumentUnboxing` for `overriddenSymbols` are inconsistent, the boxedness
@@ -854,7 +825,7 @@ class ExpressionCodegen(
 
     override fun visitFieldAccess(expression: IrFieldAccessExpression, data: BlockInfo): PromisedValue {
         val callee = expression.symbol.owner
-        if (context.state.shouldInlineConstVals) {
+        if (context.config.shouldInlineConstVals) {
             // Const fields should only have reads, and those should have been transformed by ConstLowering.
             assert(callee.constantValue() == null) { "access of const val: ${expression.dump()}" }
         }
@@ -1014,7 +985,7 @@ class ExpressionCodegen(
     }
 
     private fun generateGlobalReturnFlagIfPossible(expression: IrExpression, label: String) {
-        if (state.isInlineDisabled) {
+        if (state.config.isInlineDisabled) {
             context.ktDiagnosticReporter.at(expression, irFunction).report(BackendErrors.NON_LOCAL_RETURN_IN_DISABLED_INLINE)
             genThrow(mv, "java/lang/UnsupportedOperationException", "Non-local returns are not allowed with inlining disabled")
         } else {
@@ -1507,10 +1478,10 @@ class ExpressionCodegen(
     }
 
     override fun visitStringConcatenation(expression: IrStringConcatenation, data: BlockInfo): PromisedValue {
-        assert(context.state.runtimeStringConcat.isDynamic) {
+        assert(context.config.runtimeStringConcat.isDynamic) {
             "IrStringConcatenation expression should be presented only with dynamic concatenation: ${expression.dump()}"
         }
-        val generator = StringConcatGenerator(context.state.runtimeStringConcat, mv)
+        val generator = StringConcatGenerator(context.config.runtimeStringConcat, mv)
         expression.arguments.forEach { arg ->
             if (arg is IrConst<*>) {
                 val type = when (arg.kind) {
@@ -1601,7 +1572,7 @@ class ExpressionCodegen(
                 //avoid ambiguity with type constructor type parameters
                 emptyMap()
             } else typeArgumentContainer.typeParameters.associate {
-                it.symbol to element.getTypeArgumentOrDefault(it)
+                it.symbol to (element.getTypeArgument(it.index) ?: it.defaultType)
             }
 
         val mappings = TypeParameterMappings(typeMapper.typeSystem, typeArguments, allReified = false, typeMapper::mapTypeParameter)
@@ -1611,7 +1582,7 @@ class ExpressionCodegen(
             IrInlineIntrinsicsSupport(classCodegen, element, irFunction.fileParent),
             context.typeSystem,
             state.languageVersionSettings,
-            state.unifiedNullChecks,
+            state.config.unifiedNullChecks,
         )
 
         return IrInlineCodegen(this, state, callee, signature, mappings, sourceCompiler, reifiedTypeInliner)
@@ -1627,20 +1598,6 @@ class ExpressionCodegen(
     override fun propagateChildReifiedTypeParametersUsages(reifiedTypeParametersUsages: ReifiedTypeParametersUsages) {
         this.reifiedTypeParametersUsages.propagateChildUsagesWithinContext(reifiedTypeParametersUsages) {
             irFunction.typeParameters.filter { it.isReified }.map { it.name.asString() }.toSet()
-        }
-    }
-
-    override fun markLineNumberAfterInlineIfNeeded(registerLineNumberAfterwards: Boolean) {
-        if (noLineNumberScope || registerLineNumberAfterwards) {
-            if (lastLineNumber > -1) {
-                val label = Label()
-                mv.visitLabel(label)
-                mv.visitLineNumber(lastLineNumber, label)
-            }
-        } else {
-            // Inline function has its own line number which is in a separate instance of codegen,
-            // therefore we need to reset lastLineNumber to force a line number generation after visiting inline function.
-            lastLineNumber = -1
         }
     }
 

@@ -13,14 +13,16 @@ import org.gradle.util.GradleVersion
 import org.jetbrains.kotlin.gradle.BaseGradleIT.Companion.acceptAndroidSdkLicenses
 import org.jetbrains.kotlin.gradle.model.ModelContainer
 import org.jetbrains.kotlin.gradle.model.ModelFetcherBuildAction
-import org.jetbrains.kotlin.gradle.native.disableKotlinNativeCaches
-import org.jetbrains.kotlin.gradle.util.modify
 import org.jetbrains.kotlin.gradle.report.BuildReportType
+import org.jetbrains.kotlin.gradle.util.modify
 import org.jetbrains.kotlin.konan.target.HostManager
 import org.jetbrains.kotlin.konan.target.presetName
 import org.jetbrains.kotlin.test.util.KtTestUtil
+import org.jetbrains.kotlin.utils.addToStdlib.ifTrue
 import java.io.File
-import java.nio.file.*
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.Paths
 import kotlin.io.path.*
 import kotlin.test.assertTrue
 
@@ -31,6 +33,7 @@ import kotlin.test.assertTrue
  * @param [buildOptions] common Gradle build options
  * @param [buildJdk] path to JDK build should run with. *Note* Only append to 'gradle.properties'!
  */
+@OptIn(EnvironmentalVariablesOverride::class)
 fun KGPBaseTest.project(
     projectName: String,
     gradleVersion: GradleVersion,
@@ -42,7 +45,8 @@ fun KGPBaseTest.project(
     projectPathAdditionalSuffix: String = "",
     buildJdk: File? = null,
     localRepoDir: Path? = null,
-    test: TestProject.() -> Unit = {}
+    environmentVariables: EnvironmentalVariables = EnvironmentalVariables(),
+    test: TestProject.() -> Unit = {},
 ): TestProject {
     val projectPath = setupProjectFromTestResources(
         projectName,
@@ -53,8 +57,9 @@ fun KGPBaseTest.project(
     projectPath.addDefaultBuildFiles()
     projectPath.enableCacheRedirector()
     projectPath.enableAndroidSdk()
-
-    if (addHeapDumpOptions) projectPath.addHeapDumpOptions()
+    if (buildOptions.languageVersion != null || buildOptions.languageApiVersion != null) {
+        projectPath.applyKotlinCompilerArgsPlugin()
+    }
 
     val gradleRunner = GradleRunner
         .create()
@@ -71,9 +76,13 @@ fun KGPBaseTest.project(
         forceOutput = forceOutput,
         enableBuildScan = enableBuildScan,
         enableGradleDebug = enableGradleDebug,
+        environmentVariables = environmentVariables
     )
+    addHeapDumpOptions.ifTrue { testProject.addHeapDumpOptions() }
     localRepoDir?.let { testProject.configureLocalRepository(localRepoDir) }
     if (buildJdk != null) testProject.setupNonDefaultJdk(buildJdk)
+
+    testProject.customizeProject()
 
     val result = runCatching {
         testProject.test()
@@ -90,6 +99,7 @@ fun KGPBaseTest.project(
  * @param [buildOptions] common Gradle build options
  * @param [buildJdk] path to JDK build should run with. *Note* Only append to 'gradle.properties'!
  */
+@OptIn(EnvironmentalVariablesOverride::class)
 fun KGPBaseTest.nativeProject(
     projectName: String,
     gradleVersion: GradleVersion,
@@ -101,7 +111,9 @@ fun KGPBaseTest.nativeProject(
     projectPathAdditionalSuffix: String = "",
     buildJdk: File? = null,
     localRepoDir: Path? = null,
-    test: TestProject.() -> Unit = {}
+    environmentVariables: EnvironmentalVariables = EnvironmentalVariables(),
+    configureSubProjects: Boolean = false,
+    test: TestProject.() -> Unit = {},
 ): TestProject {
     val project = project(
         projectName = projectName,
@@ -114,9 +126,9 @@ fun KGPBaseTest.nativeProject(
         projectPathAdditionalSuffix = projectPathAdditionalSuffix,
         buildJdk = buildJdk,
         localRepoDir = localRepoDir,
+        environmentVariables = environmentVariables,
     )
-    project.configureSingleNativeTarget()
-    project.disableKotlinNativeCaches()
+    project.configureSingleNativeTarget(configureSubProjects)
     project.test()
     return project
 }
@@ -132,9 +144,11 @@ fun TestProject.build(
     enableBuildCacheDebug: Boolean = false,
     enableBuildScan: Boolean = this.enableBuildScan,
     buildOptions: BuildOptions = this.buildOptions,
-    assertions: BuildResult.() -> Unit = {}
+    environmentVariables: EnvironmentalVariables = this.environmentVariables,
+    assertions: BuildResult.() -> Unit = {},
 ) {
     if (enableBuildScan) agreeToBuildScanService()
+    ensureKotlinCompilerArgumentsPluginAppliedCorrectly(buildOptions)
 
     val allBuildArguments = commonBuildSetup(
         buildArguments.toList(),
@@ -146,6 +160,7 @@ fun TestProject.build(
     )
     val gradleRunnerForBuild = gradleRunner
         .also { if (forceOutput) it.forwardOutput() }
+        .also { if (environmentVariables.environmentalVariables.isNotEmpty()) it.withEnvironment(System.getenv() + environmentVariables.environmentalVariables) }
         .withDebug(enableGradleDebug)
         .withArguments(allBuildArguments)
     withBuildSummary(allBuildArguments) {
@@ -167,9 +182,11 @@ fun TestProject.buildAndFail(
     enableBuildCacheDebug: Boolean = false,
     enableBuildScan: Boolean = this.enableBuildScan,
     buildOptions: BuildOptions = this.buildOptions,
-    assertions: BuildResult.() -> Unit = {}
+    environmentVariables: EnvironmentalVariables = this.environmentVariables,
+    assertions: BuildResult.() -> Unit = {},
 ) {
     if (enableBuildScan) agreeToBuildScanService()
+    ensureKotlinCompilerArgumentsPluginAppliedCorrectly(buildOptions)
 
     val allBuildArguments = commonBuildSetup(
         buildArguments.toList(),
@@ -181,6 +198,7 @@ fun TestProject.buildAndFail(
     )
     val gradleRunnerForBuild = gradleRunner
         .also { if (forceOutput) it.forwardOutput() }
+        .also { if (environmentVariables.environmentalVariables.isNotEmpty()) it.withEnvironment(System.getenv() + environmentVariables.environmentalVariables) }
         .withDebug(enableGradleDebug)
         .withArguments(allBuildArguments)
     withBuildSummary(allBuildArguments) {
@@ -198,8 +216,16 @@ private fun BuildResult.additionalAssertions(buildOptions: BuildOptions) {
     }
 }
 
+private fun TestProject.ensureKotlinCompilerArgumentsPluginAppliedCorrectly(buildOptions: BuildOptions) {
+    if (this.buildOptions.languageVersion != null || this.buildOptions.languageApiVersion != null) return // plugin is applied
+    // plugin's not applied
+    check(buildOptions.languageVersion == null && buildOptions.languageApiVersion == null) {
+        "Kotlin language or API version passed on the build level, but the plugin wasn't applied"
+    }
+}
+
 internal inline fun <reified T> TestProject.getModels(
-    crossinline assertions: ModelContainer<T>.() -> Unit
+    crossinline assertions: ModelContainer<T>.() -> Unit,
 ) {
 
     val allBuildArguments = commonBuildSetup(
@@ -227,14 +253,16 @@ internal inline fun <reified T> TestProject.getModels(
 }
 
 fun TestProject.enableLocalBuildCache(
-    buildCacheLocation: Path
+    buildCacheLocation: Path,
 ) {
-    // language=Groovy
-    settingsGradle.append(
+
+    val settingsFile = if (Files.exists(settingsGradle)) settingsGradle else settingsGradleKts
+
+    settingsFile.append(
         """
         buildCache {
             local {
-                directory = '${buildCacheLocation.toUri()}'
+                directory = "${buildCacheLocation.toUri()}"
             }
         }
         """.trimIndent()
@@ -243,7 +271,7 @@ fun TestProject.enableLocalBuildCache(
 
 fun TestProject.enableStatisticReports(
     type: BuildReportType,
-    url: String?
+    url: String?,
 ) {
     gradleProperties.append(
         "\nkotlin.build.report.output=${type.name}\n"
@@ -256,9 +284,16 @@ fun TestProject.enableStatisticReports(
     }
 }
 
+fun String.wrapIntoBlock(s: String): String =
+    """
+        |$s {
+        |    $this
+        |}
+        """.trimMargin()
+
 open class GradleProject(
     val projectName: String,
-    val projectPath: Path
+    val projectPath: Path,
 ) {
     val buildGradle: Path get() = projectPath.resolve("build.gradle")
     val buildGradleKts: Path get() = projectPath.resolve("build.gradle.kts")
@@ -269,30 +304,44 @@ open class GradleProject(
 
     fun classesDir(
         sourceSet: String = "main",
+        targetName: String? = null,
         language: String = "kotlin"
-    ): Path = projectPath.resolve("build/classes/$language/$sourceSet/")
+    ): Path = projectPath.resolve("build/classes/$language/${targetName.orEmpty()}/$sourceSet/")
 
     fun kotlinClassesDir(
-        sourceSet: String = "main"
-    ): Path = classesDir(sourceSet, language = "kotlin")
+        sourceSet: String = "main",
+        targetName: String? = null
+    ): Path = classesDir(sourceSet, targetName, language = "kotlin")
 
     fun javaClassesDir(
-        sourceSet: String = "main"
+        sourceSet: String = "main",
     ): Path = classesDir(sourceSet, language = "java")
 
     fun kotlinSourcesDir(
-        sourceSet: String = "main"
+        sourceSet: String = "main",
     ): Path = projectPath.resolve("src/$sourceSet/kotlin")
 
     fun javaSourcesDir(
-        sourceSet: String = "main"
+        sourceSet: String = "main",
     ): Path = projectPath.resolve("src/$sourceSet/java")
 
     fun relativeToProject(
-        files: List<Path>
+        files: List<Path>,
     ): List<Path> = files.map { projectPath.relativize(it) }
 }
 
+/**
+ * You need at least [TestVersions.Gradle.G_7_0] for supporting environment variables with gradle runner
+ */
+@JvmInline
+value class EnvironmentalVariables @EnvironmentalVariablesOverride constructor(val environmentalVariables: Map<String, String> = emptyMap()) {
+    @EnvironmentalVariablesOverride constructor(vararg environmentVariables: Pair<String, String>) : this(mapOf(*environmentVariables))
+}
+
+@RequiresOptIn("Environmental variables override may lead to interference of parallel builds and breaks Gradle tests debugging")
+annotation class EnvironmentalVariablesOverride
+
+@OptIn(EnvironmentalVariablesOverride::class)
 class TestProject(
     val gradleRunner: GradleRunner,
     projectName: String,
@@ -310,28 +359,40 @@ class TestProject(
      * A port to debug the Kotlin daemon at.
      * Note that we'll need to let the debugger start listening at this port first *before* the Kotlin daemon is launched.
      */
-    val kotlinDaemonDebugPort: Int? = null
+    val kotlinDaemonDebugPort: Int? = null,
+    val environmentVariables: EnvironmentalVariables = EnvironmentalVariables(),
 ) : GradleProject(projectName, projectPath) {
     fun subProject(name: String) = GradleProject(name, projectPath.resolve(name))
 
+    /**
+     * Includes another project as a submodule in the current project.
+     * @param otherProjectName The name of the other project to include as a submodule.
+     * @param pathPrefix An optional prefix to prepend to the submodule's path. Defaults to an empty string.
+     * @param newSubmoduleName An optional new name for the submodule. Defaults to the otherProjectName.
+     * @param isKts Whether to update a .kts settings file instead of a .gradle settings file. Defaults to false.
+     */
     fun includeOtherProjectAsSubmodule(
         otherProjectName: String,
-        pathPrefix: String
+        pathPrefix: String,
+        newSubmoduleName: String = otherProjectName,
+        isKts: Boolean = false,
     ) {
         val otherProjectPath = "$pathPrefix/$otherProjectName".testProjectPath
-        otherProjectPath.copyRecursively(projectPath.resolve(otherProjectName))
+        otherProjectPath.copyRecursively(projectPath.resolve(newSubmoduleName))
 
-        settingsGradle.append(
+        val gradleSettingToUpdate = if (isKts) settingsGradleKts else settingsGradle
+
+        gradleSettingToUpdate.append(
             """
-            
-            include ':$otherProjectName'
+                
+            include(":$newSubmoduleName")
             """.trimIndent()
         )
     }
 
     fun includeOtherProjectAsIncludedBuild(
         otherProjectName: String,
-        pathPrefix: String
+        pathPrefix: String,
     ) {
         val otherProjectPath = "$pathPrefix/$otherProjectName".testProjectPath
         otherProjectPath.copyRecursively(projectPath.resolve(otherProjectName))
@@ -353,10 +414,18 @@ private fun commonBuildSetup(
     enableBuildCacheDebug: Boolean,
     enableBuildScan: Boolean,
     gradleVersion: GradleVersion,
-    kotlinDaemonDebugPort: Int? = null
+    kotlinDaemonDebugPort: Int? = null,
 ): List<String> {
+    // Following jdk system properties are provided via sub-project build.gradle.kts
+    val jdkPropNameRegex = Regex("jdk\\d+Home")
+    val jdkLocations = System.getProperties()
+        .filterKeys { it.toString().matches(jdkPropNameRegex) }
+        .values
+        .joinToString(separator = ",")
     return buildOptions.toArguments(gradleVersion) + buildArguments + listOfNotNull(
-        "--full-stacktrace",
+        // Required toolchains should be pre-installed via repo. Tests should not download any JDKs
+        "-Porg.gradle.java.installations.auto-download=false",
+        "-Porg.gradle.java.installations.paths=$jdkLocations",
         if (enableBuildCacheDebug) "-Dorg.gradle.caching.debug=true" else null,
         if (enableBuildScan) "--scan" else null,
         kotlinDaemonDebugPort?.let {
@@ -370,7 +439,7 @@ private fun commonBuildSetup(
 
 private fun TestProject.withBuildSummary(
     buildArguments: List<String>,
-    run: () -> Unit
+    run: () -> Unit,
 ) {
     try {
         run()
@@ -382,6 +451,8 @@ private fun TestProject.withBuildSummary(
         throw t
     }
 }
+
+val konanDir get() = Paths.get(".").resolve("../../../build").resolve("konan-for-gradle-tests")
 
 /**
  * On changing test kit dir location update related location in 'cleanTestKitCache' task.
@@ -425,6 +496,8 @@ internal fun Path.addDefaultBuildFiles() {
 }
 
 internal fun Path.addPluginManagementToSettings() {
+    val buildGradle = resolve("build.gradle")
+    val buildGradleKts = resolve("build.gradle.kts")
     val settingsGradle = resolve("settings.gradle")
     val settingsGradleKts = resolve("settings.gradle.kts")
     when {
@@ -452,7 +525,11 @@ internal fun Path.addPluginManagementToSettings() {
             }
         }
 
-        else -> settingsGradle.toFile().writeText(DEFAULT_GROOVY_SETTINGS_FILE)
+        Files.exists(buildGradle) -> settingsGradle.toFile().writeText(DEFAULT_GROOVY_SETTINGS_FILE)
+
+        Files.exists(buildGradleKts) -> settingsGradleKts.toFile().writeText(DEFAULT_KOTLIN_SETTINGS_FILE)
+
+        else -> error("No build-file or settings file found")
     }
 
     if (Files.exists(resolve("buildSrc"))) {
@@ -554,59 +631,40 @@ internal fun Path.enableCacheRedirector() {
     }
 }
 
-private fun Path.addHeapDumpOptions() {
-    val propertiesFile = resolve("gradle.properties")
-    if (!propertiesFile.exists()) propertiesFile.createFile()
-
-    val propertiesContent = propertiesFile.readText()
-    val (existingJvmArgsLine, otherLines) = propertiesContent
-        .lines()
-        .partition {
-            it.trim().startsWith("org.gradle.jvmargs")
-        }
-
-    val heapDumpOutOfErrorStr = "-XX:+HeapDumpOnOutOfMemoryError"
-    val heapDumpPathStr = "-XX:HeapDumpPath=\"${System.getProperty("user.dir")}${File.separatorChar}build\""
-
-    if (existingJvmArgsLine.isEmpty()) {
-        propertiesFile.writeText(
-            """
-            |# modified in addHeapDumpOptions
-            |org.gradle.jvmargs=$heapDumpOutOfErrorStr $heapDumpPathStr
-            | 
-            |$propertiesContent
-            """.trimMargin()
-        )
-    } else {
-        val argsLine = existingJvmArgsLine.first()
-        val appendedOptions = buildString {
-            if (!argsLine.contains("HeapDumpOnOutOfMemoryError")) append(" $heapDumpOutOfErrorStr")
-            if (!argsLine.contains("HeapDumpPath")) append(" $heapDumpPathStr")
-        }
-
-        if (appendedOptions.isNotEmpty()) {
-            propertiesFile.writeText(
-                """
-                # modified in addHeapDumpOptions
-                $argsLine$appendedOptions
-                
-                ${otherLines.joinToString(separator = "\n")}
-                """.trimIndent()
-            )
-        } else {
-            println("<=== Heap dump options are already exists! ===>")
-        }
-    }
+private fun GradleProject.addHeapDumpOptions() {
+    addPropertyToGradleProperties(
+        propertyName = "org.gradle.jvmargs",
+        mapOf(
+            "-XX:+HeapDumpOnOutOfMemoryError" to "-XX:+HeapDumpOnOutOfMemoryError",
+            "-XX:HeapDumpPath" to "-XX:HeapDumpPath=\"${System.getProperty("user.dir")}${File.separatorChar}build\""
+        ),
+    )
 }
 
 private const val SINGLE_NATIVE_TARGET_PLACEHOLDER = "<SingleNativeTarget>"
 private const val LOCAL_REPOSITORY_PLACEHOLDER = "<localRepo>"
 
-private fun TestProject.configureSingleNativeTarget(preset: String = HostManager.host.presetName) {
+private fun TestProject.configureSingleNativeTarget(
+    configureSubProjects: Boolean = false,
+    preset: String = HostManager.host.presetName,
+) {
     val buildScript = if (buildGradle.exists()) buildGradle else buildGradleKts
     buildScript.modify {
         it.replace(SINGLE_NATIVE_TARGET_PLACEHOLDER, preset)
     }
+    if (configureSubProjects) {
+        configureSingleNativeTargetInSubFolders(preset)
+    }
+}
+
+private fun TestProject.configureSingleNativeTargetInSubFolders(preset: String = HostManager.host.presetName) {
+    projectPath.toFile().walk()
+        .filter { it.isFile && (it.name == "build.gradle.kts" || it.name == "build.gradle") }
+        .forEach { file ->
+            file.modify {
+                it.replace(SINGLE_NATIVE_TARGET_PLACEHOLDER, preset)
+            }
+        }
 }
 
 private fun TestProject.configureLocalRepository(localRepoDir: Path) {
@@ -616,8 +674,6 @@ private fun TestProject.configureLocalRepository(localRepoDir: Path) {
             file.modify { it.replace(LOCAL_REPOSITORY_PLACEHOLDER, localRepoDir.absolutePathString().replace("\\", "\\\\")) }
         }
 }
-
-internal fun TestProject.disableKotlinNativeCaches() = gradleProperties.toFile().disableKotlinNativeCaches()
 
 internal fun TestProject.enableStableConfigurationCachePreview() {
     val settingsFile = if (settingsGradleKts.exists()) {

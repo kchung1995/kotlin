@@ -7,6 +7,7 @@ package org.jetbrains.kotlin.backend.jvm.codegen
 
 import org.jetbrains.kotlin.backend.common.lower.ANNOTATION_IMPLEMENTATION
 import org.jetbrains.kotlin.backend.jvm.JvmBackendContext
+import org.jetbrains.kotlin.backend.jvm.JvmBackendExtension
 import org.jetbrains.kotlin.backend.jvm.JvmLoweredDeclarationOrigin
 import org.jetbrains.kotlin.backend.jvm.MultifileFacadeFileEntry
 import org.jetbrains.kotlin.backend.jvm.extensions.descriptorOrigin
@@ -48,10 +49,10 @@ import org.jetbrains.kotlin.load.kotlin.header.KotlinClassHeader
 import org.jetbrains.kotlin.load.kotlin.internalName
 import org.jetbrains.kotlin.metadata.jvm.deserialization.BitEncoding
 import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.JvmNames.JVM_RECORD_ANNOTATION_FQ_NAME
-import org.jetbrains.kotlin.name.JvmNames.JVM_SYNTHETIC_ANNOTATION_FQ_NAME
-import org.jetbrains.kotlin.name.JvmNames.TRANSIENT_ANNOTATION_FQ_NAME
-import org.jetbrains.kotlin.name.JvmNames.VOLATILE_ANNOTATION_FQ_NAME
+import org.jetbrains.kotlin.name.JvmStandardClassIds.JVM_RECORD_ANNOTATION_FQ_NAME
+import org.jetbrains.kotlin.name.JvmStandardClassIds.JVM_SYNTHETIC_ANNOTATION_FQ_NAME
+import org.jetbrains.kotlin.name.JvmStandardClassIds.TRANSIENT_ANNOTATION_FQ_NAME
+import org.jetbrains.kotlin.name.JvmStandardClassIds.VOLATILE_ANNOTATION_FQ_NAME
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtFile
@@ -86,7 +87,7 @@ class ClassCodegen private constructor(
 
     private val innerClasses = mutableSetOf<IrClass>()
     val typeMapper =
-        if (context.state.oldInnerClassesLogic)
+        if (context.config.oldInnerClassesLogic)
             context.defaultTypeMapper
         else object : IrTypeMapper(context) {
             override fun mapType(type: IrType, mode: TypeMappingMode, sw: JvmSignatureWriter?, materialized: Boolean): Type {
@@ -118,7 +119,7 @@ class ClassCodegen private constructor(
         }
         defineClass(
             irClass.psiElement,
-            state.classFileVersion,
+            state.config.classFileVersion,
             irClass.getFlags(context.state.languageVersionSettings),
             signature.name,
             signature.javaGenericSignature,
@@ -151,7 +152,7 @@ class ClassCodegen private constructor(
         // Generate PermittedSubclasses attribute for sealed class.
         if (state.languageVersionSettings.supportsFeature(LanguageFeature.JvmPermittedSubclassesAttributeForSealed) &&
             irClass.modality == Modality.SEALED &&
-            state.target >= JvmTarget.JVM_17
+            state.config.target >= JvmTarget.JVM_17
         ) {
             generatePermittedSubclasses()
         }
@@ -213,7 +214,7 @@ class ClassCodegen private constructor(
 
         generateInnerAndOuterClasses()
 
-        visitor.done(state.generateSmapCopyToAnnotation)
+        visitor.done(state.config.generateSmapCopyToAnnotation)
         jvmSignatureClashDetector.reportErrors()
     }
 
@@ -281,7 +282,7 @@ class ClassCodegen private constructor(
 
         val isMultifileClassOrPart = kind == KotlinClassHeader.Kind.MULTIFILE_CLASS || kind == KotlinClassHeader.Kind.MULTIFILE_CLASS_PART
 
-        var extraFlags = context.backendExtension.generateMetadataExtraFlags(state.abiStability)
+        var extraFlags = JvmBackendExtension.Default.generateMetadataExtraFlags(state.config.abiStability)
         if (isMultifileClassOrPart && state.languageVersionSettings.getFlag(JvmAnalysisFlags.inheritMultifileParts)) {
             extraFlags = extraFlags or JvmAnnotationNames.METADATA_MULTIFILE_PARTS_INHERIT_FLAG
         }

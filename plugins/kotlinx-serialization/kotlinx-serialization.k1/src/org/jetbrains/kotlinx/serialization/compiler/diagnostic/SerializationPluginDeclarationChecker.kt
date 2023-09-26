@@ -15,8 +15,9 @@ import org.jetbrains.kotlin.descriptors.annotations.Annotations
 import org.jetbrains.kotlin.diagnostics.DiagnosticFactory0
 import org.jetbrains.kotlin.incremental.components.NoLookupLocation
 import org.jetbrains.kotlin.js.resolve.diagnostics.findPsi
+import org.jetbrains.kotlin.load.java.JvmAnnotationNames
 import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.name.JvmNames.TRANSIENT_ANNOTATION_FQ_NAME
+import org.jetbrains.kotlin.name.JvmStandardClassIds.TRANSIENT_ANNOTATION_FQ_NAME
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.resolve.*
 import org.jetbrains.kotlin.resolve.checkers.DeclarationChecker
@@ -47,6 +48,7 @@ open class SerializationPluginDeclarationChecker : DeclarationChecker {
         if (descriptor !is ClassDescriptor) return
 
         checkMetaSerializableApplicable(descriptor, context.trace)
+        checkInheritableSerialInfoNotRepeatable(descriptor, context.trace)
         checkEnum(descriptor, declaration, context.trace)
         checkExternalSerializer(descriptor, declaration, context.trace)
 
@@ -72,6 +74,14 @@ open class SerializationPluginDeclarationChecker : DeclarationChecker {
         if (descriptor.classId?.isNestedClass != true) return
         val entry = descriptor.findAnnotationDeclaration(SerializationAnnotations.metaSerializableAnnotationFqName) ?: return
         trace.report(SerializationErrors.META_SERIALIZABLE_NOT_APPLICABLE.on(entry))
+    }
+
+    private fun checkInheritableSerialInfoNotRepeatable(descriptor: ClassDescriptor, trace: BindingTrace) {
+        if (descriptor.kind != ClassKind.ANNOTATION_CLASS) return
+        // both kotlin.Repeatable and java.lang.annotation.Repeatable
+        if (!(descriptor.isAnnotatedWithKotlinRepeatable() || descriptor.annotations.hasAnnotation(JvmAnnotationNames.REPEATABLE_ANNOTATION))) return
+        val inheritableAnno = descriptor.findAnnotationDeclaration(SerializationAnnotations.inheritableSerialInfoFqName) ?: return
+        trace.report(SerializationErrors.INHERITABLE_SERIALINFO_CANT_BE_REPEATABLE.on(inheritableAnno))
     }
 
     private fun checkExternalSerializer(classDescriptor: ClassDescriptor, declaration: KtDeclaration, trace: BindingTrace) {
@@ -315,6 +325,7 @@ open class SerializationPluginDeclarationChecker : DeclarationChecker {
         val annotationPsi = descriptor.findSerializableOrMetaAnnotationDeclaration()
         checkCustomSerializerMatch(descriptor.module, descriptor.defaultType, descriptor, annotationPsi, trace, declaration)
         checkCustomSerializerIsNotLocal(descriptor.module, descriptor, trace, declaration)
+        checkCustomSerializerNotAbstract(descriptor.module, descriptor.defaultType, descriptor, annotationPsi, trace, declaration)
     }
 
     private val ClassDescriptor.isAnonymousObjectOrContained: Boolean
@@ -430,6 +441,14 @@ open class SerializationPluginDeclarationChecker : DeclarationChecker {
             if (serializer != null) {
                 val element = ktType?.typeElement
                 checkCustomSerializerMatch(it.module, it.type, it.descriptor, element, trace, propertyPsi)
+                checkCustomSerializerNotAbstract(
+                    it.module,
+                    it.type,
+                    it.descriptor,
+                    it.descriptor.findSerializableOrMetaAnnotationDeclaration(),
+                    trace,
+                    propertyPsi
+                )
                 checkCustomSerializerIsNotLocal(it.module, it.descriptor, trace, propertyPsi)
                 checkSerializerNullability(it.type, serializer.defaultType, element, trace, propertyPsi)
                 generatorContextForAnalysis.checkTypeArguments(it.module, it.type, element, trace, propertyPsi)
@@ -506,6 +525,26 @@ open class SerializationPluginDeclarationChecker : DeclarationChecker {
                 // enums are always serializable
                 trace.report(SerializationErrors.SERIALIZER_NOT_FOUND.on(element ?: fallbackElement, type))
             }
+        }
+    }
+
+    private fun checkCustomSerializerNotAbstract(
+        module: ModuleDescriptor,
+        classType: KotlinType,
+        descriptor: Annotated,
+        element: KtElement?,
+        trace: BindingTrace,
+        fallbackElement: PsiElement
+    ) {
+        val serializerType = descriptor.annotations.serializableWith(module) ?: return
+        if (serializerType.toClassDescriptor?.isAbstractOrSealedOrInterface == true) {
+            trace.report(
+                SerializationErrors.ABSTRACT_SERIALIZER_TYPE.on(
+                    element ?: fallbackElement,
+                    classType,
+                    serializerType
+                )
+            )
         }
     }
 

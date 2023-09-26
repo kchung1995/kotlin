@@ -8,6 +8,7 @@ package org.jetbrains.kotlin.fir.resolve.inference
 import org.jetbrains.kotlin.builtins.functions.FunctionTypeKind
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
+import org.jetbrains.kotlin.fir.declarations.FirDeclarationOrigin
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirCallableReferenceAccess
 import org.jetbrains.kotlin.fir.resolve.calls.ArgumentTypeMismatch
@@ -22,19 +23,17 @@ import org.jetbrains.kotlin.resolve.calls.inference.ConstraintSystemBuilder
 import org.jetbrains.kotlin.resolve.calls.inference.addSubtypeConstraintIfCompatible
 import org.jetbrains.kotlin.resolve.calls.inference.model.ConstraintKind
 import org.jetbrains.kotlin.types.model.typeConstructor
-import org.jetbrains.kotlin.utils.addToStdlib.runIf
 
 fun Candidate.preprocessLambdaArgument(
     csBuilder: ConstraintSystemBuilder,
     argument: FirAnonymousFunctionExpression,
     expectedType: ConeKotlinType?,
-    expectedTypeRef: FirTypeRef?,
     context: ResolutionContext,
     sink: CheckerSink?,
     duringCompletion: Boolean = false,
     returnTypeVariable: ConeTypeVariableForLambdaReturnType? = null
 ): PostponedResolvedAtom {
-    if (expectedType != null && expectedTypeRef != null && !duringCompletion && csBuilder.isTypeVariable(expectedType)) {
+    if (expectedType != null && !duringCompletion && csBuilder.isTypeVariable(expectedType)) {
         val expectedTypeVariableWithConstraints = csBuilder.currentStorage().notFixedTypeVariables[expectedType.typeConstructor(context.typeContext)]
 
         if (expectedTypeVariableWithConstraints != null) {
@@ -43,7 +42,9 @@ fun Candidate.preprocessLambdaArgument(
             }?.type as ConeKotlinType?
 
             if (explicitTypeArgument == null || explicitTypeArgument.typeArguments.isNotEmpty()) {
-                return LambdaWithTypeVariableAsExpectedTypeAtom(argument, expectedType, expectedTypeRef, this)
+                return LambdaWithTypeVariableAsExpectedTypeAtom(argument, expectedType, this).also {
+                    this.postponedAtoms += it
+                }
             }
         }
     }
@@ -53,7 +54,6 @@ fun Candidate.preprocessLambdaArgument(
     val resolvedArgument =
         extractLambdaInfoFromFunctionType(
             expectedType,
-            expectedTypeRef,
             anonymousFunction,
             returnTypeVariable,
             context.bodyResolveComponents,
@@ -68,7 +68,7 @@ fun Candidate.preprocessLambdaArgument(
             ?: FunctionTypeKind.Function
         val lambdaType = createFunctionType(
             functionTypeKind,
-            if (resolvedArgument.coerceFirstParameterToExtensionReceiver) parameters.drop(1) else parameters,
+            parameters,
             resolvedArgument.receiver,
             resolvedArgument.returnType,
             contextReceivers = resolvedArgument.contextReceivers,
@@ -110,24 +110,27 @@ private fun extractLambdaInfo(
     session: FirSession,
     candidate: Candidate?
 ): ResolvedLambdaAtom {
-    val expectedFunctionKind = expectedType?.lowerBoundIfFlexible()?.functionTypeKind(session)
-    val isFunctionSupertype = expectedFunctionKind != null
-
+    require(expectedType?.lowerBoundIfFlexible()?.functionTypeKind(session) == null) {
+        "Currently, we only extract lambda info from its shape when expected type is not function, but $expectedType"
+    }
     val typeVariable = ConeTypeVariableForLambdaReturnType(argument, "_L")
 
     val receiverType = argument.receiverType
     val returnType =
         argument.returnType
-            ?: runIf(isFunctionSupertype) { (expectedType?.typeArguments?.singleOrNull() as? ConeKotlinTypeProjection)?.type }
             ?: typeVariable.defaultType
 
-    val nothingType = session.builtinTypes.nothingType.type
+    val defaultType = when (candidate?.symbol?.origin) {
+        FirDeclarationOrigin.DynamicScope -> ConeDynamicType.create(session)
+        else -> session.builtinTypes.nothingType.type
+    }
+
     val parameters = argument.valueParameters.map {
-        it.returnTypeRef.coneTypeSafe<ConeKotlinType>() ?: nothingType
+        it.returnTypeRef.coneTypeSafe<ConeKotlinType>() ?: defaultType
     }
 
     val contextReceivers = argument.contextReceivers.map {
-        it.typeRef.coneTypeSafe<ConeKotlinType>() ?: nothingType
+        it.typeRef.coneTypeSafe<ConeKotlinType>() ?: defaultType
     }
 
     val newTypeVariableUsed = returnType == typeVariable.defaultType
@@ -136,13 +139,14 @@ private fun extractLambdaInfo(
     return ResolvedLambdaAtom(
         argument,
         expectedType,
-        expectedFunctionKind,
+        expectedFunctionTypeKind = argument.typeRef.coneTypeSafe<ConeKotlinType>()?.lowerBoundIfFlexible()?.functionTypeKind(session),
         receiverType,
         contextReceivers,
         parameters,
         returnType,
         typeVariable.takeIf { newTypeVariableUsed },
-        candidate,
         coerceFirstParameterToExtensionReceiver = false
-    )
+    ).also {
+        candidate?.postponedAtoms?.add(it)
+    }
 }

@@ -19,6 +19,7 @@ import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.IrStatement
+import org.jetbrains.kotlin.ir.ObsoleteDescriptorBasedAPI
 import org.jetbrains.kotlin.ir.builders.*
 import org.jetbrains.kotlin.ir.builders.declarations.buildField
 import org.jetbrains.kotlin.ir.builders.declarations.buildFun
@@ -178,7 +179,7 @@ internal class TestProcessor (val context: Context) {
 
         val topLevelFunctions = mutableListOf<TestFunction>()
         val topLevelSuiteClassId: ClassId by lazy {
-            ClassId(irFile.fqName, PackagePartClassUtils.getFilePartShortName(irFile.fileName).let(Name::identifier))
+            ClassId(irFile.packageFqName, PackagePartClassUtils.getFilePartShortName(irFile.fileName).let(Name::identifier))
         }
         val topLevelSuiteName: String get() = topLevelSuiteClassId.asFqNameString()
 
@@ -546,7 +547,7 @@ internal class TestProcessor (val context: Context) {
     /** Check if this fqName already used or not. */
     private fun checkTopLevelSuiteName(irFile: IrFile, topLevelSuiteName: String): Boolean {
         if (topLevelSuiteNames.contains(topLevelSuiteName)) {
-            context.reportCompilationError("Package '${irFile.fqName}' has top-level test " +
+            context.reportCompilationError("Package '${irFile.packageFqName}' has top-level test " +
                     "functions in several files with the same name: '${irFile.fileName}'")
         }
         topLevelSuiteNames.add(topLevelSuiteName)
@@ -678,6 +679,7 @@ internal class TestProcessor (val context: Context) {
     }
     // endregion
 
+    @OptIn(ObsoleteDescriptorBasedAPI::class)
     private fun shouldProcessFile(irFile: IrFile): Boolean = irFile.packageFragmentDescriptor.module.let {
         // Process test annotations in source libraries too.
         it in context.sourcesModules

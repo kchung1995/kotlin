@@ -5,6 +5,7 @@
 
 package org.jetbrains.kotlin.light.classes.symbol.classes
 
+import com.intellij.openapi.util.ModificationTracker
 import com.intellij.psi.*
 import com.intellij.psi.impl.InheritanceImplUtil
 import com.intellij.psi.impl.PsiClassImplUtil
@@ -28,8 +29,8 @@ import org.jetbrains.kotlin.light.classes.symbol.*
 import org.jetbrains.kotlin.light.classes.symbol.annotations.hasDeprecatedAnnotation
 import org.jetbrains.kotlin.light.classes.symbol.parameters.SymbolLightTypeParameterList
 import org.jetbrains.kotlin.load.java.structure.LightClassOriginKind
-import org.jetbrains.kotlin.psi.KtClassBody
 import org.jetbrains.kotlin.psi.KtClassOrObject
+import org.jetbrains.kotlin.psi.KtScript
 import org.jetbrains.kotlin.psi.debugText.getDebugText
 import org.jetbrains.kotlin.psi.stubs.KotlinClassOrObjectStub
 import org.jetbrains.kotlin.utils.addToStdlib.ifTrue
@@ -55,6 +56,10 @@ abstract class SymbolLightClassForClassLike<SType : KtClassOrObjectSymbol> prote
         ktModule = ktModule,
         manager = manager,
     )
+
+    override fun modificationTrackerForClassInnerStuff(): List<ModificationTracker> {
+        return classOrObjectDeclaration?.modificationTrackerForClassInnerStuff() ?: super.modificationTrackerForClassInnerStuff()
+    }
 
     override val kotlinOrigin: KtClassOrObject? get() = classOrObjectDeclaration
 
@@ -93,7 +98,8 @@ abstract class SymbolLightClassForClassLike<SType : KtClassOrObjectSymbol> prote
         }
     }
 
-    override fun hasTypeParameters(): Boolean = hasTypeParameters(ktModule, classOrObjectDeclaration, classOrObjectSymbolPointer)
+    override fun hasTypeParameters(): Boolean =
+        hasTypeParameters(ktModule, classOrObjectDeclaration, classOrObjectSymbolPointer)
 
     override fun getTypeParameterList(): PsiTypeParameterList? = _typeParameterList
 
@@ -159,10 +165,12 @@ abstract class SymbolLightClassForClassLike<SType : KtClassOrObjectSymbol> prote
     override fun getSuperTypes(): Array<PsiClassType> = PsiClassImplUtil.getSuperTypes(this)
 
     override fun getContainingClass(): PsiClass? {
-        val containingBody = classOrObjectDeclaration?.parent as? KtClassBody
-        val containingClass = containingBody?.parent as? KtClassOrObject
-        containingClass?.let { return it.toLightClass() }
-        return null
+        val containingBody = classOrObjectDeclaration?.parent
+        return when (val parent = containingBody?.parent) {
+            is KtClassOrObject -> parent.toLightClass()
+            is KtScript -> parent.toLightClass()
+            else -> null
+        }
     }
 
     abstract override fun getParent(): PsiElement?

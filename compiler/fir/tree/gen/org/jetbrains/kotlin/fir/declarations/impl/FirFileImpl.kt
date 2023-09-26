@@ -3,7 +3,7 @@
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
-@file:Suppress("DuplicatedCode")
+@file:Suppress("DuplicatedCode", "unused")
 
 package org.jetbrains.kotlin.fir.declarations.impl
 
@@ -19,25 +19,29 @@ import org.jetbrains.kotlin.fir.declarations.FirDeclarationOrigin
 import org.jetbrains.kotlin.fir.declarations.FirFile
 import org.jetbrains.kotlin.fir.declarations.FirImport
 import org.jetbrains.kotlin.fir.declarations.FirResolvePhase
+import org.jetbrains.kotlin.fir.declarations.FirResolveState
+import org.jetbrains.kotlin.fir.declarations.asResolveState
 import org.jetbrains.kotlin.fir.expressions.FirAnnotation
+import org.jetbrains.kotlin.fir.references.FirControlFlowGraphReference
 import org.jetbrains.kotlin.fir.symbols.impl.FirFileSymbol
 import org.jetbrains.kotlin.fir.visitors.*
 import org.jetbrains.kotlin.fir.MutableOrEmptyList
 import org.jetbrains.kotlin.fir.builder.toMutableOrEmpty
+import org.jetbrains.kotlin.fir.declarations.ResolveStateAccess
 
 /*
  * This file was generated automatically
  * DO NOT MODIFY IT MANUALLY
  */
 
+@OptIn(ResolveStateAccess::class)
 internal class FirFileImpl(
     override val source: KtSourceElement?,
-    @Volatile
-    override var resolvePhase: FirResolvePhase,
+    resolvePhase: FirResolvePhase,
     override val moduleData: FirModuleData,
     override val origin: FirDeclarationOrigin,
     override val attributes: FirDeclarationAttributes,
-    override var annotationsContainer: FirFileAnnotationsContainer,
+    override var annotationsContainer: FirFileAnnotationsContainer?,
     override var packageDirective: FirPackageDirective,
     override val imports: MutableList<FirImport>,
     override val declarations: MutableList<FirDeclaration>,
@@ -46,20 +50,24 @@ internal class FirFileImpl(
     override val sourceFileLinesMapping: KtSourceFileLinesMapping?,
     override val symbol: FirFileSymbol,
 ) : FirFile() {
-    override val annotations: List<FirAnnotation> get() = annotationsContainer.annotations
+    override val annotations: List<FirAnnotation> get() = annotationsContainer?.annotations ?: emptyList()
+    override var controlFlowGraphReference: FirControlFlowGraphReference? = null
 
     init {
         symbol.bind(this)
+        resolveState = resolvePhase.asResolveState()
     }
 
     override fun <R, D> acceptChildren(visitor: FirVisitor<R, D>, data: D) {
-        annotationsContainer.accept(visitor, data)
+        controlFlowGraphReference?.accept(visitor, data)
+        annotationsContainer?.accept(visitor, data)
         packageDirective.accept(visitor, data)
         imports.forEach { it.accept(visitor, data) }
         declarations.forEach { it.accept(visitor, data) }
     }
 
     override fun <D> transformChildren(transformer: FirTransformer<D>, data: D): FirFileImpl {
+        controlFlowGraphReference = controlFlowGraphReference?.transform(transformer, data)
         transformAnnotationsContainer(transformer, data)
         packageDirective = packageDirective.transform(transformer, data)
         transformImports(transformer, data)
@@ -72,7 +80,7 @@ internal class FirFileImpl(
     }
 
     override fun <D> transformAnnotationsContainer(transformer: FirTransformer<D>, data: D): FirFileImpl {
-        annotationsContainer = annotationsContainer.transform(transformer, data)
+        annotationsContainer = annotationsContainer?.transform(transformer, data)
         return this
     }
 
@@ -86,9 +94,9 @@ internal class FirFileImpl(
         return this
     }
 
-    override fun replaceResolvePhase(newResolvePhase: FirResolvePhase) {
-        resolvePhase = newResolvePhase
-    }
-
     override fun replaceAnnotations(newAnnotations: List<FirAnnotation>) {}
+
+    override fun replaceControlFlowGraphReference(newControlFlowGraphReference: FirControlFlowGraphReference?) {
+        controlFlowGraphReference = newControlFlowGraphReference
+    }
 }

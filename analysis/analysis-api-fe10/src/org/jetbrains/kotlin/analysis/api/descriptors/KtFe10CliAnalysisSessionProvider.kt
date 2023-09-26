@@ -9,22 +9,19 @@ import com.intellij.openapi.project.Project
 import org.jetbrains.kotlin.analysis.api.KtAnalysisApiInternals
 import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
 import org.jetbrains.kotlin.analysis.api.session.KtAnalysisSessionProvider
-import org.jetbrains.kotlin.analysis.api.descriptors.symbols.base.KtFe10Symbol
-import org.jetbrains.kotlin.analysis.api.symbols.KtSymbol
 import org.jetbrains.kotlin.analysis.project.structure.KtModule
 import org.jetbrains.kotlin.analysis.api.lifetime.KtLifetimeTokenFactory
-import org.jetbrains.kotlin.analysis.project.structure.getKtModule
 import org.jetbrains.kotlin.psi.KtElement
 import java.lang.UnsupportedOperationException
 
 
 @OptIn(KtAnalysisApiInternals::class)
 class KtFe10AnalysisSessionProvider(project: Project) : KtAnalysisSessionProvider(project) {
-    override fun getAnalysisSession(useSiteKtElement: KtElement, factory: KtLifetimeTokenFactory): KtAnalysisSession {
-        return KtFe10AnalysisSession(useSiteKtElement, factory.create(project))
+    override fun getAnalysisSession(useSiteKtElement: KtElement): KtAnalysisSession {
+        return KtFe10AnalysisSession(project, useSiteKtElement, tokenFactory.create(project))
     }
 
-    override fun getAnalysisSessionByUseSiteKtModule(useSiteKtModule: KtModule, factory: KtLifetimeTokenFactory): KtAnalysisSession {
+    override fun getAnalysisSessionByUseSiteKtModule(useSiteKtModule: KtModule): KtAnalysisSession {
         throw UnsupportedOperationException("getAnalysisSessionByModule() should not be used on KtFe10AnalysisSession")
     }
 

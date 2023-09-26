@@ -1,6 +1,3 @@
-import org.jetbrains.kotlin.gradle.dsl.KotlinVersion as GradleKotlinVersion
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
-
 plugins {
     kotlin("jvm")
     id("jps-compatible")
@@ -9,12 +6,18 @@ plugins {
 dependencies {
     api(kotlinStdlib())
     api(project(":compiler:compiler.version"))
+    api(project(":core:util.runtime"))
 
     compileOnly(intellijCore())
     compileOnly(commonDependency("org.jetbrains.intellij.deps:log4j"))
     compileOnly(commonDependency("org.jetbrains.intellij.deps:asm-all"))
     compileOnly(jpsModel()) { isTransitive = false }
     compileOnly(jpsModelImpl()) { isTransitive = false }
+
+    testImplementation(projectTests(":compiler:tests-common"))
+    testImplementation(intellijCore())
+    testApi(platform(libs.junit.bom))
+    testImplementation(libs.junit4)
 }
 
 sourceSets {
@@ -22,12 +25,13 @@ sourceSets {
         projectDefault()
         resources.srcDir(File(rootDir, "resources"))
     }
-    "test" {}
+    "test" {
+        projectDefault()
+    }
 }
 
-// 1.9 level breaks Kotlin Gradle plugins via changes in enums (KT-48872)
-// We limit api and LV until KGP will stop using Kotlin compiler directly (KT-56574)
-tasks.withType<KotlinCompilationTask<*>>().configureEach {
-    compilerOptions.apiVersion.value(GradleKotlinVersion.KOTLIN_1_8).finalizeValueOnRead()
-    compilerOptions.languageVersion.value(GradleKotlinVersion.KOTLIN_1_8).finalizeValueOnRead()
+testsJar()
+
+projectTest(parallel = true) {
+    workingDir = rootDir
 }

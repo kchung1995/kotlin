@@ -49,7 +49,7 @@ object ClassicPositioningStrategies {
                 val callableDeclaration = element as? KtCallableDeclaration
                 val incompatibility = diagnostic.firstIncompatibility
                 return when (incompatibility) {
-                    null, ExpectActualCompatibility.Incompatible.Unknown, is ExpectActualCompatibility.Incompatible.ClassScopes,
+                    null, is ExpectActualCompatibility.Incompatible.ClassScopes,
                     ExpectActualCompatibility.Incompatible.EnumEntries -> null
                     ExpectActualCompatibility.Incompatible.ClassKind -> {
                         val startElement =
@@ -64,8 +64,11 @@ object ClassicPositioningStrategies {
                             endElement
                         }
                     }
-                    ExpectActualCompatibility.Incompatible.TypeParameterNames, ExpectActualCompatibility.Incompatible.TypeParameterCount,
-                    ExpectActualCompatibility.Incompatible.TypeParameterUpperBounds,
+                    ExpectActualCompatibility.Incompatible.TypeParameterNames,
+                    ExpectActualCompatibility.Incompatible.FunctionTypeParameterCount,
+                    ExpectActualCompatibility.Incompatible.ClassTypeParameterCount,
+                    ExpectActualCompatibility.Incompatible.FunctionTypeParameterUpperBounds,
+                    ExpectActualCompatibility.Incompatible.ClassTypeParameterUpperBounds,
                     ExpectActualCompatibility.Incompatible.TypeParameterVariance,
                     ExpectActualCompatibility.Incompatible.TypeParameterReified -> {
                         (element as? KtTypeParameterListOwner)?.typeParameterList
@@ -79,6 +82,7 @@ object ClassicPositioningStrategies {
                     }
                     ExpectActualCompatibility.Incompatible.ParameterCount, ExpectActualCompatibility.Incompatible.ParameterTypes,
                     ExpectActualCompatibility.Incompatible.ParameterNames, ExpectActualCompatibility.Incompatible.ValueParameterVararg,
+                    ExpectActualCompatibility.Incompatible.ActualFunctionWithDefaultParameters,
                     ExpectActualCompatibility.Incompatible.ValueParameterNoinline,
                     ExpectActualCompatibility.Incompatible.ValueParameterCrossinline -> {
                         callableDeclaration?.valueParameterList
@@ -90,7 +94,8 @@ object ClassicPositioningStrategies {
                     ExpectActualCompatibility.Incompatible.FunctionModifiersNotSubset,
                     ExpectActualCompatibility.Incompatible.PropertyLateinitModifier,
                     ExpectActualCompatibility.Incompatible.PropertyConstModifier,
-                    ExpectActualCompatibility.Incompatible.ClassModifiers -> {
+                    ExpectActualCompatibility.Incompatible.ClassModifiers,
+                    ExpectActualCompatibility.Incompatible.FunInterfaceModifier -> {
                         element.modifierList
                     }
                     ExpectActualCompatibility.Incompatible.PropertyKind -> {
@@ -104,6 +109,9 @@ object ClassicPositioningStrategies {
                     }
                     ExpectActualCompatibility.Incompatible.Visibility -> {
                         element.visibilityModifier()
+                    }
+                    ExpectActualCompatibility.Incompatible.PropertySetterVisibility -> {
+                        (element as? KtProperty)?.setter?.modifierList
                     }
                 }?.let { markElement(it) } ?: ACTUAL_DECLARATION_NAME.mark(element)
             }

@@ -7,6 +7,7 @@ package org.jetbrains.kotlin.analysis.api.fir.components
 
 import org.jetbrains.kotlin.analysis.api.components.KtSymbolInfoProvider
 import org.jetbrains.kotlin.analysis.api.fir.KtFirAnalysisSession
+import org.jetbrains.kotlin.analysis.api.fir.getJvmNameFromAnnotation
 import org.jetbrains.kotlin.analysis.api.fir.symbols.*
 import org.jetbrains.kotlin.analysis.api.lifetime.KtLifetimeToken
 import org.jetbrains.kotlin.analysis.api.symbols.KtClassOrObjectSymbol
@@ -20,8 +21,10 @@ import org.jetbrains.kotlin.descriptors.annotations.KotlinTarget
 import org.jetbrains.kotlin.fir.analysis.checkers.getAllowedAnnotationTargets
 import org.jetbrains.kotlin.fir.declarations.*
 import org.jetbrains.kotlin.fir.languageVersionSettings
+import org.jetbrains.kotlin.fir.symbols.impl.FirBackingFieldSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.load.java.JvmAbi
+import org.jetbrains.kotlin.name.JvmStandardClassIds
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.resolve.deprecation.DeprecationInfo
@@ -33,7 +36,7 @@ internal class KtFirSymbolInfoProvider(
     private val apiVersion = analysisSession.useSiteSession.languageVersionSettings.apiVersion
 
     override fun getDeprecation(symbol: KtSymbol): DeprecationInfo? {
-        if (symbol is KtFirBackingFieldSymbol || symbol is KtFirPackageSymbol || symbol is KtReceiverParameterSymbol) return null
+        if (symbol is KtFirPackageSymbol || symbol is KtReceiverParameterSymbol) return null
         require(symbol is KtFirSymbol<*>) { "${this::class}" }
 
         // Optimization: Avoid building `firSymbol` of `KtFirPsiJavaClassSymbol` if it definitely isn't deprecated.
@@ -43,10 +46,13 @@ internal class KtFirSymbolInfoProvider(
 
         return when (val firSymbol = symbol.firSymbol) {
             is FirPropertySymbol -> {
-                firSymbol.getDeprecationForCallSite(apiVersion, AnnotationUseSiteTarget.PROPERTY)
+                firSymbol.getDeprecationForCallSite(analysisSession.useSiteSession, AnnotationUseSiteTarget.PROPERTY)
+            }
+            is FirBackingFieldSymbol -> {
+                firSymbol.getDeprecationForCallSite(analysisSession.useSiteSession, AnnotationUseSiteTarget.FIELD)
             }
             else -> {
-                firSymbol.getDeprecationForCallSite(apiVersion)
+                firSymbol.getDeprecationForCallSite(analysisSession.useSiteSession)
             }
         }
     }
@@ -57,28 +63,37 @@ internal class KtFirSymbolInfoProvider(
         // Check the simple names of the Java annotations. While presence of such an annotation name does not prove deprecation, it is a
         // necessary condition for it. Type aliases are not a problem here: Java code cannot access Kotlin type aliases. (Currently,
         // deprecation annotation type aliases do not work in Kotlin, either, but this might change in the future.)
+        val deprecationAnnotationSimpleNames = analysisSession.useSiteSession.annotationPlatformSupport.deprecationAnnotationsSimpleNames
         return annotationSimpleNames.any { it != null && it in deprecationAnnotationSimpleNames }
     }
 
     override fun getDeprecation(symbol: KtSymbol, annotationUseSiteTarget: AnnotationUseSiteTarget?): DeprecationInfo? {
         require(symbol is KtFirSymbol<*>)
         return if (annotationUseSiteTarget != null) {
-            symbol.firSymbol.getDeprecationForCallSite(apiVersion, annotationUseSiteTarget)
+            symbol.firSymbol.getDeprecationForCallSite(analysisSession.useSiteSession, annotationUseSiteTarget)
         } else {
-            symbol.firSymbol.getDeprecationForCallSite(apiVersion)
+            symbol.firSymbol.getDeprecationForCallSite(analysisSession.useSiteSession)
         }
 
     }
 
     override fun getGetterDeprecation(symbol: KtPropertySymbol): DeprecationInfo? {
         require(symbol is KtFirSymbol<*>)
-        return symbol.firSymbol.getDeprecationForCallSite(apiVersion, AnnotationUseSiteTarget.PROPERTY_GETTER, AnnotationUseSiteTarget.PROPERTY)
+        return symbol.firSymbol.getDeprecationForCallSite(
+            analysisSession.useSiteSession,
+            AnnotationUseSiteTarget.PROPERTY_GETTER,
+            AnnotationUseSiteTarget.PROPERTY,
+        )
 
     }
 
     override fun getSetterDeprecation(symbol: KtPropertySymbol): DeprecationInfo? {
         require(symbol is KtFirSymbol<*>)
-        return symbol.firSymbol.getDeprecationForCallSite(apiVersion, AnnotationUseSiteTarget.PROPERTY_SETTER, AnnotationUseSiteTarget.PROPERTY)
+        return symbol.firSymbol.getDeprecationForCallSite(
+            analysisSession.useSiteSession,
+            AnnotationUseSiteTarget.PROPERTY_SETTER,
+            AnnotationUseSiteTarget.PROPERTY,
+        )
     }
 
     override fun getJavaGetterName(symbol: KtPropertySymbol): Name {
@@ -109,13 +124,15 @@ internal class KtFirSymbolInfoProvider(
 
     override fun getAnnotationApplicableTargets(symbol: KtClassOrObjectSymbol): Set<KotlinTarget>? {
         requireIsInstance<KtFirSymbol<*>>(symbol)
-        if (symbol !is KtFirNamedClassOrObjectSymbol) return null
+        if (symbol !is KtFirNamedClassOrObjectSymbolBase) return null
         if (symbol.firSymbol.classKind != ClassKind.ANNOTATION_CLASS) return null
         return symbol.firSymbol.getAllowedAnnotationTargets(analysisSession.useSiteSession)
     }
 
     private fun getJvmName(property: FirProperty, isSetter: Boolean): Name {
-        if (property.hasAnnotation(StandardClassIds.Annotations.JvmField, analysisSession.useSiteSession)) return property.name
+        if (property.backingField?.symbol?.hasAnnotation(JvmStandardClassIds.Annotations.JvmField, analysisSession.useSiteSession) == true) {
+            return property.name
+        }
         return Name.identifier(getJvmNameAsString(property, isSetter))
     }
 

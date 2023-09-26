@@ -11,13 +11,7 @@ import org.jetbrains.kotlin.fir.analysis.js.checkers.declaration.*
 object JsDeclarationCheckers : DeclarationCheckers() {
     override val functionCheckers: Set<FirFunctionChecker>
         get() = setOf(
-            FirJsInlineDeclarationChecker,
             FirJsInheritanceFunctionChecker,
-        )
-
-    override val propertyCheckers: Set<FirPropertyChecker>
-        get() = setOf(
-            FirJsInlinePropertyChecker,
         )
 
     override val basicDeclarationCheckers: Set<FirBasicDeclarationChecker>
@@ -27,6 +21,10 @@ object JsDeclarationCheckers : DeclarationCheckers() {
             FirJsExternalChecker,
             FirJsExternalFileChecker,
             FirJsNameChecker,
+            FirJsExportAnnotationChecker,
+            FirJsExportDeclarationChecker,
+            FirJsBuiltinNameClashChecker,
+            FirJsNameCharsChecker
         )
 
     override val classCheckers: Set<FirClassChecker>
@@ -34,13 +32,24 @@ object JsDeclarationCheckers : DeclarationCheckers() {
             FirJsMultipleInheritanceChecker,
             FirJsDynamicDeclarationChecker,
             FirJsInheritanceClassChecker,
+            FirJsExternalInheritorOnlyChecker,
+            FirJsNameClashClassMembersChecker
         )
 
     override val simpleFunctionCheckers: Set<FirSimpleFunctionChecker>
         get() = setOf(
-            FirJsTopLevelFunctionsChecker,
             FirJsNativeInvokeChecker,
             FirJsNativeGetterChecker,
             FirJsNativeSetterChecker,
+        )
+
+    override val propertyCheckers: Set<FirPropertyChecker>
+        get() = setOf(
+            FirJsPropertyDelegationByDynamicChecker
+        )
+
+    override val fileCheckers: Set<FirFileChecker>
+        get() = setOf(
+            FirJsNameClashFileTopLevelDeclarationsChecker
         )
 }

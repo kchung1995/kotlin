@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2020 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -9,7 +9,6 @@ import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.fir.*
 import org.jetbrains.kotlin.fir.declarations.*
 import org.jetbrains.kotlin.fir.declarations.synthetic.FirSyntheticProperty
-import org.jetbrains.kotlin.fir.declarations.utils.hasExplicitBackingField
 import org.jetbrains.kotlin.fir.declarations.utils.isLocal
 import org.jetbrains.kotlin.fir.declarations.utils.visibility
 import org.jetbrains.kotlin.fir.diagnostics.ConeSimpleDiagnostic
@@ -23,9 +22,9 @@ import org.jetbrains.kotlin.fir.resolve.transformers.FirTransformerBasedResolveP
 import org.jetbrains.kotlin.fir.resolve.transformers.ReturnTypeCalculator
 import org.jetbrains.kotlin.fir.resolve.transformers.ReturnTypeCalculatorForFullBodyResolve
 import org.jetbrains.kotlin.fir.resolve.transformers.contracts.runContractResolveForLocalClass
-import org.jetbrains.kotlin.fir.scopes.FakeOverrideTypeCalculator
-import org.jetbrains.kotlin.fir.scopes.fakeOverrideSubstitution
-import org.jetbrains.kotlin.fir.delegatedWrapperData
+import org.jetbrains.kotlin.fir.scopes.CallableCopyTypeCalculator
+import org.jetbrains.kotlin.fir.scopes.callableCopySubstitutionForTypeUpdater
+import org.jetbrains.kotlin.fir.scopes.impl.originalForWrappedIntegerOperator
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirSyntheticPropertySymbol
 import org.jetbrains.kotlin.fir.symbols.lazyResolveToPhase
@@ -33,6 +32,7 @@ import org.jetbrains.kotlin.fir.types.FirImplicitTypeRef
 import org.jetbrains.kotlin.fir.types.FirResolvedTypeRef
 import org.jetbrains.kotlin.fir.types.builder.buildErrorTypeRef
 import org.jetbrains.kotlin.fir.visitors.FirTransformer
+import org.jetbrains.kotlin.util.PrivateForInline
 
 @OptIn(AdapterForResolveProcessor::class)
 class FirImplicitTypeBodyResolveProcessor(
@@ -60,7 +60,9 @@ class FirImplicitTypeBodyResolveTransformerAdapter(session: FirSession, scopeSes
     }
 
     override fun transformFile(file: FirFile, data: Any?): FirFile {
-        return file.transform(transformer, ResolutionMode.ContextIndependent)
+        return withFileAnalysisExceptionWrapping(file) {
+            file.transform(transformer, ResolutionMode.ContextIndependent)
+        }
     }
 }
 
@@ -68,10 +70,10 @@ fun <F : FirClassLikeDeclaration> F.runContractAndBodiesResolutionForLocalClass(
     components: FirAbstractBodyResolveTransformer.BodyResolveTransformerComponents,
     resolutionMode: ResolutionMode,
     localClassesNavigationInfo: LocalClassesNavigationInfo,
-    firTowerDataContextCollector: FirTowerDataContextCollector? = null
+    firResolveContextCollector: FirResolveContextCollector? = null
 ): F {
-    val prevDesignation =
-        (components.context.returnTypeCalculator as? ReturnTypeCalculatorWithJump)?.designationMapForLocalClasses ?: emptyMap()
+    val currentReturnTypeCalculator = components.context.returnTypeCalculator as? ReturnTypeCalculatorWithJump
+    val prevDesignation = currentReturnTypeCalculator?.designationMapForLocalClasses ?: emptyMap()
 
     val (designationMap, targetedClasses) = localClassesNavigationInfo.run {
         (prevDesignation + designationMap) to
@@ -79,13 +81,13 @@ fun <F : FirClassLikeDeclaration> F.runContractAndBodiesResolutionForLocalClass(
     }
 
     val implicitBodyResolveComputationSession =
-        ((components.returnTypeCalculator as? ReturnTypeCalculatorWithJump)?.implicitBodyResolveComputationSession
-            ?: ImplicitBodyResolveComputationSession())
+        currentReturnTypeCalculator?.implicitBodyResolveComputationSession ?: ImplicitBodyResolveComputationSession()
+
     val returnTypeCalculator = ReturnTypeCalculatorWithJump(
         components.scopeSession,
         implicitBodyResolveComputationSession,
         designationMap,
-        createTransformer = components.returnTypeCalculator.getTransformerCreator()
+        nonLocalDeclarationResolver = currentReturnTypeCalculator,
     )
 
     val newContext = components.context.createSnapshotForLocalClasses(returnTypeCalculator, targetedClasses)
@@ -100,29 +102,10 @@ fun <F : FirClassLikeDeclaration> F.runContractAndBodiesResolutionForLocalClass(
         implicitTypeOnly = false,
         returnTypeCalculator,
         outerBodyResolveContext = newContext,
-        firTowerDataContextCollector = firTowerDataContextCollector
+        firResolveContextCollector = firResolveContextCollector
     )
     return this.transform(transformer, resolutionMode)
 }
-
-private fun ReturnTypeCalculator.getTransformerCreator() = when (this) {
-    is ReturnTypeCalculatorWithJump -> createTransformer
-    else -> ::FirDesignatedBodyResolveTransformerForReturnTypeCalculator
-}
-
-fun createReturnTypeCalculatorForIDE(
-    scopeSession: ScopeSession,
-    implicitBodyResolveComputationSession: ImplicitBodyResolveComputationSession,
-    createTransformer: (
-        designation: Iterator<FirElement>,
-        FirSession,
-        ScopeSession,
-        ImplicitBodyResolveComputationSession,
-        ReturnTypeCalculator,
-        BodyResolveContext?
-    ) -> FirDesignatedBodyResolveTransformerForReturnTypeCalculator
-): ReturnTypeCalculator =
-    ReturnTypeCalculatorWithJump(scopeSession, implicitBodyResolveComputationSession, createTransformer = createTransformer)
 
 open class FirImplicitAwareBodyResolveTransformer(
     session: FirSession,
@@ -132,7 +115,7 @@ open class FirImplicitAwareBodyResolveTransformer(
     implicitTypeOnly: Boolean,
     returnTypeCalculator: ReturnTypeCalculator,
     outerBodyResolveContext: BodyResolveContext? = null,
-    firTowerDataContextCollector: FirTowerDataContextCollector? = null,
+    firResolveContextCollector: FirResolveContextCollector? = null,
 ) : FirBodyResolveTransformer(
     session,
     phase,
@@ -140,7 +123,7 @@ open class FirImplicitAwareBodyResolveTransformer(
     scopeSession,
     returnTypeCalculator,
     outerBodyResolveContext,
-    firTowerDataContextCollector
+    firResolveContextCollector
 ) {
     override fun transformSimpleFunction(
         simpleFunction: FirSimpleFunction,
@@ -165,8 +148,7 @@ open class FirImplicitAwareBodyResolveTransformer(
             return transform()
         }
 
-        val canHaveDeepImplicitTypeRefs = member is FirProperty && member.hasExplicitBackingField
-
+        val canHaveDeepImplicitTypeRefs = member is FirProperty && member.backingField?.returnTypeRef is FirResolvedTypeRef == false
         if (member.returnTypeRef is FirResolvedTypeRef && !canHaveDeepImplicitTypeRefs) return member
         val symbol = member.symbol
         val status = implicitBodyResolveComputationSession.getStatus(symbol)
@@ -188,20 +170,13 @@ open class FirImplicitAwareBodyResolveTransformer(
     }
 }
 
-private class ReturnTypeCalculatorWithJump(
-    private val scopeSession: ScopeSession,
+open class ReturnTypeCalculatorWithJump(
+    protected val scopeSession: ScopeSession,
     val implicitBodyResolveComputationSession: ImplicitBodyResolveComputationSession,
     val designationMapForLocalClasses: Map<FirCallableDeclaration, List<FirClassLikeDeclaration>> = mapOf(),
-    val createTransformer: (
-        designation: Iterator<FirElement>,
-        session: FirSession,
-        scopeSession: ScopeSession,
-        implicitBodyResolveComputationSession: ImplicitBodyResolveComputationSession,
-        returnTypeCalculator: ReturnTypeCalculator,
-        outerBodyResolveContext: BodyResolveContext?
-    ) -> FirDesignatedBodyResolveTransformerForReturnTypeCalculator = ::FirDesignatedBodyResolveTransformerForReturnTypeCalculator,
+    private val nonLocalDeclarationResolver: ReturnTypeCalculatorWithJump? = null,
 ) : ReturnTypeCalculator() {
-    override val fakeOverrideTypeCalculator: FakeOverrideTypeCalculator = FakeOverrideTypeCalculatorWithJump()
+    override val callableCopyTypeCalculator: CallableCopyTypeCalculator = CallableCopyTypeCalculatorWithJump()
 
     @OptIn(PrivateForInline::class)
     var outerBodyResolveContext: BodyResolveContext? = null
@@ -215,7 +190,7 @@ private class ReturnTypeCalculatorWithJump(
     override fun tryCalculateReturnTypeOrNull(declaration: FirCallableDeclaration): FirResolvedTypeRef {
         // Local declarations must be handled by `ReturnTypeCalculatorForFullBodyResolve` to avoid resolution cycles in LL FIR.
         if (declaration.visibility == Visibilities.Local) {
-            return ReturnTypeCalculatorForFullBodyResolve.tryCalculateReturnType(declaration)
+            return ReturnTypeCalculatorForFullBodyResolve.Default.tryCalculateReturnType(declaration)
         }
 
         if (declaration is FirValueParameter && declaration.returnTypeRef is FirImplicitTypeRef) {
@@ -224,6 +199,14 @@ private class ReturnTypeCalculatorWithJump(
                     diagnostic = ConeSimpleDiagnostic("Unsupported: implicit VP type")
                 }
             )
+        }
+
+        if (declaration is FirSimpleFunction) {
+            // Effectively this logic is redundant now, because all methods of Int have an explicit return type,
+            // so explicit call here just to be sure (probably some method from Int will have an implicit type)
+            declaration.originalForWrappedIntegerOperator?.let {
+                tryCalculateReturnTypeOrNull(it.fir)
+            }
         }
 
         resolvedToContractsIfNecessary(declaration)
@@ -244,19 +227,29 @@ private class ReturnTypeCalculatorWithJump(
             }
         }
 
-        if (declaration.isSubstitutionOrIntersectionOverride) {
-            val fakeOverrideSubstitution = declaration.attributes.fakeOverrideSubstitution
+        if (declaration.isCopyCreatedInScope) {
+            val callableCopySubstitutionForTypeUpdater = declaration.attributes.callableCopySubstitutionForTypeUpdater
                 ?: return declaration.returnTypeRef as FirResolvedTypeRef
-            synchronized(fakeOverrideSubstitution) {
-                (declaration.returnTypeRef as? FirResolvedTypeRef)?.let { return it }
-                declaration.attributes.fakeOverrideSubstitution = null
-                val (substitutor, baseSymbol) = fakeOverrideSubstitution
+
+            // TODO: drop synchronized in KT-60385
+            synchronized(callableCopySubstitutionForTypeUpdater) {
+                if (declaration.attributes.callableCopySubstitutionForTypeUpdater == null) {
+                    return declaration.returnTypeRef as FirResolvedTypeRef
+                }
+
+                val (substitutor, baseSymbol) = callableCopySubstitutionForTypeUpdater
                 val baseDeclaration = baseSymbol.fir as FirCallableDeclaration
                 val baseReturnTypeRef = tryCalculateReturnType(baseDeclaration)
                 val baseReturnType = baseReturnTypeRef.type
                 val coneType = substitutor.substituteOrSelf(baseReturnType)
                 val returnType = declaration.returnTypeRef.resolvedTypeFromPrototype(coneType)
                 declaration.replaceReturnTypeRef(returnType)
+                if (declaration is FirProperty) {
+                    declaration.getter?.replaceReturnTypeRef(returnType)
+                    declaration.setter?.valueParameters?.firstOrNull()?.replaceReturnTypeRef(returnType)
+                }
+
+                declaration.attributes.callableCopySubstitutionForTypeUpdater = null
                 return returnType
             }
         }
@@ -270,8 +263,6 @@ private class ReturnTypeCalculatorWithJump(
     }
 
     private fun resolvedToContractsIfNecessary(declaration: FirCallableDeclaration) {
-        if (declaration.resolvePhase >= FirResolvePhase.CONTRACTS) return
-
         val canHaveContracts = when {
             declaration is FirProperty && !declaration.isLocal -> true
             declaration is FirSimpleFunction && !declaration.isLocal -> true
@@ -283,19 +274,28 @@ private class ReturnTypeCalculatorWithJump(
         }
     }
 
-    @OptIn(PrivateForInline::class)
     private fun computeReturnTypeRef(declaration: FirCallableDeclaration): FirResolvedTypeRef {
         (declaration.returnTypeRef as? FirResolvedTypeRef)?.let { return it }
+        val symbol = declaration.symbol
+        require(!symbol.isCopyCreatedInScope) {
+            "callableCopySubstitution was not calculated for callable copy: " +
+                    "$symbol with origin ${declaration.origin} and return type ${declaration.returnTypeRef}"
+        }
+
+        return resolveDeclaration(declaration)
+    }
+
+    @OptIn(PrivateForInline::class)
+    protected open fun resolveDeclaration(declaration: FirCallableDeclaration): FirResolvedTypeRef {
         // To properly transform and resolve declaration's type, we need to use its module's session
         val session = declaration.moduleData.session
         val symbol = declaration.symbol
-        require(!symbol.isSubstitutionOrIntersectionOverride) {
-            "fakeOverrideSubstitution was not calculated for substitution or intersection override: $symbol with ${declaration.returnTypeRef}"
-        }
 
         val (designation, outerBodyResolveContext) = if (declaration in designationMapForLocalClasses) {
             designationMapForLocalClasses.getValue(declaration) to outerBodyResolveContext
         } else {
+            nonLocalDeclarationResolver?.let { return it.resolveDeclaration(declaration) }
+
             val provider = session.firProvider
             val file = provider.getFirCallableContainerFile(symbol)
 
@@ -317,7 +317,7 @@ private class ReturnTypeCalculatorWithJump(
         val previousTowerDataContexts = outerBodyResolveContext?.regularTowerDataContexts
         outerBodyResolveContext?.regularTowerDataContexts = outerTowerDataContexts!!
 
-        val transformer = createTransformer(
+        val transformer = FirDesignatedBodyResolveTransformerForReturnTypeCalculator(
             (designation.drop(1) + declaration).iterator(),
             session,
             scopeSession,
@@ -339,7 +339,7 @@ private class ReturnTypeCalculatorWithJump(
         return newReturnTypeRef
     }
 
-    private inner class FakeOverrideTypeCalculatorWithJump : FakeOverrideTypeCalculator.AbstractFakeOverrideTypeCalculator() {
+    private inner class CallableCopyTypeCalculatorWithJump : CallableCopyTypeCalculator.AbstractCallableCopyTypeCalculator() {
         override fun FirCallableDeclaration.getResolvedTypeRef(): FirResolvedTypeRef? {
             return this@ReturnTypeCalculatorWithJump.computeReturnTypeRef(this)
         }

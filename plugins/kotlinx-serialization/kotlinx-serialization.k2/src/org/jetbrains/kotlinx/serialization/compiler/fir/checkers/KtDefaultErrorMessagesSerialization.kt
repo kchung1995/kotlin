@@ -5,9 +5,7 @@
 
 package org.jetbrains.kotlinx.serialization.compiler.fir.checkers
 
-import org.jetbrains.kotlin.diagnostics.KtDiagnostic
 import org.jetbrains.kotlin.diagnostics.KtDiagnosticFactoryToRendererMap
-import org.jetbrains.kotlin.diagnostics.KtDiagnosticRenderer
 import org.jetbrains.kotlin.diagnostics.rendering.BaseDiagnosticRendererFactory
 import org.jetbrains.kotlin.diagnostics.rendering.CommonRenderers
 import org.jetbrains.kotlin.fir.analysis.diagnostics.FirDiagnosticRenderers
@@ -107,6 +105,12 @@ object KtDefaultErrorMessagesSerialization : BaseDiagnosticRendererFactory() {
             FirDiagnosticRenderers.RENDER_TYPE
         )
         put(
+            FirSerializationErrors.ABSTRACT_SERIALIZER_TYPE,
+            "Custom serializer ''{1}'' on serializable type ''{0}'' can not be instantiated. It is not allowed to specify the interface, abstract or sealed class as a custom serializer.",
+            FirDiagnosticRenderers.RENDER_TYPE,
+            FirDiagnosticRenderers.RENDER_TYPE
+        )
+        put(
             FirSerializationErrors.LOCAL_SERIALIZER_USAGE,
             "Class ''{0}'' can't be used as a serializer since it is local",
             FirDiagnosticRenderers.RENDER_TYPE
@@ -154,6 +158,10 @@ object KtDefaultErrorMessagesSerialization : BaseDiagnosticRendererFactory() {
         put(
             FirSerializationErrors.META_SERIALIZABLE_NOT_APPLICABLE,
             "@MetaSerializable annotation can be used only on top-level annotation classes."
+        )
+        put(
+            FirSerializationErrors.INHERITABLE_SERIALINFO_CANT_BE_REPEATABLE,
+            "Repeatable serial info annotations can not be inheritable. Either remove @Repeatable or use a regular @SerialInfo annotation."
         )
 
         put(

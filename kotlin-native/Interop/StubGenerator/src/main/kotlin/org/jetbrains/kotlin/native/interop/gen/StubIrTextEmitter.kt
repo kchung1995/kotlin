@@ -114,6 +114,7 @@ class StubIrTextEmitter(
         }
 
         out("@file:Suppress(${suppress.joinToString { it.quoteAsKotlinLiteral() }})")
+        out("@file:OptIn(ExperimentalForeignApi::class)")
         if (pkgName != "") {
             out("package ${context.validPackageName}")
             out("")
@@ -177,6 +178,9 @@ class StubIrTextEmitter(
         override fun visitTypealias(element: TypealiasStub, data: StubContainer?) {
             val alias = renderClassifierDeclaration(element.alias)
             val aliasee = renderStubType(element.aliasee)
+            element.annotations.forEach {
+                out(renderAnnotation(it))
+            }
             out("typealias $alias = $aliasee")
         }
 
@@ -501,6 +505,8 @@ class StubIrTextEmitter(
             "@Deprecated(${annotationStub.message.quoteAsKotlinLiteral()}, " +
                     "ReplaceWith(${annotationStub.replaceWith.quoteAsKotlinLiteral()}), " +
                     "DeprecationLevel.${annotationStub.level.name})"
+        is AnnotationStub.ExperimentalForeignApi ->
+            "@${KotlinTypes.experimentalForeignApi.topLevelName}"
         is AnnotationStub.CEnumEntryAlias,
         is AnnotationStub.CEnumVarTypeSize,
         is AnnotationStub.CStruct.MemberAt,

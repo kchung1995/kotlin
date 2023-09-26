@@ -2,6 +2,15 @@
 // SKIP_TXT
 
 /*
+ * KOTLIN DIAGNOSTICS NOT LINKED SPEC TEST (POSITIVE)
+ *
+ * SECTIONS: dfa
+ * NUMBER: 37
+ * DESCRIPTION: Raw data flow analysis test
+ * HELPERS: classes, objects, typealiases, functions, enumClasses, interfaces, sealedClasses
+ */
+
+/*
  * TESTCASE NUMBER: 1
  * UNEXPECTED BEHAVIOUR
  * ISSUES: KT-30756
@@ -77,7 +86,7 @@ fun case_6(x: Boolean?) {
 // TESTCASE NUMBER: 7
 fun case_7(x: Boolean?) {
     while (true) {
-        if (!(x === false)) return
+        if (!(<!IMPLICIT_BOXING_IN_IDENTITY_EQUALS!>x === false<!>)) return
     }
 
     <!DEBUG_INFO_EXPRESSION_TYPE("kotlin.Boolean?")!>x<!>

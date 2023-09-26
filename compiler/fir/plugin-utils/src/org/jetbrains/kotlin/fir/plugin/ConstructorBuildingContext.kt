@@ -15,6 +15,7 @@ import org.jetbrains.kotlin.fir.declarations.FirResolvePhase
 import org.jetbrains.kotlin.fir.declarations.FirTypeParameterRef
 import org.jetbrains.kotlin.fir.declarations.builder.*
 import org.jetbrains.kotlin.fir.declarations.origin
+import org.jetbrains.kotlin.fir.declarations.utils.isExpect
 import org.jetbrains.kotlin.fir.declarations.utils.isInner
 import org.jetbrains.kotlin.fir.expressions.buildResolvedArgumentList
 import org.jetbrains.kotlin.fir.expressions.builder.buildDelegatedConstructorCall
@@ -122,7 +123,11 @@ public fun FirExtension.createConstructor(
     generateDelegatedNoArgConstructorCall: Boolean = false,
     config: ConstructorBuildingContext.() -> Unit = {}
 ): FirConstructor {
-    return ConstructorBuildingContext(session, key, owner, isPrimary).apply(config).build().also {
+    return ConstructorBuildingContext(session, key, owner, isPrimary).apply(config).apply {
+        status {
+            isExpect = owner.isExpect
+        }
+    }.build().also {
         if (generateDelegatedNoArgConstructorCall) {
             it.generateNoArgDelegatingConstructorCall()
         }
@@ -161,7 +166,7 @@ private fun FirConstructor.generateNoArgDelegatingConstructorCall() {
         }
         constructedTypeRef = singleSupertype.toFirResolvedTypeRef()
         val superSymbol = singleSupertype.toRegularClassSymbol(session) ?: error("Symbol for supertype $singleSupertype not found")
-        val superConstructorSymbol = superSymbol.declaredMemberScope(session)
+        val superConstructorSymbol = superSymbol.declaredMemberScope(session, memberRequiredPhase = null)
             .getDeclaredConstructors()
             .firstOrNull { it.valueParameterSymbols.isEmpty() }
             ?: error("No arguments constructor for class $singleSupertype not found")

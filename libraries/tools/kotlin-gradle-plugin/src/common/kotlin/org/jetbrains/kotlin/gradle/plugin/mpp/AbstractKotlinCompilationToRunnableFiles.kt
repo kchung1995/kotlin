@@ -19,9 +19,9 @@ internal constructor(compilation: KotlinCompilationImpl) : AbstractKotlinCompila
     final override val runtimeDependencyConfigurationName: String
         get() = compilation.runtimeDependencyConfigurationName ?: error("$compilation: Missing 'runtimeDependencyConfigurationName'")
 
-    final override var runtimeDependencyFiles: FileCollection =
-        compilation.runtimeDependencyFiles ?: error("$compilation: Missing 'runtimeDependencyFiles'")
-
-    override val relatedConfigurationNames: List<String>
-        get() = compilation.relatedConfigurationNames
+    final override var runtimeDependencyFiles: FileCollection
+        get() = compilation.runtimeDependencyFiles ?: error("$compilation: Missing 'runtimeDependencyFiles'")
+        set(value) {
+            compilation.runtimeDependencyFiles = value
+        }
 }

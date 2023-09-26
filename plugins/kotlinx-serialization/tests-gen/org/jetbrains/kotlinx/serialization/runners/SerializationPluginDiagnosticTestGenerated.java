@@ -20,6 +20,12 @@ import java.util.regex.Pattern;
 @TestDataPath("$PROJECT_ROOT")
 public class SerializationPluginDiagnosticTestGenerated extends AbstractSerializationPluginDiagnosticTest {
     @Test
+    @TestMetadata("abstractCustomSerializer.kt")
+    public void testAbstractCustomSerializer() throws Exception {
+        runTest("plugins/kotlinx-serialization/testData/diagnostics/abstractCustomSerializer.kt");
+    }
+
+    @Test
     public void testAllFilesPresentInDiagnostics() throws Exception {
         KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("plugins/kotlinx-serialization/testData/diagnostics"), Pattern.compile("^(.+)\\.kt$"), Pattern.compile("^(.+)\\.fir\\.kts?$"), true);
     }
@@ -118,6 +124,12 @@ public class SerializationPluginDiagnosticTestGenerated extends AbstractSerializ
     @TestMetadata("ParamIsNotProperty.kt")
     public void testParamIsNotProperty() throws Exception {
         runTest("plugins/kotlinx-serialization/testData/diagnostics/ParamIsNotProperty.kt");
+    }
+
+    @Test
+    @TestMetadata("repeatableSerialInfo.kt")
+    public void testRepeatableSerialInfo() throws Exception {
+        runTest("plugins/kotlinx-serialization/testData/diagnostics/repeatableSerialInfo.kt");
     }
 
     @Test

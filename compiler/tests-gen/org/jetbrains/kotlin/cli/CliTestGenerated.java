@@ -405,9 +405,24 @@ public class CliTestGenerated extends AbstractCliTest {
             runTest("compiler/testData/cli/jvm/enumEntriesNotEnabled.args");
         }
 
+        @TestMetadata("errorSuppressionNoWarning.args")
+        public void testErrorSuppressionNoWarning() throws Exception {
+            runTest("compiler/testData/cli/jvm/errorSuppressionNoWarning.args");
+        }
+
+        @TestMetadata("errorSuppressionWarning.args")
+        public void testErrorSuppressionWarning() throws Exception {
+            runTest("compiler/testData/cli/jvm/errorSuppressionWarning.args");
+        }
+
         @TestMetadata("experimentalDeprecated.args")
         public void testExperimentalDeprecated() throws Exception {
             runTest("compiler/testData/cli/jvm/experimentalDeprecated.args");
+        }
+
+        @TestMetadata("experimentalDeprecatedK1.args")
+        public void testExperimentalDeprecatedK1() throws Exception {
+            runTest("compiler/testData/cli/jvm/experimentalDeprecatedK1.args");
         }
 
         @TestMetadata("experimentalDeprecatedWarning.args")
@@ -415,9 +430,19 @@ public class CliTestGenerated extends AbstractCliTest {
             runTest("compiler/testData/cli/jvm/experimentalDeprecatedWarning.args");
         }
 
+        @TestMetadata("experimentalDeprecatedWarningK1.args")
+        public void testExperimentalDeprecatedWarningK1() throws Exception {
+            runTest("compiler/testData/cli/jvm/experimentalDeprecatedWarningK1.args");
+        }
+
         @TestMetadata("experimentalIsNotAnnotation.args")
         public void testExperimentalIsNotAnnotation() throws Exception {
             runTest("compiler/testData/cli/jvm/experimentalIsNotAnnotation.args");
+        }
+
+        @TestMetadata("experimentalIsNotAnnotationK1.args")
+        public void testExperimentalIsNotAnnotationK1() throws Exception {
+            runTest("compiler/testData/cli/jvm/experimentalIsNotAnnotationK1.args");
         }
 
         @TestMetadata("experimentalIsNotMarker.args")
@@ -425,14 +450,29 @@ public class CliTestGenerated extends AbstractCliTest {
             runTest("compiler/testData/cli/jvm/experimentalIsNotMarker.args");
         }
 
+        @TestMetadata("experimentalIsNotMarkerK1.args")
+        public void testExperimentalIsNotMarkerK1() throws Exception {
+            runTest("compiler/testData/cli/jvm/experimentalIsNotMarkerK1.args");
+        }
+
         @TestMetadata("experimentalNested.args")
         public void testExperimentalNested() throws Exception {
             runTest("compiler/testData/cli/jvm/experimentalNested.args");
         }
 
+        @TestMetadata("experimentalNestedK1.args")
+        public void testExperimentalNestedK1() throws Exception {
+            runTest("compiler/testData/cli/jvm/experimentalNestedK1.args");
+        }
+
         @TestMetadata("experimentalUnresolved.args")
         public void testExperimentalUnresolved() throws Exception {
             runTest("compiler/testData/cli/jvm/experimentalUnresolved.args");
+        }
+
+        @TestMetadata("experimentalUnresolvedK1.args")
+        public void testExperimentalUnresolvedK1() throws Exception {
+            runTest("compiler/testData/cli/jvm/experimentalUnresolvedK1.args");
         }
 
         @TestMetadata("explicitlyDisableSamConversionsWithOldFlag.args")
@@ -525,6 +565,11 @@ public class CliTestGenerated extends AbstractCliTest {
             runTest("compiler/testData/cli/jvm/firErrorOnLastLineNoEol.args");
         }
 
+        @TestMetadata("firFriendlyErrorIfNoJdkOptionIsSet.args")
+        public void testFirFriendlyErrorIfNoJdkOptionIsSet() throws Exception {
+            runTest("compiler/testData/cli/jvm/firFriendlyErrorIfNoJdkOptionIsSet.args");
+        }
+
         @TestMetadata("firHello.args")
         public void testFirHello() throws Exception {
             runTest("compiler/testData/cli/jvm/firHello.args");
@@ -590,6 +635,16 @@ public class CliTestGenerated extends AbstractCliTest {
             runTest("compiler/testData/cli/jvm/flagAllowingResultAsReturnType.args");
         }
 
+        @TestMetadata("forbidKotlinPackageK1.args")
+        public void testForbidKotlinPackageK1() throws Exception {
+            runTest("compiler/testData/cli/jvm/forbidKotlinPackageK1.args");
+        }
+
+        @TestMetadata("forbidKotlinPackageK2.args")
+        public void testForbidKotlinPackageK2() throws Exception {
+            runTest("compiler/testData/cli/jvm/forbidKotlinPackageK2.args");
+        }
+
         @TestMetadata("functionReferenceWithDefaultValuesFeatureIsEnabledWithNewInference.args")
         public void testFunctionReferenceWithDefaultValuesFeatureIsEnabledWithNewInference() throws Exception {
             runTest("compiler/testData/cli/jvm/functionReferenceWithDefaultValuesFeatureIsEnabledWithNewInference.args");
@@ -613,11 +668,6 @@ public class CliTestGenerated extends AbstractCliTest {
         @TestMetadata("inlineCycle.args")
         public void testInlineCycle() throws Exception {
             runTest("compiler/testData/cli/jvm/inlineCycle.args");
-        }
-
-        @TestMetadata("inlineCycle_ir.args")
-        public void testInlineCycle_ir() throws Exception {
-            runTest("compiler/testData/cli/jvm/inlineCycle_ir.args");
         }
 
         @TestMetadata("instanceAccessBeforeSuperCall.args")
@@ -670,19 +720,9 @@ public class CliTestGenerated extends AbstractCliTest {
             runTest("compiler/testData/cli/jvm/internalArgWrongPrefix.args");
         }
 
-        @TestMetadata("internalArgumentOverrideExtraArgument.args")
-        public void testInternalArgumentOverrideExtraArgument() throws Exception {
-            runTest("compiler/testData/cli/jvm/internalArgumentOverrideExtraArgument.args");
-        }
-
         @TestMetadata("invalidMetadataVersion.args")
         public void testInvalidMetadataVersion() throws Exception {
             runTest("compiler/testData/cli/jvm/invalidMetadataVersion.args");
-        }
-
-        @TestMetadata("irSupported.args")
-        public void testIrSupported() throws Exception {
-            runTest("compiler/testData/cli/jvm/irSupported.args");
         }
 
         @TestMetadata("javaSealedClass.args")
@@ -830,29 +870,9 @@ public class CliTestGenerated extends AbstractCliTest {
             runTest("compiler/testData/cli/jvm/jvm8Target.args");
         }
 
-        @TestMetadata("jvmDefaultAll.args")
-        public void testJvmDefaultAll() throws Exception {
-            runTest("compiler/testData/cli/jvm/jvmDefaultAll.args");
-        }
-
-        @TestMetadata("jvmDefaultCompatibility.args")
-        public void testJvmDefaultCompatibility() throws Exception {
-            runTest("compiler/testData/cli/jvm/jvmDefaultCompatibility.args");
-        }
-
-        @TestMetadata("jvmDefaultEnable.args")
-        public void testJvmDefaultEnable() throws Exception {
-            runTest("compiler/testData/cli/jvm/jvmDefaultEnable.args");
-        }
-
-        @TestMetadata("jvmIrByDefault1_4.args")
-        public void testJvmIrByDefault1_4() throws Exception {
-            runTest("compiler/testData/cli/jvm/jvmIrByDefault1_4.args");
-        }
-
-        @TestMetadata("jvmIrByDefault1_5.args")
-        public void testJvmIrByDefault1_5() throws Exception {
-            runTest("compiler/testData/cli/jvm/jvmIrByDefault1_5.args");
+        @TestMetadata("jvmDefaultIncorrectValue.args")
+        public void testJvmDefaultIncorrectValue() throws Exception {
+            runTest("compiler/testData/cli/jvm/jvmDefaultIncorrectValue.args");
         }
 
         @TestMetadata("jvmRecordOk.args")
@@ -863,6 +883,11 @@ public class CliTestGenerated extends AbstractCliTest {
         @TestMetadata("jvmRecordWrongTarget.args")
         public void testJvmRecordWrongTarget() throws Exception {
             runTest("compiler/testData/cli/jvm/jvmRecordWrongTarget.args");
+        }
+
+        @TestMetadata("k2SimpleMultiplatformGenericClass.args")
+        public void testK2SimpleMultiplatformGenericClass() throws Exception {
+            runTest("compiler/testData/cli/jvm/k2SimpleMultiplatformGenericClass.args");
         }
 
         @TestMetadata("kotlinHomeWithoutStdlib.args")
@@ -950,21 +975,6 @@ public class CliTestGenerated extends AbstractCliTest {
             runTest("compiler/testData/cli/jvm/multipleTextRangesInDiagnosticsOrder.args");
         }
 
-        @TestMetadata("newInferenceImpliesProgressiveModeForNI.args")
-        public void testNewInferenceImpliesProgressiveModeForNI() throws Exception {
-            runTest("compiler/testData/cli/jvm/newInferenceImpliesProgressiveModeForNI.args");
-        }
-
-        @TestMetadata("newInferenceImpliesSamConversions.args")
-        public void testNewInferenceImpliesSamConversions() throws Exception {
-            runTest("compiler/testData/cli/jvm/newInferenceImpliesSamConversions.args");
-        }
-
-        @TestMetadata("newInferenceWithOldFlagImpliesSamConversions.args")
-        public void testNewInferenceWithOldFlagImpliesSamConversions() throws Exception {
-            runTest("compiler/testData/cli/jvm/newInferenceWithOldFlagImpliesSamConversions.args");
-        }
-
         @TestMetadata("newLineInPackage.args")
         public void testNewLineInPackage() throws Exception {
             runTest("compiler/testData/cli/jvm/newLineInPackage.args");
@@ -1000,14 +1010,14 @@ public class CliTestGenerated extends AbstractCliTest {
             runTest("compiler/testData/cli/jvm/nonExistingSourcePath.args");
         }
 
+        @TestMetadata("nonExistingSourcePathK2.args")
+        public void testNonExistingSourcePathK2() throws Exception {
+            runTest("compiler/testData/cli/jvm/nonExistingSourcePathK2.args");
+        }
+
         @TestMetadata("nonLocalDisabled.args")
         public void testNonLocalDisabled() throws Exception {
             runTest("compiler/testData/cli/jvm/nonLocalDisabled.args");
-        }
-
-        @TestMetadata("nonLocalDisabled_ir.args")
-        public void testNonLocalDisabled_ir() throws Exception {
-            runTest("compiler/testData/cli/jvm/nonLocalDisabled_ir.args");
         }
 
         @TestMetadata("nonexistentPathInModule.args")
@@ -1085,24 +1095,14 @@ public class CliTestGenerated extends AbstractCliTest {
             runTest("compiler/testData/cli/jvm/requireKotlinCompilerVersion.args");
         }
 
+        @TestMetadata("requireKotlinCompilerVersionK2.args")
+        public void testRequireKotlinCompilerVersionK2() throws Exception {
+            runTest("compiler/testData/cli/jvm/requireKotlinCompilerVersionK2.args");
+        }
+
         @TestMetadata("resultInReturnTypeSupportedByDefault15.args")
         public void testResultInReturnTypeSupportedByDefault15() throws Exception {
             runTest("compiler/testData/cli/jvm/resultInReturnTypeSupportedByDefault15.args");
-        }
-
-        @TestMetadata("resultInReturnTypeUnsupportedByDefault14.args")
-        public void testResultInReturnTypeUnsupportedByDefault14() throws Exception {
-            runTest("compiler/testData/cli/jvm/resultInReturnTypeUnsupportedByDefault14.args");
-        }
-
-        @TestMetadata("resultInReturnTypeWithEnabledInlineClasses.args")
-        public void testResultInReturnTypeWithEnabledInlineClasses() throws Exception {
-            runTest("compiler/testData/cli/jvm/resultInReturnTypeWithEnabledInlineClasses.args");
-        }
-
-        @TestMetadata("resultInReturnTypeWithEnabledInlineClassesXX.args")
-        public void testResultInReturnTypeWithEnabledInlineClassesXX() throws Exception {
-            runTest("compiler/testData/cli/jvm/resultInReturnTypeWithEnabledInlineClassesXX.args");
         }
 
         @TestMetadata("returnAsWhenKey.args")
@@ -1200,19 +1200,9 @@ public class CliTestGenerated extends AbstractCliTest {
             runTest("compiler/testData/cli/jvm/useDeclarationThatWasExperimentalWithoutMarker.args");
         }
 
-        @TestMetadata("useDeclarationThatWasExperimentalWithoutMarker2.args")
-        public void testUseDeclarationThatWasExperimentalWithoutMarker2() throws Exception {
-            runTest("compiler/testData/cli/jvm/useDeclarationThatWasExperimentalWithoutMarker2.args");
-        }
-
         @TestMetadata("useMixedNamedArgumentsFlag.args")
         public void testUseMixedNamedArgumentsFlag() throws Exception {
             runTest("compiler/testData/cli/jvm/useMixedNamedArgumentsFlag.args");
-        }
-
-        @TestMetadata("variableInWhenSubject.args")
-        public void testVariableInWhenSubject() throws Exception {
-            runTest("compiler/testData/cli/jvm/variableInWhenSubject.args");
         }
 
         @TestMetadata("warningJdkWithNoJdk.args")
@@ -1303,6 +1293,11 @@ public class CliTestGenerated extends AbstractCliTest {
             KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/testData/cli/js"), Pattern.compile("^(.+)\\.args$"), null, false);
         }
 
+        @TestMetadata("compilationErrorK2.args")
+        public void testCompilationErrorK2() throws Exception {
+            runTest("compiler/testData/cli/js/compilationErrorK2.args");
+        }
+
         @TestMetadata("createMetadata.args")
         public void testCreateMetadata() throws Exception {
             runTest("compiler/testData/cli/js/createMetadata.args");
@@ -1318,14 +1313,19 @@ public class CliTestGenerated extends AbstractCliTest {
             runTest("compiler/testData/cli/js/fir.args");
         }
 
+        @TestMetadata("firLightTreeOn.args")
+        public void testFirLightTreeOn() throws Exception {
+            runTest("compiler/testData/cli/js/firLightTreeOn.args");
+        }
+
         @TestMetadata("firMpp.args")
         public void testFirMpp() throws Exception {
             runTest("compiler/testData/cli/js/firMpp.args");
         }
 
-        @TestMetadata("inlineCycle.args")
-        public void testInlineCycle() throws Exception {
-            runTest("compiler/testData/cli/js/inlineCycle.args");
+        @TestMetadata("firMppWithKlib.args")
+        public void testFirMppWithKlib() throws Exception {
+            runTest("compiler/testData/cli/js/firMppWithKlib.args");
         }
 
         @TestMetadata("jsExtraHelp.args")
@@ -1336,11 +1336,6 @@ public class CliTestGenerated extends AbstractCliTest {
         @TestMetadata("jsHelp.args")
         public void testJsHelp() throws Exception {
             runTest("compiler/testData/cli/js/jsHelp.args");
-        }
-
-        @TestMetadata("kotlinHomeWithoutStdlib.args")
-        public void testKotlinHomeWithoutStdlib() throws Exception {
-            runTest("compiler/testData/cli/js/kotlinHomeWithoutStdlib.args");
         }
 
         @TestMetadata("kotlinPackage.args")
@@ -1358,21 +1353,6 @@ public class CliTestGenerated extends AbstractCliTest {
             runTest("compiler/testData/cli/js/libraryDirNotFound.args");
         }
 
-        @TestMetadata("moduleWithMetadataOnlyDependency.args")
-        public void testModuleWithMetadataOnlyDependency() throws Exception {
-            runTest("compiler/testData/cli/js/moduleWithMetadataOnlyDependency.args");
-        }
-
-        @TestMetadata("modulesWithSameNames.args")
-        public void testModulesWithSameNames() throws Exception {
-            runTest("compiler/testData/cli/js/modulesWithSameNames.args");
-        }
-
-        @TestMetadata("modulesWithSameNamesAndFunc.args")
-        public void testModulesWithSameNamesAndFunc() throws Exception {
-            runTest("compiler/testData/cli/js/modulesWithSameNamesAndFunc.args");
-        }
-
         @TestMetadata("nonExistingKotlinHome.args")
         public void testNonExistingKotlinHome() throws Exception {
             runTest("compiler/testData/cli/js/nonExistingKotlinHome.args");
@@ -1388,19 +1368,14 @@ public class CliTestGenerated extends AbstractCliTest {
             runTest("compiler/testData/cli/js/notValidLibraryDir.args");
         }
 
-        @TestMetadata("outputIsDirectory.args")
-        public void testOutputIsDirectory() throws Exception {
-            runTest("compiler/testData/cli/js/outputIsDirectory.args");
+        @TestMetadata("perFileWithValidModuleKind.args")
+        public void testPerFileWithValidModuleKind() throws Exception {
+            runTest("compiler/testData/cli/js/perFileWithValidModuleKind.args");
         }
 
-        @TestMetadata("outputPostfixFileNotFound.args")
-        public void testOutputPostfixFileNotFound() throws Exception {
-            runTest("compiler/testData/cli/js/outputPostfixFileNotFound.args");
-        }
-
-        @TestMetadata("outputPrefixFileNotFound.args")
-        public void testOutputPrefixFileNotFound() throws Exception {
-            runTest("compiler/testData/cli/js/outputPrefixFileNotFound.args");
+        @TestMetadata("perFileWithWrongModuleKind.args")
+        public void testPerFileWithWrongModuleKind() throws Exception {
+            runTest("compiler/testData/cli/js/perFileWithWrongModuleKind.args");
         }
 
         @TestMetadata("reifiedIntersectionType.args")
@@ -1443,11 +1418,6 @@ public class CliTestGenerated extends AbstractCliTest {
             runTest("compiler/testData/cli/js/sourceMapRelativeRoot.args");
         }
 
-        @TestMetadata("sourceMapRootAuto.args")
-        public void testSourceMapRootAuto() throws Exception {
-            runTest("compiler/testData/cli/js/sourceMapRootAuto.args");
-        }
-
         @TestMetadata("sourceMapRootManual.args")
         public void testSourceMapRootManual() throws Exception {
             runTest("compiler/testData/cli/js/sourceMapRootManual.args");
@@ -1481,11 +1451,6 @@ public class CliTestGenerated extends AbstractCliTest {
         @TestMetadata("withLib.args")
         public void testWithLib() throws Exception {
             runTest("compiler/testData/cli/js/withLib.args");
-        }
-
-        @TestMetadata("wrongAbiVersion.args")
-        public void testWrongAbiVersion() throws Exception {
-            runTest("compiler/testData/cli/js/wrongAbiVersion.args");
         }
     }
 
@@ -1579,9 +1544,9 @@ public class CliTestGenerated extends AbstractCliTest {
             runTest("compiler/testData/cli/metadata/anonymousObjectType.args");
         }
 
-        @TestMetadata("anonymousObjectTypeWithFir.args")
-        public void testAnonymousObjectTypeWithFir() throws Exception {
-            runTest("compiler/testData/cli/metadata/anonymousObjectTypeWithFir.args");
+        @TestMetadata("hmppModules.args")
+        public void testHmppModules() throws Exception {
+            runTest("compiler/testData/cli/metadata/hmppModules.args");
         }
 
         @TestMetadata("inheritorOfExpectSealedClass.args")
@@ -1589,19 +1554,14 @@ public class CliTestGenerated extends AbstractCliTest {
             runTest("compiler/testData/cli/metadata/inheritorOfExpectSealedClass.args");
         }
 
-        @TestMetadata("inheritorOfExpectSealedClassWithFir.args")
-        public void testInheritorOfExpectSealedClassWithFir() throws Exception {
-            runTest("compiler/testData/cli/metadata/inheritorOfExpectSealedClassWithFir.args");
-        }
-
         @TestMetadata("kotlinPackage.args")
         public void testKotlinPackage() throws Exception {
             runTest("compiler/testData/cli/metadata/kotlinPackage.args");
         }
 
-        @TestMetadata("kotlinPackageWithFir.args")
-        public void testKotlinPackageWithFir() throws Exception {
-            runTest("compiler/testData/cli/metadata/kotlinPackageWithFir.args");
+        @TestMetadata("kt58139.args")
+        public void testKt58139() throws Exception {
+            runTest("compiler/testData/cli/metadata/kt58139.args");
         }
 
         @TestMetadata("lambdaWithReceiver.args")
@@ -1609,19 +1569,14 @@ public class CliTestGenerated extends AbstractCliTest {
             runTest("compiler/testData/cli/metadata/lambdaWithReceiver.args");
         }
 
-        @TestMetadata("lambdaWithReceiverWithFir.args")
-        public void testLambdaWithReceiverWithFir() throws Exception {
-            runTest("compiler/testData/cli/metadata/lambdaWithReceiverWithFir.args");
-        }
-
         @TestMetadata("moduleName.args")
         public void testModuleName() throws Exception {
             runTest("compiler/testData/cli/metadata/moduleName.args");
         }
 
-        @TestMetadata("moduleNameWithFir.args")
-        public void testModuleNameWithFir() throws Exception {
-            runTest("compiler/testData/cli/metadata/moduleNameWithFir.args");
+        @TestMetadata("noVirtualFileHiddenForMemberWithPlatformDependentAnnotation.args")
+        public void testNoVirtualFileHiddenForMemberWithPlatformDependentAnnotation() throws Exception {
+            runTest("compiler/testData/cli/metadata/noVirtualFileHiddenForMemberWithPlatformDependentAnnotation.args");
         }
 
         @TestMetadata("optionalAnnotationsFromMetadata.args")
@@ -1629,24 +1584,9 @@ public class CliTestGenerated extends AbstractCliTest {
             runTest("compiler/testData/cli/metadata/optionalAnnotationsFromMetadata.args");
         }
 
-        @TestMetadata("optionalAnnotationsFromMetadataWithFir.args")
-        public void testOptionalAnnotationsFromMetadataWithFir() throws Exception {
-            runTest("compiler/testData/cli/metadata/optionalAnnotationsFromMetadataWithFir.args");
-        }
-
         @TestMetadata("optionalExpectationUsage.args")
         public void testOptionalExpectationUsage() throws Exception {
             runTest("compiler/testData/cli/metadata/optionalExpectationUsage.args");
-        }
-
-        @TestMetadata("optionalExpectationUsageWithFir.args")
-        public void testOptionalExpectationUsageWithFir() throws Exception {
-            runTest("compiler/testData/cli/metadata/optionalExpectationUsageWithFir.args");
-        }
-
-        @TestMetadata("successfulHmpp.args")
-        public void testSuccessfulHmpp() throws Exception {
-            runTest("compiler/testData/cli/metadata/successfulHmpp.args");
         }
     }
 }

@@ -5,12 +5,17 @@ apply plugin: 'kotlin-platform-js'
 configurations {
     distJs
     distLibrary
+    [compileClasspath, runtimeClasspath, testCompileClasspath, testRuntimeClasspath].forEach {
+        it.attributes {
+            attribute(org.jetbrains.kotlin.gradle.targets.js.KotlinJsCompilerAttribute.jsCompilerAttribute, org.jetbrains.kotlin.gradle.targets.js.KotlinJsCompilerAttribute.legacy)
+        }
+    }
 }
 
 dependencies {
     expectedBy project(':kotlin-test:kotlin-test-common')
     expectedBy project(':kotlin-test:kotlin-test-annotations-common')
-    api kotlinStdlib("js")
+    api RepoDependencies.kotlinStdlib(project)
 }
 
 compileKotlin2Js {
@@ -18,6 +23,8 @@ compileKotlin2Js {
             "-Xallow-kotlin-package",
             "-opt-in=kotlin.contracts.ExperimentalContracts",
             "-opt-in=kotlin.RequiresOptIn",
+            "-Xforce-deprecated-legacy-compiler-usage",
+            "-Xexpect-actual-classes"
     ]
     kotlinOptions {
         moduleKind = "umd"
@@ -29,10 +36,10 @@ compileKotlin2Js {
 }
 
 compileTestKotlin2Js {
-    kotlinOptions.freeCompilerArgs = ["-Xallow-kotlin-package"]
     kotlinOptions {
         metaInfo = false
         moduleKind = "umd"
+        freeCompilerArgs = ["-Xallow-kotlin-package", "-Xforce-deprecated-legacy-compiler-usage"]
     }
 }
 
@@ -43,14 +50,16 @@ jar {
     enabled false
 }
 
-task libraryJarWithoutIr(type: Jar, dependsOn: compileKotlin2Js) {
-    classifier = null
+tasks.register("libraryJarWithoutIr", Jar) {
+    dependsOn(compileKotlin2Js)
+    archiveClassifier.set(null)
     destinationDirectory = file("$buildDir/lib/dist")
     from("$buildDir/classes/main")
-    manifestAttributes(manifest, project, 'Test')
+    LibrariesCommon.manifestAttributes(project, manifest, 'Test')
 }
 
-task libraryJarWithIr(type: Zip, dependsOn: libraryJarWithoutIr) {
+tasks.register("libraryJarWithIr", Zip) {
+    dependsOn(libraryJarWithoutIr)
     archiveExtension = "jar"
     destinationDirectory = file("$buildDir/libs")
 
@@ -68,8 +77,9 @@ task libraryJarWithIr(type: Zip, dependsOn: libraryJarWithoutIr) {
 
 jar.dependsOn(libraryJarWithIr)
 
-task sourcesJar(type: Jar, dependsOn: classes) {
-    classifier = 'sources'
+tasks.register("sourcesJar", Jar) {
+  dependsOn(classes)
+    archiveClassifier.set('sources')
     from (sourceSets.main.allSource)
 }
 
@@ -82,6 +92,5 @@ artifacts {
     }
 }
 
-configureSourcesJar()
-
-configureJavadocJar()
+RepoArtifacts.sourcesJar(project)
+RepoArtifacts.javadocJar(project)

@@ -9,10 +9,7 @@ import org.jetbrains.annotations.TestOnly
 import org.jetbrains.kotlin.fir.*
 import org.jetbrains.kotlin.fir.declarations.*
 import org.jetbrains.kotlin.fir.declarations.synthetic.FirSyntheticProperty
-import org.jetbrains.kotlin.fir.resolve.providers.FirProvider
-import org.jetbrains.kotlin.fir.resolve.providers.FirSymbolProvider
-import org.jetbrains.kotlin.fir.resolve.providers.FirSymbolProviderInternals
-import org.jetbrains.kotlin.fir.resolve.providers.firProvider
+import org.jetbrains.kotlin.fir.resolve.providers.*
 import org.jetbrains.kotlin.fir.scopes.FirKotlinScopeProvider
 import org.jetbrains.kotlin.fir.symbols.impl.*
 import org.jetbrains.kotlin.fir.visitors.FirDefaultVisitor
@@ -40,6 +37,10 @@ class FirProviderImpl(val session: FirSession, val kotlinScopeProvider: FirKotli
 
     override fun getFirScriptContainerFile(symbol: FirScriptSymbol): FirFile? {
         return state.scriptContainerMap[symbol]
+    }
+
+    override fun getFirScriptByFilePath(path: String): FirScriptSymbol? {
+        return state.scriptByFilePathMap[path]
     }
 
     override fun getFirClassifierContainerFile(fqName: ClassId): FirFile {
@@ -80,33 +81,28 @@ class FirProviderImpl(val session: FirSession, val kotlinScopeProvider: FirKotli
             return null
         }
 
-        override fun computePackageSetWithTopLevelCallables(): Set<String> =
-            state.allSubPackages.mapTo(mutableSetOf()) { it.asString() }
+        override val symbolNamesProvider: FirSymbolNamesProvider = object : FirSymbolNamesProvider() {
+            override fun getPackageNamesWithTopLevelCallables(): Set<String> =
+                state.allSubPackages.mapTo(mutableSetOf()) { it.asString() }
 
-        override fun knownTopLevelClassifiersInPackage(packageFqName: FqName): Set<String> =
-            state.classifierInPackage[packageFqName].orEmpty().mapTo(mutableSetOf()) { it.asString() }
+            override fun getTopLevelClassifierNamesInPackage(packageFqName: FqName): Set<String> =
+                state.classifierInPackage[packageFqName].orEmpty().mapTo(mutableSetOf()) { it.asString() }
 
-        override fun computeCallableNamesInPackage(packageFqName: FqName): Set<Name> = buildSet {
-            for (key in state.functionMap.keys) {
-                if (key.packageName == packageFqName) {
-                    add(key.callableName)
+            override fun getTopLevelCallableNamesInPackage(packageFqName: FqName): Set<Name> = buildSet {
+                for (key in state.functionMap.keys) {
+                    if (key.packageName == packageFqName) {
+                        add(key.callableName)
+                    }
                 }
-            }
 
-            for (key in state.propertyMap.keys) {
-                if (key.packageName == packageFqName) {
-                    add(key.callableName)
+                for (key in state.propertyMap.keys) {
+                    if (key.packageName == packageFqName) {
+                        add(key.callableName)
+                    }
                 }
             }
         }
     }
-
-    private val FirDeclaration.file: FirFile
-        get() = when (this) {
-            is FirFile -> this
-            is FirRegularClass -> getFirClassifierContainerFile(this.symbol.classId)
-            else -> error("Should not be here")
-        }
 
     private fun recordFile(file: FirFile, state: State) {
         val packageName = file.packageFqName
@@ -192,6 +188,8 @@ class FirProviderImpl(val session: FirSession, val kotlinScopeProvider: FirKotli
         override fun visitScript(script: FirScript, data: FirRecorderData) {
             val symbol = script.symbol
             data.state.scriptContainerMap[symbol] = data.file
+            data.file.sourceFile?.path?.let { data.state.scriptByFilePathMap[it] = symbol }
+            script.acceptChildren(this, data)
         }
     }
 
@@ -209,6 +207,7 @@ class FirProviderImpl(val session: FirSession, val kotlinScopeProvider: FirKotli
         val constructorMap = mutableMapOf<CallableId, List<FirConstructorSymbol>>()
         val callableContainerMap = mutableMapOf<FirCallableSymbol<*>, FirFile>()
         val scriptContainerMap = mutableMapOf<FirScriptSymbol, FirFile>()
+        val scriptByFilePathMap = mutableMapOf<String, FirScriptSymbol>()
 
         fun setFrom(other: State) {
             fileMap.clear()
@@ -220,6 +219,7 @@ class FirProviderImpl(val session: FirSession, val kotlinScopeProvider: FirKotli
             constructorMap.clear()
             callableContainerMap.clear()
             scriptContainerMap.clear()
+            scriptByFilePathMap.clear()
 
             fileMap.putAll(other.fileMap)
             allSubPackages.addAll(other.allSubPackages)
@@ -230,6 +230,7 @@ class FirProviderImpl(val session: FirSession, val kotlinScopeProvider: FirKotli
             constructorMap.putAll(other.constructorMap)
             callableContainerMap.putAll(other.callableContainerMap)
             scriptContainerMap.putAll(other.scriptContainerMap)
+            scriptByFilePathMap.putAll(other.scriptByFilePathMap)
             classesInPackage.putAll(other.classesInPackage)
             classifierInPackage.putAll(other.classifierInPackage)
         }
@@ -322,9 +323,6 @@ class FirProviderImpl(val session: FirSession, val kotlinScopeProvider: FirKotli
         return state.classesInPackage[fqName] ?: emptySet()
     }
 
-    fun getAllFirFiles(): List<FirFile> {
-        return state.fileMap.values.flatten()
-    }
 }
 
 private const val rebuildIndex = true

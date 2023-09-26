@@ -5,28 +5,32 @@
 
 package org.jetbrains.kotlin.analysis.api
 
+import com.intellij.psi.PsiElement
 import org.jetbrains.kotlin.analysis.api.components.*
 import org.jetbrains.kotlin.analysis.api.lifetime.KtLifetimeOwner
 import org.jetbrains.kotlin.analysis.api.lifetime.KtLifetimeToken
 import org.jetbrains.kotlin.analysis.api.symbols.*
 import org.jetbrains.kotlin.analysis.api.symbols.pointers.KtSymbolPointer
 import org.jetbrains.kotlin.analysis.project.structure.KtModule
+import org.jetbrains.kotlin.analysis.project.structure.ProjectStructureProvider
 import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.KtFile
 
 /**
- * The entry point into all frontend-related work. Has the following contracts:
- * - Should not be accessed from event dispatch thread
- * - Should not be accessed outside read action
- * - Should not be leaked outside read action it was created in
- * - To be sure that session is not leaked it is forbidden to store it in a variable, consider working with it only in [analyse] context
- * - All entities retrieved from analysis session should not be leaked outside the read action KtAnalysisSession was created in
+ * [KtAnalysisSession] is the entry point into all frontend-related work. It has the following contracts:
  *
- * To pass a symbol from one read action to another use [KtSymbolPointer] which can be created from a symbol by [KtSymbol.createPointer]
+ * - It should not be accessed from event dispatch thread.
+ * - It should not be accessed outside a read action.
+ * - It should not be leaked outside the read action it was created in.
+ * - To be sure that an analysis session is not leaked, it is forbidden to store it in a variable. Consider working with it only inside
+ *   [analyze] blocks, and pass it to functions via context receivers (e.g. `context(KtAnalysisSession)`).
+ * - All entities retrieved from an analysis session should not be leaked outside the read action the analysis session was created in.
  *
- * To create analysis session consider using [analyse]
+ * To pass a symbol from one read action to another use [KtSymbolPointer], which can be created from a symbol by [KtSymbol.createPointer].
+ *
+ * To create a [KtAnalysisSession], please use [analyze] or one of its siblings.
  */
-@OptIn(KtAnalysisApiInternals::class)
+@OptIn(KtAnalysisApiInternals::class, KtAnalysisNonPublicApi::class)
 @Suppress("AnalysisApiMissingLifetimeCheck")
 public abstract class KtAnalysisSession(final override val token: KtLifetimeToken) : KtLifetimeOwner,
     KtSmartCastProviderMixIn,
@@ -55,17 +59,27 @@ public abstract class KtAnalysisSession(final override val token: KtLifetimeToke
     KtVisibilityCheckerMixIn,
     KtMemberSymbolProviderMixin,
     KtMultiplatformInfoProviderMixin,
+    KtOriginalPsiProviderMixIn,
     KtInheritorsProviderMixIn,
     KtTypeCreatorMixIn,
     KtAnalysisScopeProviderMixIn,
     KtSignatureSubstitutorMixIn,
     KtScopeSubstitutionMixIn,
-    KtSymbolProviderByJavaPsiMixIn {
+    KtSymbolProviderByJavaPsiMixIn,
+    KtResolveExtensionInfoProviderMixIn,
+    KtCompilerFacilityMixIn,
+    KtMetadataCalculatorMixIn {
 
     public abstract val useSiteModule: KtModule
 
     override val analysisSession: KtAnalysisSession get() = this
 
+    /**
+     * Creates a new [KtAnalysisSession] which depends on this analysis session, but additionally provides its own symbols derived from
+     * analyzing [elementToReanalyze].
+     *
+     * @see analyzeInDependedAnalysisSession
+     */
     public abstract fun createContextDependentCopy(originalKtFile: KtFile, elementToReanalyze: KtElement): KtAnalysisSession
 
     internal val smartCastProvider: KtSmartCastProvider get() = smartCastProviderImpl
@@ -140,6 +154,9 @@ public abstract class KtAnalysisSession(final override val token: KtLifetimeToke
     internal val multiplatformInfoProvider: KtMultiplatformInfoProvider get() = multiplatformInfoProviderImpl
     protected abstract val multiplatformInfoProviderImpl: KtMultiplatformInfoProvider
 
+    internal val originalPsiProvider: KtOriginalPsiProvider get() = originalPsiProviderImpl
+    protected abstract val originalPsiProviderImpl: KtOriginalPsiProvider
+
     internal val symbolInfoProvider: KtSymbolInfoProvider get() = symbolInfoProviderImpl
     protected abstract val symbolInfoProviderImpl: KtSymbolInfoProvider
 
@@ -155,6 +172,12 @@ public abstract class KtAnalysisSession(final override val token: KtLifetimeToke
     internal val scopeSubstitution: KtScopeSubstitution get() = scopeSubstitutionImpl
     protected abstract val scopeSubstitutionImpl: KtScopeSubstitution
 
+    internal val resolveExtensionInfoProvider: KtResolveExtensionInfoProvider get() = resolveExtensionInfoProviderImpl
+    protected abstract val resolveExtensionInfoProviderImpl: KtResolveExtensionInfoProvider
+
+    internal val compilerFacility: KtCompilerFacility get() = compilerFacilityImpl
+    protected abstract val compilerFacilityImpl: KtCompilerFacility
+
     @KtAnalysisApiInternals
     public val substitutorFactory: KtSubstitutorFactory get() = substitutorFactoryImpl
     protected abstract val substitutorFactoryImpl: KtSubstitutorFactory
@@ -164,9 +187,15 @@ public abstract class KtAnalysisSession(final override val token: KtLifetimeToke
     @KtAnalysisApiInternals
     protected abstract val symbolProviderByJavaPsiImpl: KtSymbolProviderByJavaPsi
 
+    internal val metadataCalculator: KtMetadataCalculator get() = metadataCalculatorImpl
+    protected abstract val metadataCalculatorImpl: KtMetadataCalculator
 
     @PublishedApi
     internal val typesCreator: KtTypeCreator
         get() = typesCreatorImpl
     protected abstract val typesCreatorImpl: KtTypeCreator
+}
+
+public fun KtAnalysisSession.getModule(element: PsiElement): KtModule {
+    return ProjectStructureProvider.getModule(useSiteModule.project, element, useSiteModule)
 }

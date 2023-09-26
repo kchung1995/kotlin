@@ -18,12 +18,11 @@ import org.jetbrains.kotlin.fir.declarations.FirSimpleFunction
 import org.jetbrains.kotlin.fir.declarations.getAnnotationByClassId
 import org.jetbrains.kotlin.fir.declarations.utils.isSuspend
 import org.jetbrains.kotlin.fir.expressions.*
-import org.jetbrains.kotlin.fir.expressions.impl.FirNoReceiverExpression
 import org.jetbrains.kotlin.fir.references.FirResolvedCallableReference
 import org.jetbrains.kotlin.fir.references.FirResolvedNamedReference
+import org.jetbrains.kotlin.fir.references.resolved
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.toFirRegularClassSymbol
-import org.jetbrains.kotlin.fir.references.resolved
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
@@ -130,9 +129,12 @@ object FirSuspendCallChecker : FirQualifiedAccessExpressionChecker() {
     private fun findEnclosingSuspendFunction(context: CheckerContext): FirFunction? {
         return context.containingDeclarations.lastOrNull {
             when (it) {
-                is FirAnonymousFunction -> it.typeRef.coneType.isSuspendOrKSuspendFunctionType(context.session)
-                is FirSimpleFunction -> it.isSuspend
-                else -> false
+                is FirAnonymousFunction ->
+                    if (it.isLambda) it.typeRef.coneType.isSuspendOrKSuspendFunctionType(context.session) else it.isSuspend
+                is FirSimpleFunction ->
+                    it.isSuspend
+                else ->
+                    false
             }
         } as? FirFunction
     }
@@ -162,7 +164,7 @@ object FirSuspendCallChecker : FirQualifiedAccessExpressionChecker() {
             expression.computeReceiversInfo(session, calledDeclarationSymbol)
 
         for (receiverExpression in listOfNotNull(dispatchReceiverExpression, extensionReceiverExpression)) {
-            if (!receiverExpression.typeRef.coneType.isRestrictSuspensionReceiver(session)) continue
+            if (!receiverExpression.resolvedType.isRestrictSuspensionReceiver(session)) continue
             if (sameInstanceOfReceiver(receiverExpression, enclosingSuspendFunctionDispatchReceiverOwnerSymbol)) continue
             if (sameInstanceOfReceiver(receiverExpression, enclosingSuspendFunctionExtensionReceiverOwnerSymbol)) continue
 
@@ -217,11 +219,12 @@ object FirSuspendCallChecker : FirQualifiedAccessExpressionChecker() {
         session: FirSession,
         calledDeclarationSymbol: FirCallableSymbol<*>
     ): Triple<FirExpression?, FirExpression?, ConeKotlinType?> {
+        val dispatchReceiver = dispatchReceiver
         if (this is FirImplicitInvokeCall &&
-            dispatchReceiver != FirNoReceiverExpression && dispatchReceiver.typeRef.coneType.isSuspendOrKSuspendFunctionType(session)
+            dispatchReceiver != null && dispatchReceiver.resolvedType.isSuspendOrKSuspendFunctionType(session)
         ) {
             val variableForInvoke = dispatchReceiver
-            val variableForInvokeType = variableForInvoke.typeRef.coneType
+            val variableForInvokeType = variableForInvoke.resolvedType
             if (!variableForInvokeType.isExtensionFunctionType) return Triple(null, null, null)
 
             // `a.foo()` is resolved to invokeExtension, so it's been desugared to `foo.invoke(a)`
@@ -234,8 +237,8 @@ object FirSuspendCallChecker : FirQualifiedAccessExpressionChecker() {
         }
 
         return Triple(
-            dispatchReceiver.takeIf { it !is FirNoReceiverExpression },
-            extensionReceiver.takeIf { it !is FirNoReceiverExpression },
+            dispatchReceiver,
+            extensionReceiver,
             calledDeclarationSymbol.resolvedReceiverTypeRef?.coneType,
         )
     }

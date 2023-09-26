@@ -23,12 +23,12 @@ import org.jetbrains.kotlin.platform.TargetPlatform
 import org.jetbrains.kotlin.resolve.BindingContext
 
 /**
- * Indicates methods and properties that are not available in backend after FIR
+ * Indicates methods and properties that are not available in backend after K2 compiler release
  *
- * Invocation of such methods in IR plugins if frontend was a FIR results in compiler crash.
+ * Invocation of such methods in IR plugins if frontend was K2 results in compiler crash.
  * It's still possible to use them in IR plugins with old frontend.
  */
-@RequiresOptIn("This API is not available after FIR")
+@RequiresOptIn("This API is deprecated. It will be removed after the release of K2 compiler")
 annotation class FirIncompatiblePluginAPI(val hint: String = "")
 
 interface IrPluginContext : IrGeneratorContext {
@@ -55,6 +55,12 @@ interface IrPluginContext : IrGeneratorContext {
     val symbols: BuiltinSymbolsBase
 
     val platform: TargetPlatform?
+
+    /**
+     * Use this service to add annotations to declarations if those annotations should be saved into metadata
+     * This service properly works only in K2 compiler
+     */
+    val annotationsRegistrar: IrAnnotationsFromPluginRegistrar
 
     /**
      * Returns a logger instance to post diagnostic messages from plugin

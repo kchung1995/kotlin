@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2022 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -345,6 +345,8 @@ public fun ULongProgression.reversed(): ULongProgression {
 
 /**
  * Returns a progression that goes over the same range with the given step.
+ * 
+ * @sample samples.ranges.Ranges.stepUInt
  */
 @SinceKotlin("1.5")
 @WasExperimental(ExperimentalUnsignedTypes::class)
@@ -355,6 +357,8 @@ public infix fun UIntProgression.step(step: Int): UIntProgression {
 
 /**
  * Returns a progression that goes over the same range with the given step.
+ * 
+ * @sample samples.ranges.Ranges.stepULong
  */
 @SinceKotlin("1.5")
 @WasExperimental(ExperimentalUnsignedTypes::class)

@@ -5,20 +5,20 @@
 
 package org.jetbrains.kotlin.fir.backend.jvm
 
+import org.jetbrains.kotlin.KtFakeSourceElementKind
+import org.jetbrains.kotlin.backend.common.actualizer.IrActualizedResult
 import org.jetbrains.kotlin.backend.jvm.JvmBackendContext
 import org.jetbrains.kotlin.backend.jvm.JvmLoweredDeclarationOrigin
 import org.jetbrains.kotlin.backend.jvm.metadata.MetadataSerializer
 import org.jetbrains.kotlin.codegen.ClassBuilderMode
 import org.jetbrains.kotlin.codegen.serialization.JvmSerializationBindings
 import org.jetbrains.kotlin.config.*
-import org.jetbrains.kotlin.fir.FirSession
+import org.jetbrains.kotlin.fir.*
 import org.jetbrains.kotlin.fir.backend.Fir2IrComponents
 import org.jetbrains.kotlin.fir.backend.FirMetadataSource
-import org.jetbrains.kotlin.fir.containingClassForLocal
+import org.jetbrains.kotlin.fir.backend.extractFirDeclarations
 import org.jetbrains.kotlin.fir.declarations.*
 import org.jetbrains.kotlin.fir.declarations.builder.*
-import org.jetbrains.kotlin.fir.languageVersionSettings
-import org.jetbrains.kotlin.fir.packageFqName
 import org.jetbrains.kotlin.fir.resolve.ScopeSession
 import org.jetbrains.kotlin.fir.resolve.toFirRegularClass
 import org.jetbrains.kotlin.fir.serialization.FirElementAwareStringTable
@@ -45,11 +45,12 @@ fun makeFirMetadataSerializerForIrClass(
     irClass: IrClass,
     serializationBindings: JvmSerializationBindings,
     components: Fir2IrComponents,
-    parent: MetadataSerializer?
+    parent: MetadataSerializer?,
+    irActualizedResult: IrActualizedResult?
 ): FirMetadataSerializer {
     val approximator = TypeApproximatorForMetadataSerializer(session)
-    val localDelegatedProperties = context.localDelegatedProperties[irClass.attributeOwnerId]?.map {
-        (it.owner.metadata as FirMetadataSource.Property).fir.copyToFreeProperty(approximator)
+    val localDelegatedProperties = context.localDelegatedProperties[irClass.attributeOwnerId]?.mapNotNull {
+        (it.owner.metadata as? FirMetadataSource.Property)?.fir?.copyToFreeProperty(approximator)
     } ?: emptyList()
     val firSerializerExtension = FirJvmSerializerExtension(
         session, serializationBindings, context.state, irClass.metadata, localDelegatedProperties,
@@ -58,16 +59,15 @@ fun makeFirMetadataSerializerForIrClass(
     return FirMetadataSerializer(
         context.state.globalSerializationBindings,
         serializationBindings,
-        firSerializerExtension,
         approximator,
         makeElementSerializer(
             irClass.metadata, components.session, components.scopeSession, firSerializerExtension, approximator, parent,
             context.state.configuration.languageVersionSettings,
-        )
+        ),
+        irActualizedResult
     )
 }
 
-@OptIn(LookupTagInternals::class)
 fun makeLocalFirMetadataSerializerForMetadataSource(
     metadata: MetadataSource?,
     session: FirSession,
@@ -75,7 +75,8 @@ fun makeLocalFirMetadataSerializerForMetadataSource(
     globalSerializationBindings: JvmSerializationBindings,
     parent: MetadataSerializer?,
     targetId: TargetId,
-    configuration: CompilerConfiguration
+    configuration: CompilerConfiguration,
+    irActualizedResult: IrActualizedResult?
 ): FirMetadataSerializer {
     val serializationBindings = JvmSerializationBindings()
     val approximator = TypeApproximatorForMetadataSerializer(session)
@@ -97,35 +98,36 @@ fun makeLocalFirMetadataSerializerForMetadataSource(
                 !configuration.getBoolean(JVMConfigurationKeys.NO_UNIFIED_NULL_CHECKS),
         configuration.metadataVersion(session.languageVersionSettings.languageVersion),
         session.languageVersionSettings.getFlag(JvmAnalysisFlags.jvmDefaultMode),
-        stringTable
+        stringTable,
+        constValueProvider = null,
+        additionalAnnotationsProvider = null
     )
     return FirMetadataSerializer(
         globalSerializationBindings,
         serializationBindings,
-        firSerializerExtension,
         approximator,
         makeElementSerializer(
             metadata, session, scopeSession, firSerializerExtension, approximator, parent,
-            configuration.languageVersionSettings,
-        )
+            configuration.languageVersionSettings
+        ),
+        irActualizedResult
     )
 }
 
 class FirMetadataSerializer(
     private val globalSerializationBindings: JvmSerializationBindings,
     private val serializationBindings: JvmSerializationBindings,
-    private val serializerExtension: FirJvmSerializerExtension,
     private val approximator: AbstractTypeApproximator,
-    internal val serializer: FirElementSerializer?
+    internal val serializer: FirElementSerializer?,
+    irActualizedResult: IrActualizedResult?
 ) : MetadataSerializer {
+    private val actualizedExpectDeclarations = irActualizedResult.extractFirDeclarations()
 
     override fun serialize(metadata: MetadataSource): Pair<MessageLite, JvmStringTable>? {
         val message = when (metadata) {
             is FirMetadataSource.Class -> serializer!!.classProto(metadata.fir).build()
             is FirMetadataSource.File ->
-                serializer!!.packagePartProto(metadata.files.first().packageFqName, metadata.files).apply {
-                    serializerExtension.serializeJvmPackage(this)
-                }.build()
+                serializer!!.packagePartProto(metadata.files.first().packageFqName, metadata.files, actualizedExpectDeclarations).build()
             is FirMetadataSource.Function -> {
                 val withTypeParameters = metadata.fir.copyToFreeAnonymousFunction(approximator)
                 serializationBindings.get(FirJvmSerializerExtension.METHOD_FOR_FIR_FUNCTION, metadata.fir)?.let {
@@ -156,8 +158,20 @@ class FirMetadataSerializer(
     }
 
     override fun bindFieldMetadata(metadata: MetadataSource.Property, signature: Pair<Type, String>) {
-        val fir = (metadata as FirMetadataSource.Property).fir
-        globalSerializationBindings.put(FirJvmSerializerExtension.FIELD_FOR_PROPERTY, fir, signature)
+        when (metadata) {
+            is FirMetadataSource.Property -> globalSerializationBindings.put(
+                FirJvmSerializerExtension.FIELD_FOR_PROPERTY,
+                metadata.fir,
+                signature,
+            )
+            is FirMetadataSource.Field -> metadata.fir.run {
+                // We don't serialize synthetic delegate fields, and we don't expect any other fields here.
+                require(source?.kind == KtFakeSourceElementKind.ClassDelegationField) {
+                    "Expected delegate field, got ${render()} with source kind ${source?.kind}"
+                }
+            }
+            else -> error("Unexpected metadata: $metadata")
+        }
     }
 }
 
@@ -213,10 +227,12 @@ private fun FirFunction.copyToFreeAnonymousFunction(approximator: AbstractTypeAp
         hasExplicitParameterList = (function as? FirAnonymousFunction)?.hasExplicitParameterList == true
         valueParameters.addAll(function.valueParameters.map {
             buildValueParameterCopy(it) {
+                symbol = FirValueParameterSymbol(it.name)
                 returnTypeRef = it.returnTypeRef.approximated(approximator, typeParameterSet, toSuper = false)
             }
         })
         typeParameters += typeParameterSet
+        status = function.status
     }
 }
 
@@ -236,6 +252,7 @@ private fun FirPropertyAccessor.copyToFreeAccessor(
         status = accessor.status
         accessor.valueParameters.mapTo(valueParameters) {
             buildValueParameterCopy(it) {
+                symbol = FirValueParameterSymbol(it.name)
                 returnTypeRef = it.returnTypeRef.approximated(approximator, typeParameterSet, toSuper = false)
             }
         }

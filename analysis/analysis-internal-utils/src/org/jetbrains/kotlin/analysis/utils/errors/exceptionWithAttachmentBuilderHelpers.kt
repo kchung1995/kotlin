@@ -6,23 +6,17 @@
 package org.jetbrains.kotlin.analysis.utils.errors
 
 import com.intellij.psi.PsiElement
-import com.intellij.psi.PsiInvalidElementAccessException
 import org.jetbrains.kotlin.analysis.project.structure.KtModule
-import org.jetbrains.kotlin.analysis.project.structure.getKtModule
-import org.jetbrains.kotlin.analysis.utils.printer.getElementTextInContext
-import org.jetbrains.kotlin.psi.KtElement
+import org.jetbrains.kotlin.utils.exceptions.ExceptionAttachmentBuilder
+import org.jetbrains.kotlin.utils.exceptions.withPsiEntry as withPsiEntryWithoutKtModule
 
-public fun ExceptionAttachmentBuilder.withPsiEntry(name: String, psi: PsiElement?) {
-    withEntry(name, psi) { psiElement ->
-        when {
-            !psiElement.isValid -> "INVALID PSI ${PsiInvalidElementAccessException.findOutInvalidationReason(psiElement)}"
-            psiElement is KtElement -> psiElement.getElementTextInContext()
-            else -> psiElement.text
-        }
-    }
-    if (psi != null) {
-        withKtModuleEntry("${name}KtModule", psi.getKtModule())
-    }
+public fun ExceptionAttachmentBuilder.withPsiEntry(name: String, psi: PsiElement?, moduleFactory: (PsiElement) -> KtModule) {
+    withPsiEntry(name, psi, psi?.let(moduleFactory))
+}
+
+public fun ExceptionAttachmentBuilder.withPsiEntry(name: String, psi: PsiElement?, module: KtModule?) {
+    withPsiEntryWithoutKtModule(name, psi)
+    withKtModuleEntry("${name}Module", module)
 }
 
 public fun ExceptionAttachmentBuilder.withKtModuleEntry(name: String, module: KtModule?) {
