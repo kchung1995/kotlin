@@ -17,16 +17,14 @@ import org.jetbrains.kotlin.test.utils.CUSTOM_TEST_DATA_EXTENSION_PATTERN
 
 fun generateJUnit5CompilerTests(args: Array<String>, mainClassName: String?) {
     val excludedCustomTestdataPattern = CUSTOM_TEST_DATA_EXTENSION_PATTERN
+    val k2BoxTestDir = listOf("multiplatform/k2")
+    val excludedScriptDirs = listOf("script")
 
     generateTestGroupSuiteWithJUnit5(args, mainClassName) {
         testGroup(testsRoot = "compiler/tests-common-new/tests-gen", testDataRoot = "compiler/testData") {
             testClass<AbstractDiagnosticTest> {
                 model("diagnostics/tests", pattern = "^(.*)\\.kts?$", excludedPattern = excludedCustomTestdataPattern)
                 model("diagnostics/testsWithStdLib", excludedPattern = excludedCustomTestdataPattern)
-            }
-
-            testClass<AbstractJdk21DiagnosticTest> {
-                model("diagnostics/testsWithJdk21", excludedPattern = excludedCustomTestdataPattern)
             }
 
             testClass<AbstractDiagnosticUsingJavacTest> {
@@ -56,7 +54,11 @@ fun generateJUnit5CompilerTests(args: Array<String>, mainClassName: String?) {
             }
 
             testClass<AbstractForeignAnnotationsCompiledJavaTest> {
-                model("diagnostics/foreignAnnotationsTests/tests", excludedPattern = excludedCustomTestdataPattern)
+                model(
+                    "diagnostics/foreignAnnotationsTests/tests",
+                    excludedPattern = excludedCustomTestdataPattern,
+                    excludeDirs = listOf("externalAnnotations"),
+                )
                 model("diagnostics/foreignAnnotationsTests/java8Tests", excludedPattern = excludedCustomTestdataPattern)
                 model("diagnostics/foreignAnnotationsTests/java11Tests", excludedPattern = excludedCustomTestdataPattern)
             }
@@ -68,19 +70,32 @@ fun generateJUnit5CompilerTests(args: Array<String>, mainClassName: String?) {
             }
 
             testClass<AbstractBlackBoxCodegenTest> {
-                model("codegen/box")
+                model("codegen/box", excludeDirs = k2BoxTestDir)
             }
 
             testClass<AbstractIrBlackBoxCodegenTest> {
-                model("codegen/box")
+                model("codegen/box", excludeDirs = k2BoxTestDir)
+            }
+
+
+            // We split JVM ABI tests into two parts, to avoid creation of a huge file, unable to analyze by IntelliJ with default settings
+            testClass<AbstractJvmAbiConsistencyTest>("JvmAbiConsistencyTestBoxGenerated") {
+                model("codegen/box", excludeDirs = k2BoxTestDir + excludedScriptDirs)
+            }
+
+            testClass<AbstractJvmAbiConsistencyTest>("JvmAbiConsistencyTestRestGenerated") {
+                model("codegen/boxInline")
+                model("codegen/boxModernJdk")
+                model("codegen/bytecodeText")
+                model("codegen/bytecodeListing")
+                model("codegen/composeLike")
+                model("codegen/composeLikeBytecodeText")
+                model("codegen/defaultArguments")
+                model("codegen/script", pattern = "^(.*)\\.kts?$", excludedPattern = excludedCustomTestdataPattern)
             }
 
             testClass<AbstractIrBlackBoxCodegenWithIrInlinerTest> {
-                model("codegen/box")
-            }
-
-            testClass<AbstractSteppingTest> {
-                model("debug/stepping")
+                model("codegen/box", excludeDirs = k2BoxTestDir)
             }
 
             testClass<AbstractIrSteppingWithBytecodeInlinerTest> {
@@ -89,10 +104,6 @@ fun generateJUnit5CompilerTests(args: Array<String>, mainClassName: String?) {
 
             testClass<AbstractIrSteppingWithIrInlinerTest> {
                 model("debug/stepping")
-            }
-
-            testClass<AbstractLocalVariableTest> {
-                model("debug/localVariables")
             }
 
             testClass<AbstractIrLocalVariableBytecodeInlinerTest> {
@@ -120,7 +131,14 @@ fun generateJUnit5CompilerTests(args: Array<String>, mainClassName: String?) {
             }
 
             testClass<AbstractClassicJvmIrTextTest> {
-                model("ir/irText")
+                model(
+                    "ir/irText",
+                    excludeDirs = listOf("declarations/multiplatform/k2")
+                )
+            }
+
+            testClass<AbstractClassicJvmIrSourceRangesTest> {
+                model("ir/sourceRanges")
             }
 
             testClass<AbstractBytecodeTextTest> {
@@ -163,10 +181,6 @@ fun generateJUnit5CompilerTests(args: Array<String>, mainClassName: String?) {
                 model("codegen/boxInline")
             }
 
-            testClass<AbstractBytecodeListingTest> {
-                model("codegen/bytecodeListing")
-            }
-
             testClass<AbstractIrBytecodeListingTest> {
                 model("codegen/bytecodeListing")
             }
@@ -200,14 +214,6 @@ fun generateJUnit5CompilerTests(args: Array<String>, mainClassName: String?) {
                 model("diagnostics/testsWithStdLib", excludedPattern = excludedCustomTestdataPattern)
             }
 
-            testClass<AbstractFirPsiJdk21DiagnosticTest> {
-                model("diagnostics/testsWithJdk21", excludedPattern = excludedCustomTestdataPattern)
-            }
-
-            testClass<AbstractFirLightTreeJdk21DiagnosticTest> {
-                model("diagnostics/testsWithJdk21", excludedPattern = excludedCustomTestdataPattern)
-            }
-
             testClass<AbstractFirPsiWithActualizerDiagnosticsTest>(suiteTestClassName = "FirOldFrontendMPPDiagnosticsWithPsiTestGenerated") {
                 model("diagnostics/tests/multiplatform", pattern = "^(.*)\\.kts?$", excludedPattern = excludedCustomTestdataPattern)
             }
@@ -238,7 +244,11 @@ fun generateJUnit5CompilerTests(args: Array<String>, mainClassName: String?) {
             testClass<AbstractFirPsiForeignAnnotationsCompiledJavaTest>(
                 suiteTestClassName = "FirPsiOldFrontendForeignAnnotationsCompiledJavaTestGenerated"
             ) {
-                model("diagnostics/foreignAnnotationsTests/tests", excludedPattern = excludedCustomTestdataPattern)
+                model(
+                    "diagnostics/foreignAnnotationsTests/tests",
+                    excludedPattern = excludedCustomTestdataPattern,
+                    excludeDirs = listOf("externalAnnotations"),
+                )
                 model("diagnostics/foreignAnnotationsTests/java8Tests", excludedPattern = excludedCustomTestdataPattern)
                 model("diagnostics/foreignAnnotationsTests/java11Tests", excludedPattern = excludedCustomTestdataPattern)
             }
@@ -266,7 +276,7 @@ fun generateJUnit5CompilerTests(args: Array<String>, mainClassName: String?) {
 
         testGroup(testsRoot = "compiler/fir/fir2ir/tests-gen", testDataRoot = "compiler/testData") {
             testClass<AbstractFirLightTreeBlackBoxCodegenTest> {
-                model("codegen/box")
+                model("codegen/box", excludeDirs = excludedScriptDirs)
             }
 
             testClass<AbstractFirPsiBlackBoxCodegenTest> {
@@ -274,7 +284,7 @@ fun generateJUnit5CompilerTests(args: Array<String>, mainClassName: String?) {
             }
 
             testClass<AbstractFirLightTreeBlackBoxCodegenWithIrFakeOverrideGeneratorTest> {
-                model("codegen/box")
+                model("codegen/box", excludeDirs = excludedScriptDirs)
             }
 
             testClass<AbstractFirLightTreeBlackBoxCodegenTest>("FirLightTreeBlackBoxModernJdkCodegenTestGenerated") {
@@ -368,11 +378,25 @@ fun generateJUnit5CompilerTests(args: Array<String>, mainClassName: String?) {
 
         testGroup(testsRoot = "compiler/fir/fir2ir/tests-gen", testDataRoot = "compiler/testData") {
             testClass<AbstractFirLightTreeJvmIrTextTest> {
-                model("ir/irText")
+                model(
+                    "ir/irText",
+                    excludeDirs = listOf("declarations/multiplatform/k1")
+                )
             }
 
             testClass<AbstractFirPsiJvmIrTextTest> {
-                model("ir/irText")
+                model(
+                    "ir/irText",
+                    excludeDirs = listOf("declarations/multiplatform/k1")
+                )
+            }
+
+            testClass<AbstractFirLightTreeJvmIrSourceRangesTest> {
+                model("ir/sourceRanges")
+            }
+
+            testClass<AbstractFirPsiJvmIrSourceRangesTest> {
+                model("ir/sourceRanges")
             }
 
             testClass<AbstractFirLightTreeBytecodeTextTest> {

@@ -11,13 +11,8 @@ import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.declarations.*
-import org.jetbrains.kotlin.ir.overrides.isOverridableFunction
-import org.jetbrains.kotlin.ir.overrides.isOverridableProperty
 import org.jetbrains.kotlin.ir.symbols.IrFileSymbol
-import org.jetbrains.kotlin.ir.util.IdSignature
-import org.jetbrains.kotlin.ir.util.KotlinMangler
-import org.jetbrains.kotlin.ir.util.isFacadeClass
-import org.jetbrains.kotlin.ir.util.render
+import org.jetbrains.kotlin.ir.util.*
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
 import org.jetbrains.kotlin.ir.visitors.acceptVoid
 
@@ -39,12 +34,13 @@ class PublicIdSignatureComputer(val mangler: KotlinMangler.IrMangler) : IdSignat
 
     private var currentFileSignatureX: IdSignature.FileSignature? = null
 
-    override fun inFile(file: IrFileSymbol?, block: () -> Unit) {
+    override fun <R> inFile(file: IrFileSymbol?, block: () -> R): R {
         currentFileSignatureX = file?.let { IdSignature.FileSignature(it) }
-
-        block()
-
-        currentFileSignatureX = null
+        try {
+            return block()
+        } finally {
+            currentFileSignatureX = null
+        }
     }
 
     private fun IrDeclaration.checkIfPlatformSpecificExport(): Boolean = mangler.run { isPlatformSpecificExport() }
@@ -188,21 +184,6 @@ class PublicIdSignatureComputer(val mangler: KotlinMangler.IrMangler) : IdSignat
     }
 }
 
-/**
- * `IdSignatureSerializer` has been renamed to [IdSignatureFactory]. The [IdSignatureSerializer] type alias is added here
- * in place of the original `IdSignatureSerializer` class to keep source compatibility with the Compose compiler plugin
- * (this is only needed for a short duration of time).
- *
- * The [Deprecated] annotation was commented out because it leads to compilation errors in Compose plugin due to the use of `-Werror`.
- */
-//@Deprecated(
-//    message = "IdSignatureSerializer has been renamed to IdSignatureFactory." +
-//            " Need to maintain this type alias for a while to keep source compatibility with the Compose plugin.",
-//    replaceWith = ReplaceWith("IdSignatureFactory")
-//)
-@Suppress("unused")
-typealias IdSignatureSerializer = IdSignatureFactory
-
 class IdSignatureFactory(
     private val publicSignatureBuilder: PublicIdSignatureComputer,
     private val table: DeclarationTable,
@@ -226,9 +207,8 @@ class IdSignatureFactory(
     private var localIndex: Long = startIndex.toLong()
     private var scopeIndex: Int = startIndex
 
-    override fun inFile(file: IrFileSymbol?, block: () -> Unit) {
+    override fun <R> inFile(file: IrFileSymbol?, block: () -> R): R =
         publicSignatureBuilder.inFile(file, block)
-    }
 
     private fun composeContainerIdSignature(container: IrDeclarationParent, compatibleMode: Boolean): IdSignature =
         when (container) {
@@ -239,7 +219,7 @@ class IdSignatureFactory(
                 mask = 0,
                 description = null,
             )
-            is IrDeclaration -> table.signatureByDeclaration(container, compatibleMode)
+            is IrDeclaration -> table.signatureByDeclaration(container, compatibleMode, recordInSignatureClashDetector = false)
             else -> error("Unexpected container ${container.render()}")
         }
 
@@ -292,4 +272,13 @@ class IdSignatureFactory(
             }
         }
     }
+
+    private fun IrSimpleFunction.isOverridableFunction(): Boolean =
+        !DescriptorVisibilities.isPrivate(visibility) && hasDispatchReceiver
+
+    private fun IrProperty.isOverridableProperty(): Boolean =
+        !DescriptorVisibilities.isPrivate(visibility) && (getter.hasDispatchReceiver || setter.hasDispatchReceiver)
+
+    private val IrSimpleFunction?.hasDispatchReceiver: Boolean
+        get() = this?.dispatchReceiverParameter != null
 }

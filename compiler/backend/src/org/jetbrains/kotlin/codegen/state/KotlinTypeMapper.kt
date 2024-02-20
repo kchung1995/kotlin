@@ -610,6 +610,7 @@ class KotlinTypeMapper @JvmOverloads constructor(
 
                 val isAccessor = property is AccessorForPropertyDescriptor
                 val propertyName = if (isAccessor)
+                    @Suppress("USELESS_CAST") // K2 warning suppression, TODO: KT-62472
                     (property as AccessorForPropertyDescriptor).accessorSuffix
                 else
                     property.name.asString()
@@ -1425,6 +1426,11 @@ class KotlinTypeMapper @JvmOverloads constructor(
             SimpleClassicTypeSystemContext.hasNothingInNonContravariantPosition(kotlinType)
 
         fun TypeSystemContext.hasNothingInNonContravariantPosition(type: KotlinTypeMarker): Boolean {
+            if (type.isError()) {
+                // We cannot access type arguments for an unresolved type
+                return false
+            }
+
             val typeConstructor = type.typeConstructor()
 
             for (i in 0 until type.argumentsCount()) {

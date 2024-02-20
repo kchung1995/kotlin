@@ -69,7 +69,7 @@ internal object CastCompatibleKotlinNativeClassLoader {
     val kotlinNativeClassLoader = NativeTestSupport.computeNativeClassLoader(this::class.java.classLoader)
 }
 
-private object NativeTestSupport {
+internal object NativeTestSupport {
     private val NAMESPACE = ExtensionContext.Namespace.create(NativeTestSupport::class.java.simpleName)
 
     /*************** Test process settings ***************/
@@ -201,8 +201,9 @@ private object NativeTestSupport {
         output += computeTestMode(enforcedProperties)
         output += computeCompilerPlugins(enforcedProperties)
         output += computeCustomKlibs(enforcedProperties)
-        output += computeForcedStandaloneTestKind(enforcedProperties)
+        output += computeTestKind(enforcedProperties)
         output += computeForcedNoopTestRunner(enforcedProperties)
+        output += computeSharedExecutionTestRunner(enforcedProperties)
         output += computeTimeouts(enforcedProperties)
         // Parse annotations of current class, since there's no way to put annotations to upper-level enclosing class
         output += computePipelineType(enforcedProperties, testClass.get())
@@ -262,10 +263,11 @@ private object NativeTestSupport {
         kotlinNativeTargets: KotlinNativeTargets,
         optimizationMode: OptimizationMode
     ): CacheMode {
+        val defaultCache = CacheMode.defaultForTestTarget(distribution, kotlinNativeTargets)
         val cacheMode = ClassLevelProperty.CACHE_MODE.readValue(
             enforcedProperties,
             CacheMode.Alias.values(),
-            default = CacheMode.defaultForTestTarget(distribution, kotlinNativeTargets)
+            default = defaultCache
         )
         val useStaticCacheForUserLibraries = when (cacheMode) {
             CacheMode.Alias.NO -> return CacheMode.WithoutCache
@@ -275,12 +277,15 @@ private object NativeTestSupport {
         }
         val makePerFileCaches = cacheMode == CacheMode.Alias.STATIC_PER_FILE_EVERYWHERE
 
-        return CacheMode.WithStaticCache(
+        return if (defaultCache == CacheMode.Alias.NO)
+            CacheMode.WithoutCache
+        else CacheMode.WithStaticCache(
             distribution,
             kotlinNativeTargets,
             optimizationMode,
             useStaticCacheForUserLibraries,
-            makePerFileCaches
+            makePerFileCaches,
+            cacheMode
         )
     }
 
@@ -305,18 +310,25 @@ private object NativeTestSupport {
             )
         )
 
-    private fun computeForcedStandaloneTestKind(enforcedProperties: EnforcedProperties): ForcedStandaloneTestKind =
-        ForcedStandaloneTestKind(
-            ClassLevelProperty.FORCE_STANDALONE.readValue(
+    private fun computeTestKind(enforcedProperties: EnforcedProperties): TestKind =
+        ClassLevelProperty.TEST_KIND.readValue(
+            enforcedProperties,
+            TestKind.values(),
+            default = TestKind.REGULAR
+        )
+
+    private fun computeForcedNoopTestRunner(enforcedProperties: EnforcedProperties): ForcedNoopTestRunner =
+        ForcedNoopTestRunner(
+            ClassLevelProperty.COMPILE_ONLY.readValue(
                 enforcedProperties,
                 String::toBooleanStrictOrNull,
                 default = false
             )
         )
 
-    private fun computeForcedNoopTestRunner(enforcedProperties: EnforcedProperties): ForcedNoopTestRunner =
-        ForcedNoopTestRunner(
-            ClassLevelProperty.COMPILE_ONLY.readValue(
+    private fun computeSharedExecutionTestRunner(enforcedProperties: EnforcedProperties): SharedExecutionTestRunner =
+        SharedExecutionTestRunner(
+            ClassLevelProperty.SHARED_TEST_EXECUTION.readValue(
                 enforcedProperties,
                 String::toBooleanStrictOrNull,
                 default = false

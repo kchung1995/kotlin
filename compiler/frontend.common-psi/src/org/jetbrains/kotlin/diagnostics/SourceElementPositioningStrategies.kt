@@ -9,9 +9,7 @@ object SourceElementPositioningStrategies {
     val DEFAULT = SourceElementPositioningStrategy(
         LightTreePositioningStrategies.DEFAULT,
         PositioningStrategies.DEFAULT
-    ).also {
-        AbstractSourceElementPositioningStrategy.setDefault(it)
-    }
+    )
 
     val VAL_OR_VAR_NODE = SourceElementPositioningStrategy(
         LightTreePositioningStrategies.VAL_OR_VAR_NODE,
@@ -288,6 +286,11 @@ object SourceElementPositioningStrategies {
         PositioningStrategies.IMPORT_LAST_NAME
     )
 
+    val IMPORT_LAST_BUT_ONE_NAME = SourceElementPositioningStrategy(
+        LightTreePositioningStrategies.IMPORT_LAST_BUT_ONE_NAME,
+        PositioningStrategies.IMPORT_LAST_BUT_ONE_NAME,
+    )
+
     val SPREAD_OPERATOR = SourceElementPositioningStrategy(
         LightTreePositioningStrategies.SPREAD_OPERATOR,
         PositioningStrategies.SPREAD_OPERATOR
@@ -338,6 +341,11 @@ object SourceElementPositioningStrategies {
     val OPERATOR_MODIFIER = SourceElementPositioningStrategy(
         LightTreePositioningStrategies.OPERATOR_MODIFIER,
         PositioningStrategies.OPERATOR_MODIFIER
+    )
+
+    val INFIX_MODIFIER = SourceElementPositioningStrategy(
+        LightTreePositioningStrategies.INFIX_MODIFIER,
+        PositioningStrategies.INFIX_MODIFIER
     )
 
     val NON_FINAL_MODIFIER_OR_NAME = SourceElementPositioningStrategy(
@@ -393,5 +401,10 @@ object SourceElementPositioningStrategies {
     val TYPEALIAS_TYPE_REFERENCE = SourceElementPositioningStrategy(
         LightTreePositioningStrategies.TYPEALIAS_TYPE_REFERENCE,
         PositioningStrategies.TYPEALIAS_TYPE_REFERENCE,
+    )
+
+    val SUPERTYPE_INITIALIZED_IN_EXPECTED_CLASS_DIAGNOSTIC = SourceElementPositioningStrategy(
+        LightTreePositioningStrategies.SUPERTYPE_INITIALIZED_IN_EXPECTED_CLASS_DIAGNOSTIC,
+        PositioningStrategies.SUPERTYPE_INITIALIZED_IN_EXPECTED_CLASS_DIAGNOSTIC,
     )
 }

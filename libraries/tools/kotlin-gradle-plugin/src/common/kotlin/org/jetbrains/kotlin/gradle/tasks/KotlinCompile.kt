@@ -48,6 +48,7 @@ import org.jetbrains.kotlin.incremental.ClasspathChanges.ClasspathSnapshotEnable
 import org.jetbrains.kotlin.incremental.ClasspathChanges.ClasspathSnapshotEnabled.NotAvailableDueToMissingClasspathSnapshot
 import org.jetbrains.kotlin.incremental.ClasspathChanges.ClasspathSnapshotEnabled.NotAvailableForNonIncrementalRun
 import org.jetbrains.kotlin.incremental.ClasspathSnapshotFiles
+import org.jetbrains.kotlin.incremental.IncrementalCompilationFeatures
 import org.jetbrains.kotlin.utils.addToStdlib.cast
 import javax.inject.Inject
 
@@ -262,15 +263,17 @@ abstract class KotlinCompile @Inject constructor(
         }
 
         sources { args ->
-            if (compilerOptions.usesK2.get()) {
-                args.fragmentSources = multiplatformStructure.fragmentSourcesCompilerArgs(sourceFileFilter)
-            } else {
-                args.commonSources = commonSourceSet.asFileTree.toPathsArray()
-            }
-
             val sourcesFiles = sources.asFileTree.files.toList()
             val javaSourcesFiles = javaSources.files.toList()
             val scriptSourcesFiles = scriptSources.asFileTree.files.toList()
+
+            if (multiPlatformEnabled.get()) {
+                if (compilerOptions.usesK2.get()) {
+                    args.fragmentSources = multiplatformStructure.fragmentSourcesCompilerArgs(sourcesFiles, sourceFileFilter)
+                } else {
+                    args.commonSources = commonSourceSet.asFileTree.toPathsArray()
+                }
+            }
 
             if (logger.isInfoEnabled) {
                 logger.info("Kotlin source files: ${sourcesFiles.joinToString()}")
@@ -326,9 +329,7 @@ abstract class KotlinCompile @Inject constructor(
                 usePreciseJavaTracking = usePreciseJavaTracking,
                 disableMultiModuleIC = disableMultiModuleIC,
                 multiModuleICSettings = multiModuleICSettings,
-                withAbiSnapshot = useKotlinAbiSnapshot.get(),
-                preciseCompilationResultsBackup = preciseCompilationResultsBackup.get(),
-                keepIncrementalCompilationCachesInMemory = keepIncrementalCompilationCachesInMemory.get(),
+                icFeatures = makeIncrementalCompilationFeatures(),
             )
         } else null
 
@@ -342,7 +343,8 @@ abstract class KotlinCompile @Inject constructor(
                     - (classpathSnapshotProperties.classpathSnapshotDir.orNull?.asFile?.let { setOf(it) } ?: emptySet()),
             reportingSettings = reportingSettings(),
             incrementalCompilationEnvironment = icEnv,
-            kotlinScriptExtensions = scriptExtensions.get().toTypedArray()
+            kotlinScriptExtensions = scriptExtensions.get().toTypedArray(),
+            compilerArgumentsLogLevel = kotlinCompilerArgumentsLogLevel.get()
         )
         compilerRunner.runJvmCompilerAsync(
             args,
@@ -350,7 +352,7 @@ abstract class KotlinCompile @Inject constructor(
             defaultKotlinJavaToolchain.get().buildJvm.get().javaHome,
             taskOutputsBackup
         )
-        compilerRunner.errorsFile?.also { gradleMessageCollector.flush(it) }
+        compilerRunner.errorsFiles?.let { gradleMessageCollector.flush(it) }
     }
 
     private fun validateKotlinAndJavaHasSameTargetCompatibility(
@@ -463,6 +465,13 @@ abstract class KotlinCompile @Inject constructor(
         javaSourceFiles.from(*sources)
         scriptSourceFiles.from(*sources)
         super.setSource(*sources)
+    }
+
+    // override incremental compilation features, while withAbiSnapshot is JVM-only
+    override fun makeIncrementalCompilationFeatures(): IncrementalCompilationFeatures {
+        return super.makeIncrementalCompilationFeatures().copy(
+            withAbiSnapshot = useKotlinAbiSnapshot.get(),
+        )
     }
 
     private fun getClasspathChanges(inputChanges: InputChanges): ClasspathChanges = when {

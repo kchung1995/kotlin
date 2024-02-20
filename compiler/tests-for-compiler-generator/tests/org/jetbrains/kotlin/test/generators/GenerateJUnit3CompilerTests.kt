@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -14,10 +14,11 @@ import org.jetbrains.kotlin.codegen.*
 import org.jetbrains.kotlin.codegen.defaultConstructor.AbstractDefaultArgumentsReflectionTest
 import org.jetbrains.kotlin.codegen.flags.AbstractWriteFlagsTest
 import org.jetbrains.kotlin.codegen.ir.*
-import org.jetbrains.kotlin.fir.java.AbstractFirOldFrontendLightClassesTest
-import org.jetbrains.kotlin.fir.builder.AbstractRawFirBuilderLazyBodiesTestCase
+import org.jetbrains.kotlin.fir.builder.AbstractRawFirBuilderLazyBodiesByAstTest
+import org.jetbrains.kotlin.fir.builder.AbstractRawFirBuilderLazyBodiesByStubTest
 import org.jetbrains.kotlin.fir.builder.AbstractRawFirBuilderSourceElementMappingTestCase
 import org.jetbrains.kotlin.fir.builder.AbstractRawFirBuilderTestCase
+import org.jetbrains.kotlin.fir.java.AbstractFirOldFrontendLightClassesTest
 import org.jetbrains.kotlin.fir.java.AbstractFirTypeEnhancementTest
 import org.jetbrains.kotlin.fir.java.AbstractOwnFirTypeEnhancementTest
 import org.jetbrains.kotlin.fir.lightTree.AbstractLightTree2FirConverterTestCase
@@ -26,11 +27,8 @@ import org.jetbrains.kotlin.generators.util.TestGeneratorUtil
 import org.jetbrains.kotlin.generators.util.TestGeneratorUtil.KT_OR_KTS_WITHOUT_DOTS_IN_NAME
 import org.jetbrains.kotlin.integration.AbstractAntTaskTest
 import org.jetbrains.kotlin.ir.AbstractIrCfgTestCase
-import org.jetbrains.kotlin.ir.AbstractIrSourceRangesTestCase
 import org.jetbrains.kotlin.jvm.compiler.*
-import org.jetbrains.kotlin.jvm.compiler.ir.AbstractIrCompileJavaAgainstKotlinTest
-import org.jetbrains.kotlin.jvm.compiler.ir.AbstractIrCompileKotlinAgainstJavaTest
-import org.jetbrains.kotlin.jvm.compiler.ir.AbstractIrLoadJavaTest
+import org.jetbrains.kotlin.jvm.compiler.ir.*
 import org.jetbrains.kotlin.jvm.compiler.javac.AbstractLoadJavaUsingJavacTest
 import org.jetbrains.kotlin.klib.AbstractKlibIrTextTestCase
 import org.jetbrains.kotlin.klib.AbstractKlibJsIrTextTestCase
@@ -86,7 +84,8 @@ fun generateJUnit3CompilerTests(args: Array<String>, mainClassName: String?) {
                         "compileKotlinAgainstKotlin",
                         "testsWithJava9",
                         "testsWithJava15",
-                        "testsWithJava17"
+                        "testsWithJava17",
+                        "multiplatform/k2",
                     )
                 )
             }
@@ -115,10 +114,6 @@ fun generateJUnit3CompilerTests(args: Array<String>, mainClassName: String?) {
                 model("ir/irCfg")
             }
 
-            testClass<AbstractIrSourceRangesTestCase> {
-                model("ir/sourceRanges")
-            }
-
             testClass<AbstractTopLevelMembersInvocationTest> {
                 model("codegen/topLevelMemberInvocation", extension = null, recursive = false)
             }
@@ -133,10 +128,6 @@ fun generateJUnit3CompilerTests(args: Array<String>, mainClassName: String?) {
 
             testClass<AbstractDefaultArgumentsReflectionTest> {
                 model("codegen/defaultArguments/reflection")
-            }
-
-            testClass<AbstractDumpDeclarationsTest> {
-                model("codegen/dumpDeclarations")
             }
 
             testClass<AbstractLoadJavaTest> {
@@ -210,6 +201,8 @@ fun generateJUnit3CompilerTests(args: Array<String>, mainClassName: String?) {
                     targetBackend = TargetBackend.JVM
                 )
             }
+
+
 
             testClass<AbstractCompileKotlinAgainstJavaTest> {
                 model(
@@ -312,6 +305,37 @@ fun generateJUnit3CompilerTests(args: Array<String>, mainClassName: String?) {
                 )
             }
 
+            testClass<AbstractFirLightTreeCompileJavaAgainstKotlinTest> {
+                model(
+                    "compileJavaAgainstKotlin",
+                    testClassName = "WithoutJavac",
+                    testMethod = "doTestWithoutJavac",
+                    targetBackend = TargetBackend.JVM_IR
+                )
+                model(
+                    "compileJavaAgainstKotlin",
+                    testClassName = "WithJavac",
+                    testMethod = "doTestWithJavac",
+                    targetBackend = TargetBackend.JVM_IR
+                )
+            }
+
+            testClass<AbstractFirPsiCompileJavaAgainstKotlinTest> {
+                model(
+                    "compileJavaAgainstKotlin",
+                    testClassName = "WithoutJavac",
+                    testMethod = "doTestWithoutJavac",
+                    targetBackend = TargetBackend.JVM_IR
+                )
+                model(
+                    "compileJavaAgainstKotlin",
+                    testClassName = "WithJavac",
+                    testMethod = "doTestWithJavac",
+                    targetBackend = TargetBackend.JVM_IR
+                )
+            }
+
+
             testClass<AbstractIrCompileKotlinAgainstJavaTest> {
                 model(
                     "compileKotlinAgainstJava",
@@ -400,7 +424,11 @@ fun generateJUnit3CompilerTests(args: Array<String>, mainClassName: String?) {
                 model("rawBuilder", testMethod = "doRawFirTest", pattern = TestGeneratorUtil.KT_OR_KTS)
             }
 
-            testClass<AbstractRawFirBuilderLazyBodiesTestCase> {
+            testClass<AbstractRawFirBuilderLazyBodiesByAstTest> {
+                model("rawBuilder", testMethod = "doRawFirTest", pattern = TestGeneratorUtil.KT_OR_KTS)
+            }
+
+            testClass<AbstractRawFirBuilderLazyBodiesByStubTest> {
                 model("rawBuilder", testMethod = "doRawFirTest", pattern = TestGeneratorUtil.KT_OR_KTS)
             }
 

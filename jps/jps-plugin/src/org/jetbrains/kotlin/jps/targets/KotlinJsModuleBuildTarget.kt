@@ -34,6 +34,7 @@ import org.jetbrains.kotlin.jps.model.k2JsCompilerArguments
 import org.jetbrains.kotlin.jps.model.kotlinCompilerSettings
 import org.jetbrains.kotlin.jps.model.productionOutputFilePath
 import org.jetbrains.kotlin.jps.model.testOutputFilePath
+import org.jetbrains.kotlin.jps.statistic.JpsBuilderMetricReporter
 import org.jetbrains.kotlin.utils.JsLibraryUtils
 import org.jetbrains.kotlin.utils.KotlinJavascriptMetadataUtils.JS_EXT
 import org.jetbrains.kotlin.utils.KotlinJavascriptMetadataUtils.META_JS_SUFFIX
@@ -91,7 +92,8 @@ class KotlinJsModuleBuildTarget(kotlinContext: KotlinCompileContext, jpsModuleBu
     override fun compileModuleChunk(
         commonArguments: CommonCompilerArguments,
         dirtyFilesHolder: KotlinDirtySourceFilesHolder,
-        environment: JpsCompilerEnvironment
+        environment: JpsCompilerEnvironment,
+        buildMetricReporter: JpsBuilderMetricReporter?
     ): Boolean {
         require(chunk.representativeTarget == this)
 
@@ -115,7 +117,8 @@ class KotlinJsModuleBuildTarget(kotlinContext: KotlinCompileContext, jpsModuleBu
             sourceMapRoots,
             libraries,
             friendBuildTargetsMetaFiles,
-            outputFile
+            outputFile,
+            buildMetricReporter
         )
 
         return true

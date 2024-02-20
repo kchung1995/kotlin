@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -16,8 +16,10 @@ import org.jetbrains.kotlin.fir.resolve.dfa.DataFlowAnalyzerContext
 import org.jetbrains.kotlin.fir.resolve.transformers.ReturnTypeCalculator
 import org.jetbrains.kotlin.fir.resolve.transformers.ReturnTypeCalculatorForFullBodyResolve
 import org.jetbrains.kotlin.fir.resolve.transformers.ScopeClassDeclaration
+import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.types.*
 import org.jetbrains.kotlin.fir.visitors.FirTransformer
+import org.jetbrains.kotlin.fir.visitors.transformSingle
 
 abstract class FirAbstractBodyResolveTransformerDispatcher(
     session: FirSession,
@@ -26,10 +28,10 @@ abstract class FirAbstractBodyResolveTransformerDispatcher(
     scopeSession: ScopeSession,
     val returnTypeCalculator: ReturnTypeCalculator = ReturnTypeCalculatorForFullBodyResolve.Default,
     outerBodyResolveContext: BodyResolveContext? = null,
-    val firResolveContextCollector: FirResolveContextCollector? = null,
 ) : FirAbstractBodyResolveTransformer(phase) {
 
     open val preserveCFGForClasses: Boolean get() = !implicitTypeOnly
+    open val buildCfgForScripts: Boolean get() = !implicitTypeOnly
     open val buildCfgForFiles: Boolean get() = !implicitTypeOnly
 
     final override val context: BodyResolveContext =
@@ -105,7 +107,12 @@ abstract class FirAbstractBodyResolveTransformerDispatcher(
     override fun transformImplicitTypeRef(implicitTypeRef: FirImplicitTypeRef, data: ResolutionMode): FirTypeRef {
         if (data !is ResolutionMode.WithExpectedType)
             return implicitTypeRef
-        return data.expectedTypeRef
+
+        /**
+         * We should transform a provided type to process such references in [transformAnnotationCall] by [transformForeignAnnotationCall]
+         * because usually we do not run such transformations on replaced types explicitly
+         */
+        return data.expectedTypeRef.transformSingle(this, data)
     }
 
     // ------------------------------------- Expressions -------------------------------------
@@ -291,13 +298,13 @@ abstract class FirAbstractBodyResolveTransformerDispatcher(
         FirDeclarationsResolveTransformer::transformWrappedDelegateExpression,
     )
 
-    override fun <T> transformConstExpression(
-        constExpression: FirConstExpression<T>,
+    override fun <T> transformLiteralExpression(
+        literalExpression: FirLiteralExpression<T>,
         data: ResolutionMode,
     ): FirStatement = expressionTransformation(
-        constExpression,
+        literalExpression,
         data,
-        FirExpressionsResolveTransformer::transformConstExpression,
+        FirExpressionsResolveTransformer::transformLiteralExpression,
     )
 
     override fun transformAnnotation(
@@ -309,14 +316,31 @@ abstract class FirAbstractBodyResolveTransformerDispatcher(
         FirExpressionsResolveTransformer::transformAnnotation,
     )
 
+    /**
+     * @param symbol an owner of [annotationCall]
+     * @param annotationCall an annotation call which does not belong to any declarations on the stack
+     *
+     * @see FirAnnotationCall.containingDeclarationSymbol
+     */
+    open fun transformForeignAnnotationCall(symbol: FirBasedSymbol<*>, annotationCall: FirAnnotationCall): FirAnnotationCall {
+        return annotationCall
+    }
+
     override fun transformAnnotationCall(
         annotationCall: FirAnnotationCall,
         data: ResolutionMode,
-    ): FirStatement = expressionTransformation(
-        annotationCall,
-        data,
-        FirExpressionsResolveTransformer::transformAnnotationCall,
-    )
+    ): FirStatement {
+        val declarationSymbol = annotationCall.containingDeclarationSymbol
+        if (declarationSymbol.fir !in context.containers.asReversed()) {
+            return transformForeignAnnotationCall(declarationSymbol, annotationCall)
+        }
+
+        return expressionTransformation(
+            annotationCall,
+            data,
+            FirExpressionsResolveTransformer::transformAnnotationCall,
+        )
+    }
 
     override fun transformErrorAnnotationCall(
         errorAnnotationCall: FirErrorAnnotationCall,
@@ -422,6 +446,24 @@ abstract class FirAbstractBodyResolveTransformerDispatcher(
         enumEntry,
         data,
         FirDeclarationsResolveTransformer::transformEnumEntry,
+    )
+
+    override fun transformDanglingModifierList(
+        danglingModifierList: FirDanglingModifierList,
+        data: ResolutionMode,
+    ): FirDanglingModifierList = declarationTransformation(
+        danglingModifierList,
+        data,
+        FirDeclarationsResolveTransformer::transformDanglingModifierList,
+    )
+
+    override fun transformFileAnnotationsContainer(
+        fileAnnotationsContainer: FirFileAnnotationsContainer,
+        data: ResolutionMode,
+    ): FirFileAnnotationsContainer = declarationTransformation(
+        fileAnnotationsContainer,
+        data,
+        FirDeclarationsResolveTransformer::transformFileAnnotationsContainer,
     )
 
     override fun transformProperty(

@@ -6,6 +6,7 @@
 #include "AllocatorImpl.hpp"
 
 #include "GCApi.hpp"
+#include "Heap.hpp"
 
 using namespace kotlin;
 
@@ -50,6 +51,11 @@ void alloc::Allocator::clearForTests() noexcept {
     impl_->heap().ClearForTests();
 }
 
+size_t alloc::Allocator::estimateOverheadPerThread() noexcept {
+    if (compiler::disableAllocatorOverheadEstimate()) return 0;
+    return impl_->heap().EstimateOverheadPerThread();
+}
+
 void alloc::initObjectPool() noexcept {}
 
 void alloc::compactObjectPoolInCurrentThread() noexcept {}
@@ -72,5 +78,13 @@ size_t alloc::allocatedBytes() noexcept {
 
 void alloc::destroyExtraObjectData(mm::ExtraObjectData& extraObject) noexcept {
     extraObject.ReleaseAssociatedObject();
-    extraObject.setFlag(mm::ExtraObjectData::FLAGS_FINALIZED);
+    if (extraObject.GetBaseObject()) {
+        // If there's an object attached to this extra object, the next
+        // GC sweep will have to resolve this cycle.
+        extraObject.setFlag(mm::ExtraObjectData::FLAGS_FINALIZED);
+    } else {
+        // If there's no object attached to this extra object, the next
+        // GC sweep will just collect this extra object.
+        extraObject.setFlag(mm::ExtraObjectData::FLAGS_SWEEPABLE);
+    }
 }

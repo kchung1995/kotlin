@@ -16,7 +16,8 @@ private enum class TestProperty(shortName: String) {
     CUSTOM_KLIBS("customKlibs"),
     TEST_TARGET("target"),
     TEST_MODE("mode"),
-    FORCE_STANDALONE("forceStandalone"),
+    TEST_KIND("testKind"),
+    FORCE_STANDALONE("forceStandalone"), // This is not passed directly into the test infra but transformed into TEST_KIND.
     COMPILE_ONLY("compileOnly"),
     OPTIMIZATION_MODE("optimizationMode"),
     USE_THREAD_STATE_CHECKER("useThreadStateChecker"),
@@ -26,6 +27,7 @@ private enum class TestProperty(shortName: String) {
     CACHE_MODE("cacheMode"),
     EXECUTION_TIMEOUT("executionTimeout"),
     SANITIZER("sanitizer"),
+    SHARED_TEST_EXECUTION("sharedTestExecution"),
     TEAMCITY("teamcity");
 
     val fullName = "kotlin.internal.native.test.$shortName"
@@ -94,7 +96,8 @@ fun Project.nativeTest(
     requirePlatformLibs: Boolean = false,
     customCompilerDependencies: List<Configuration> = emptyList(),
     customTestDependencies: List<Configuration> = emptyList(),
-    compilerPluginDependencies: List<Configuration> = emptyList()
+    compilerPluginDependencies: List<Configuration> = emptyList(),
+    body: Test.() -> Unit = {},
 ) = projectTest(
     taskName,
     jUnitMode = JUnitMode.JUnit5,
@@ -147,8 +150,8 @@ fun Project.nativeTest(
 
                 val kotlinNativeCompilerEmbeddable = if (customNativeHome == null)
                     configurations.detachedConfiguration(
-                        dependencies.project(":kotlin-native-compiler-embeddable"),
-                        dependencies.module(commonDependency("org.jetbrains.intellij.deps:trove4j"))
+                        dependencies.project(":kotlin-native:prepare:kotlin-native-compiler-embeddable"),
+                        dependencies.create(commonDependency("org.jetbrains.intellij.deps:trove4j"))
                     ).also { dependsOn(it) }
                 else
                     null
@@ -177,10 +180,13 @@ fun Project.nativeTest(
                 lazyClassPath { customTestDependencies.flatMapTo(this) { it.files } }
             }
 
+            compute(TEST_KIND) {
+                readFromGradle(FORCE_STANDALONE)?.let { "STANDALONE" }
+            }
+
             // Pass Gradle properties as JVM properties so test process can read them.
             compute(TEST_TARGET)
             compute(TEST_MODE)
-            compute(FORCE_STANDALONE)
             compute(COMPILE_ONLY)
             compute(OPTIMIZATION_MODE)
             compute(USE_THREAD_STATE_CHECKER)
@@ -190,6 +196,7 @@ fun Project.nativeTest(
             compute(CACHE_MODE)
             compute(EXECUTION_TIMEOUT)
             compute(SANITIZER)
+            compute(SHARED_TEST_EXECUTION)
 
             // Pass whether tests are running at TeamCity.
             computePrivate(TEAMCITY) { kotlinBuildProperties.isTeamcityBuild.toString() }
@@ -227,4 +234,5 @@ fun Project.nativeTest(
                 """.trimIndent()
             )
         }
+    body()
 }

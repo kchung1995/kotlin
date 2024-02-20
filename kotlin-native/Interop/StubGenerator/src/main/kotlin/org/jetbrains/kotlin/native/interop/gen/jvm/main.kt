@@ -29,8 +29,8 @@ import org.jetbrains.kotlin.konan.target.CompilerOutputKind
 import org.jetbrains.kotlin.konan.target.Distribution
 import org.jetbrains.kotlin.konan.target.KonanTarget
 import org.jetbrains.kotlin.konan.util.DefFile
-import org.jetbrains.kotlin.konan.util.KonanHomeProvider
-import org.jetbrains.kotlin.konan.util.usingNativeMemoryAllocator
+import org.jetbrains.kotlin.utils.KotlinNativePaths
+import org.jetbrains.kotlin.utils.usingNativeMemoryAllocator
 import org.jetbrains.kotlin.library.KLIB_PROPERTY_IR_PROVIDER
 import org.jetbrains.kotlin.library.KotlinLibrary
 import org.jetbrains.kotlin.library.metadata.resolver.TopologicalLibraryOrder
@@ -85,6 +85,11 @@ class Interop {
             interop(flavor, args, internalInteropOptions, runFromDaemon)
         } catch (prettyException: CInteropPrettyException) {
             prettyException
+        } catch (throwable: Throwable) {
+            // Return Throwable to be printed to logs by invoker, instead of allowing unprettified exception to be thrown through reflection invocation,
+            // which otherwise will be replaced with InvocationTargetException with null error message and huge stacktrace which TeamCity cuts,
+            // so "Caused by:" part is not saved to the log.
+            throwable
         }
     }
 
@@ -324,6 +329,7 @@ private fun processCLib(
             nonStrictEnums = def.config.nonStrictEnums.toSet(),
             noStringConversion = def.config.noStringConversion.toSet(),
             exportForwardDeclarations = def.config.exportForwardDeclarations,
+            allowedOverloadsForCFunctions = def.config.allowedOverloadsForCFunctions.toSet(),
             disableDesignatedInitializerChecks = def.config.disableDesignatedInitializerChecks,
             disableExperimentalAnnotation = cinteropArguments.disableExperimentalAnnotation ?: false,
             target = target
@@ -480,7 +486,7 @@ private fun getLibraryResolver(
             repos,
             libraries.filter { it.contains(org.jetbrains.kotlin.konan.file.File.separator) },
             target,
-            Distribution(KonanHomeProvider.determineKonanHome(), konanDataDir = cinteropArguments.konanDataDir)
+            Distribution(KotlinNativePaths.homePath.absolutePath, konanDataDir = cinteropArguments.konanDataDir)
     ).libraryResolver()
 }
 

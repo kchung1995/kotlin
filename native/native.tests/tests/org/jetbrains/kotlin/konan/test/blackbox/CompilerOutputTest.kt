@@ -14,19 +14,23 @@ import org.jetbrains.kotlin.konan.test.blackbox.support.EnforcedProperty
 import org.jetbrains.kotlin.konan.test.blackbox.support.LoggedData
 import org.jetbrains.kotlin.konan.test.blackbox.support.TestCompilerArgs
 import org.jetbrains.kotlin.konan.test.blackbox.support.compilation.LibraryCompilation
+import org.jetbrains.kotlin.konan.test.blackbox.support.compilation.ObjCFrameworkCompilation
 import org.jetbrains.kotlin.konan.test.blackbox.support.compilation.TestCompilationArtifact
 import org.jetbrains.kotlin.konan.test.blackbox.support.compilation.TestCompilationResult
 import org.jetbrains.kotlin.konan.test.blackbox.support.compilation.TestCompilationResult.Companion.assertSuccess
+import org.jetbrains.kotlin.konan.test.blackbox.support.group.FirPipeline
+import org.jetbrains.kotlin.konan.test.blackbox.support.settings.PipelineType
+import org.jetbrains.kotlin.konan.test.blackbox.support.settings.Settings
 import org.jetbrains.kotlin.test.KotlinTestUtils
+import org.junit.jupiter.api.Assumptions
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import java.io.File
+import kotlin.test.assertIs
 
-@TestDataPath("\$PROJECT_ROOT")
-@EnforcedProperty(ClassLevelProperty.COMPILER_OUTPUT_INTERCEPTOR, "NONE")
-@EnforcedProperty(ClassLevelProperty.PIPELINE_TYPE, "DEFAULT")
-class CompilerOutputTest : AbstractNativeSimpleTest() {
+abstract class CompilerOutputTestBase : AbstractNativeSimpleTest() {
     @Test
-    fun testReleaseCompilerAgainstPreReleaseLibrary() = muteForK2(isK2 = true) { // TODO: unmute after fix of KT-61773
+    fun testReleaseCompilerAgainstPreReleaseLibrary() {
         // We intentionally use JS testdata, because the compilers should behave the same way in such a test.
         // To be refactored later, after CompileKotlinAgainstCustomBinariesTest.testReleaseCompilerAgainstPreReleaseLibraryJs is fixed.
         val rootDir = File("compiler/testData/compileKotlinAgainstCustomBinaries/releaseCompilerAgainstPreReleaseLibraryJs")
@@ -54,28 +58,82 @@ class CompilerOutputTest : AbstractNativeSimpleTest() {
             "-Xsuppress-version-warnings"
         )
         val library = compileLibrary(
+            settings = object : Settings(testRunSettings, listOf(PipelineType.DEFAULT)) {},
             source = rootDir.resolve("library"),
             freeCompilerArgs = libraryOptions,
             dependencies = emptyList()
         ).assertSuccess().resultingArtifact
 
+        val pipelineType: PipelineType = testRunSettings.get()
+
         val compilationResult = compileLibrary(
+            testRunSettings,
             source = rootDir.resolve("source.kt"),
-            freeCompilerArgs = additionalOptions + listOf("-language-version", LanguageVersion.LATEST_STABLE.versionString),
+            freeCompilerArgs = additionalOptions + pipelineType.compilerFlags,
             dependencies = listOf(library)
         )
 
-        KotlinTestUtils.assertEqualsToFile(rootDir.resolve("output.txt"), compilationResult.toOutput())
+        val goldenData = when (pipelineType) {
+            PipelineType.K2 -> rootDir.resolve("output.fir.txt").takeIf { it.exists() } ?: rootDir.resolve("output.txt")
+            PipelineType.K1 -> rootDir.resolve("output.txt")
+            PipelineType.DEFAULT -> rootDir.resolve("output.fir.txt").takeIf { it.exists() && LanguageVersion.LATEST_STABLE.usesK2 } ?: rootDir.resolve("output.txt")
+        }
+
+        KotlinTestUtils.assertEqualsToFile(goldenData, compilationResult.toOutput())
     }
 
-    private fun compileLibrary(
+    @Test
+    fun testObjCExportDiagnostics() {
+        val rootDir = File("native/native.tests/testData/compilerOutput/ObjCExportDiagnostics")
+        val compilationResult = doBuildObjCFrameworkWithNameCollisions(rootDir, listOf("-Xbinary=objcExportReportNameCollisions=true"))
+        val goldenData = rootDir.resolve("output.txt")
+
+        KotlinTestUtils.assertEqualsToFile(goldenData, compilationResult.toOutput())
+    }
+
+    @Test
+    fun testObjCExportDiagnosticsErrors() {
+        val rootDir = File("native/native.tests/testData/compilerOutput/ObjCExportDiagnostics")
+        val compilationResult = doBuildObjCFrameworkWithNameCollisions(rootDir, listOf("-Xbinary=objcExportErrorOnNameCollisions=true"))
+        assertIs<TestCompilationResult.Failure>(compilationResult)
+        val goldenData = rootDir.resolve("error.txt")
+
+        KotlinTestUtils.assertEqualsToFile(goldenData, compilationResult.toOutput())
+    }
+
+    private fun doBuildObjCFrameworkWithNameCollisions(rootDir: File, additionalOptions: List<String>): TestCompilationResult<out TestCompilationArtifact.ObjCFramework> {
+        Assumptions.assumeTrue(targets.hostTarget.family.isAppleFamily)
+
+        val settings = testRunSettings
+        val lib1 = compileLibrary(settings, rootDir.resolve("lib1.kt")).assertSuccess().resultingArtifact
+        val lib2 = compileLibrary(settings, rootDir.resolve("lib2.kt")).assertSuccess().resultingArtifact
+
+        val freeCompilerArgs = TestCompilerArgs(
+            listOf(
+                "-Xinclude=${lib1.path}",
+                "-Xinclude=${lib2.path}"
+            ) + additionalOptions
+        )
+        val expectedArtifact = TestCompilationArtifact.ObjCFramework(buildDir, "testObjCExportDiagnostics")
+
+        return ObjCFrameworkCompilation(
+            settings,
+            freeCompilerArgs,
+            sourceModules = emptyList(),
+            dependencies = emptyList(),
+            expectedArtifact
+        ).result
+    }
+
+    internal fun compileLibrary(
+        settings: Settings,
         source: File,
-        freeCompilerArgs: List<String>,
-        dependencies: List<TestCompilationArtifact.KLIB>
+        freeCompilerArgs: List<String> = emptyList(),
+        dependencies: List<TestCompilationArtifact.KLIB> = emptyList(),
     ): TestCompilationResult<out TestCompilationArtifact.KLIB> {
         val testCase = generateTestCaseWithSingleModule(source, TestCompilerArgs(freeCompilerArgs))
         val compilation = LibraryCompilation(
-            settings = testRunSettings,
+            settings = settings,
             freeCompilerArgs = testCase.freeCompilerArgs,
             sourceModules = testCase.modules,
             dependencies = dependencies.map { it.asLibraryDependency() },
@@ -84,9 +142,13 @@ class CompilerOutputTest : AbstractNativeSimpleTest() {
         return compilation.result
     }
 
-    private fun TestCompilationResult<*>.toOutput(): String {
+    internal fun TestCompilationResult<*>.toOutput(): String {
         check(this is TestCompilationResult.ImmediateResult<*>) { this }
         val loggedData = this.loggedData
+
+        // Debug output for KT-64822 investigation
+        println("Compiler logged data:\n$loggedData")
+
         check(loggedData is LoggedData.CompilationToolCall) { loggedData::class }
         return normalizeOutput(loggedData.toolOutput, loggedData.exitCode)
     }
@@ -99,5 +161,28 @@ class CompilerOutputTest : AbstractNativeSimpleTest() {
             dir,
             dir
         )
+    }
+}
+
+@TestDataPath("\$PROJECT_ROOT")
+@EnforcedProperty(ClassLevelProperty.COMPILER_OUTPUT_INTERCEPTOR, "NONE")
+class ClassicCompilerOutputTest : CompilerOutputTestBase()
+
+@FirPipeline
+@Tag("frontend-fir")
+@TestDataPath("\$PROJECT_ROOT")
+@EnforcedProperty(ClassLevelProperty.COMPILER_OUTPUT_INTERCEPTOR, "NONE")
+class FirCompilerOutputTest : CompilerOutputTestBase() {
+
+    @Test
+    fun testSignatureClashDiagnostics() {
+        // TODO: use the Compiler Core test infrastructure for testing these diagnostics (KT-64393)
+        val rootDir = File("native/native.tests/testData/compilerOutput/SignatureClashDiagnostics")
+        val settings = testRunSettings
+        val lib = compileLibrary(settings, rootDir.resolve("lib.kt")).assertSuccess().resultingArtifact
+        val compilationResult = compileLibrary(settings, rootDir.resolve("main.kt"), dependencies = listOf(lib))
+        val goldenData = rootDir.resolve("output.txt")
+
+        KotlinTestUtils.assertEqualsToFile(goldenData, compilationResult.toOutput())
     }
 }

@@ -8,26 +8,28 @@ package org.jetbrains.kotlin.fir.analysis.checkers.declaration
 import org.jetbrains.kotlin.KtFakeSourceElement
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.descriptors.Visibilities
+import org.jetbrains.kotlin.descriptors.isObject
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.diagnostics.reportOn
+import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirDeprecationChecker
 import org.jetbrains.kotlin.fir.analysis.checkers.unsubstitutedScope
 import org.jetbrains.kotlin.fir.analysis.diagnostics.FirErrors
 import org.jetbrains.kotlin.fir.analysis.diagnostics.toInvisibleReferenceDiagnostic
+import org.jetbrains.kotlin.fir.analysis.getLastImportedFqNameSegmentSource
 import org.jetbrains.kotlin.fir.analysis.getSourceForImportSegment
 import org.jetbrains.kotlin.fir.declarations.*
-import org.jetbrains.kotlin.fir.declarations.utils.isEnumClass
-import org.jetbrains.kotlin.fir.declarations.utils.isOperator
-import org.jetbrains.kotlin.fir.declarations.utils.isStatic
-import org.jetbrains.kotlin.fir.declarations.utils.visibility
+import org.jetbrains.kotlin.fir.declarations.utils.*
 import org.jetbrains.kotlin.fir.resolve.providers.firProvider
 import org.jetbrains.kotlin.fir.resolve.providers.getContainingFile
 import org.jetbrains.kotlin.fir.resolve.providers.symbolProvider
 import org.jetbrains.kotlin.fir.resolve.providers.toSymbol
+import org.jetbrains.kotlin.fir.resolve.transformers.PackageResolutionResult
+import org.jetbrains.kotlin.fir.resolve.transformers.resolveToPackageOrClass
 import org.jetbrains.kotlin.fir.scopes.FirContainingNamesAwareScope
 import org.jetbrains.kotlin.fir.scopes.impl.declaredMemberScope
-import org.jetbrains.kotlin.fir.symbols.SymbolInternals
+import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.*
 import org.jetbrains.kotlin.fir.visibilityChecker
 import org.jetbrains.kotlin.name.ClassId
@@ -35,13 +37,14 @@ import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.types.expressions.OperatorConventions
 import org.jetbrains.kotlin.utils.addToStdlib.filterIsInstanceWithChecker
 
-@OptIn(SymbolInternals::class)
-object FirImportsChecker : FirFileChecker() {
+object FirImportsChecker : FirFileChecker(MppCheckerKind.Common) {
     override fun check(declaration: FirFile, context: CheckerContext, reporter: DiagnosticReporter) {
         declaration.imports.forEach { import ->
-            if (import is FirErrorImport) return@forEach
+            if (import.source?.kind?.shouldSkipErrorTypeReporting == true) return@forEach
             if (import.isAllUnder) {
-                if (import !is FirResolvedImport) {
+                if (import is FirResolvedImport) {
+                    checkAllUnderFromObject(import, context, reporter)
+                } else {
                     checkAllUnderFromEnumEntry(import, context, reporter)
                 }
             } else {
@@ -65,6 +68,24 @@ object FirImportsChecker : FirFileChecker() {
         }
     }
 
+    private fun checkAllUnderFromObject(import: FirImport, context: CheckerContext, reporter: DiagnosticReporter) {
+        val fqName = import.importedFqName ?: return
+        if (fqName.isRoot) return
+        val classLike = when (val resolutionResult = resolveToPackageOrClass(context.session.symbolProvider, fqName)) {
+            is PackageResolutionResult.PackageOrClass -> resolutionResult.classSymbol ?: return
+            // Already an error import, already reported
+            is PackageResolutionResult.Error -> return
+        }
+        val classSymbol = classLike.fullyExpandedClass(context.session)
+        if (classSymbol != null && classSymbol.classKind.isObject) {
+            reporter.reportOn(import.source, FirErrors.CANNOT_ALL_UNDER_IMPORT_FROM_SINGLETON, classSymbol.classId.shortClassName, context)
+        }
+        if (!classLike.isVisible(context)) {
+            val source = import.getLastImportedFqNameSegmentSource() ?: error("`${import.source}` does not contain `$fqName`")
+            reporter.report(classLike.toInvisibleReferenceDiagnostic(source), context)
+        }
+    }
+
     private fun checkCanBeImported(import: FirImport, context: CheckerContext, reporter: DiagnosticReporter) {
         val importedFqName = import.importedFqName ?: return
         val importedName = importedFqName.shortName()
@@ -74,10 +95,11 @@ object FirImportsChecker : FirFileChecker() {
         val symbolProvider = context.session.symbolProvider
         val parentClassId = (import as? FirResolvedImport)?.resolvedParentClassId
         if (parentClassId != null) {
-            val parentClassSymbol = parentClassId.resolveToClass(context) ?: return
+            val parentClassLikeSymbol = parentClassId.resolveToClassLike(context) ?: return
+            val parentClassSymbol = parentClassLikeSymbol.fullyExpandedClass(context.session) ?: return
 
             fun reportInvisibleParentClasses(classSymbol: FirRegularClassSymbol, depth: Int) {
-                if (!classSymbol.fir.isVisible(context)) {
+                if (!classSymbol.isVisible(context)) {
                     val source = import.getSourceForImportSegment(indexFromLast = depth)
                     reporter.report(classSymbol.toInvisibleReferenceDiagnostic(source), context)
                 }
@@ -88,7 +110,14 @@ object FirImportsChecker : FirFileChecker() {
             reportInvisibleParentClasses(parentClassSymbol, 1)
 
             when (val status = parentClassSymbol.getImportStatusOfCallableMembers(context, importedName)) {
-                ImportStatus.OK -> return
+                ImportStatus.OK -> {
+                    if (parentClassLikeSymbol is FirTypeAliasSymbol) {
+                        reporter.reportOn(
+                            import.source, FirErrors.TYPEALIAS_AS_CALLABLE_QUALIFIER_IN_IMPORT,
+                            parentClassLikeSymbol.name, parentClassSymbol.name, context
+                        )
+                    }
+                }
                 is ImportStatus.Invisible -> {
                     val source = import.getSourceForImportSegment(0)
                     reporter.report(status.symbol.toInvisibleReferenceDiagnostic(source), context)
@@ -106,12 +135,12 @@ object FirImportsChecker : FirFileChecker() {
             return
         }
 
-        var resolvedDeclaration: FirMemberDeclaration? = null
+        var resolvedDeclaration: FirBasedSymbol<*>? = null
 
         ClassId.topLevel(importedFqName).resolveToClass(context)?.let {
-            resolvedDeclaration = it.fir
+            resolvedDeclaration = it
 
-            if (it.fir.isVisible(context)) {
+            if (it.isVisible(context)) {
                 return
             }
         }
@@ -121,18 +150,18 @@ object FirImportsChecker : FirFileChecker() {
         val topLevelCallableSymbol = symbolProvider.getTopLevelCallableSymbols(importedFqName.parent(), importedName)
 
         for (it in topLevelCallableSymbol) {
-            if (it.fir.isVisible(context)) {
+            if (it.isVisible(context)) {
                 return
             }
 
             if (resolvedDeclaration == null) {
-                resolvedDeclaration = it.fir
+                resolvedDeclaration = it
             }
         }
 
         resolvedDeclaration?.let {
             val source = import.getSourceForImportSegment(0) ?: import.source
-            reporter.report(it.symbol.toInvisibleReferenceDiagnostic(source), context)
+            reporter.report(it.toInvisibleReferenceDiagnostic(source), context)
             return
         }
 
@@ -143,18 +172,18 @@ object FirImportsChecker : FirFileChecker() {
         }
     }
 
-    private fun FirMemberDeclaration.isVisible(context: CheckerContext): Boolean {
+    private fun FirBasedSymbol<*>.isVisible(context: CheckerContext): Boolean {
         val useSiteFile = context.containingFile ?: return false
-
-        val visibility = visibility
+        val fir = asMemberDeclarationResolvedTo(FirResolvePhase.STATUS) ?: return false
+        val visibility = fir.visibility
 
         if (visibility != Visibilities.Unknown && !visibility.mustCheckInImports()) return true
         if (visibility == Visibilities.Private || visibility == Visibilities.PrivateToThis) {
-            return useSiteFile == context.session.firProvider.getContainingFile(symbol)
+            return useSiteFile == context.session.firProvider.getContainingFile(this)
         }
 
         return context.session.visibilityChecker.isVisible(
-            this,
+            fir,
             context.session,
             useSiteFile,
             emptyList(),
@@ -167,6 +196,7 @@ object FirImportsChecker : FirFileChecker() {
         val interestingImports = imports
             .filterIsInstanceWithChecker<FirResolvedImport> { import ->
                 !import.isAllUnder &&
+                        import.source?.kind?.shouldSkipErrorTypeReporting != true &&
                         import.importedName?.identifierOrNullIfSpecial?.isNotEmpty() == true &&
                         import.resolvesToClass(context)
             }.filterNot { (it.source as? KtFakeSourceElement)?.kind == KtFakeSourceElementKind.ImplicitImport  }
@@ -215,8 +245,12 @@ object FirImportsChecker : FirFileChecker() {
         }
     }
 
+    private fun ClassId.resolveToClassLike(context: CheckerContext): FirClassLikeSymbol<*>? {
+        return context.session.symbolProvider.getClassLikeSymbolByClassId(this)
+    }
+
     private fun ClassId.resolveToClass(context: CheckerContext): FirRegularClassSymbol? {
-        val classSymbol = context.session.symbolProvider.getClassLikeSymbolByClassId(this) ?: return null
+        val classSymbol = resolveToClassLike(context) ?: return null
         return when (classSymbol) {
             is FirRegularClassSymbol -> classSymbol
             is FirTypeAliasSymbol -> classSymbol.fullyExpandedClass(context.session)
@@ -258,7 +292,7 @@ object FirImportsChecker : FirFileChecker() {
 
                 // Next, we try static scope, which can provide static (Java) members from super classes. Note that it's not available
                 // for pure Kotlin classes.
-                fir.staticScope(context.sessionHolder),
+                staticScope(context.sessionHolder),
 
                 // Finally, we fall back to unsubstitutedScope to catch all
                 unsubstitutedScope(context)
@@ -278,13 +312,13 @@ object FirImportsChecker : FirFileChecker() {
 
         for (scope in scopes) {
             scope.processFunctionsByName(name) { sym ->
-                if (sym.fir.isVisible(context) && isApplicable(sym)) found = true
+                if (sym.isVisible(context) && isApplicable(sym)) found = true
                 symbol = sym
             }
             if (found) return ImportStatus.OK
 
             scope.processPropertiesByName(name) { sym ->
-                if (sym.fir.isVisible(context) && isApplicable(sym)) found = true
+                if (sym.isVisible(context) && isApplicable(sym)) found = true
                 symbol = sym
             }
             if (found) return ImportStatus.OK

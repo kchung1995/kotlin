@@ -5,11 +5,10 @@
 
 package org.jetbrains.kotlin.commonizer.metadata
 
-import gnu.trove.THashMap
-import kotlinx.metadata.*
-import kotlinx.metadata.Modality as KmModality
-import kotlinx.metadata.Visibility as KmVisibility
-import kotlinx.metadata.ClassKind as KmClassKind
+import kotlin.metadata.*
+import kotlin.metadata.Modality as KmModality
+import kotlin.metadata.Visibility as KmVisibility
+import kotlin.metadata.ClassKind as KmClassKind
 import kotlinx.metadata.klib.annotations
 import kotlinx.metadata.klib.compileTimeValue
 import kotlinx.metadata.klib.getterAnnotations
@@ -54,8 +53,8 @@ object CirDeserializers {
         if (allValueArguments.isEmpty())
             return CirAnnotation.createInterned(type = type, constantValueArguments = emptyMap(), annotationValueArguments = emptyMap())
 
-        val constantValueArguments: MutableMap<CirName, CirConstantValue> = THashMap(allValueArguments.size)
-        val annotationValueArguments: MutableMap<CirName, CirAnnotation> = THashMap(allValueArguments.size)
+        val constantValueArguments: MutableMap<CirName, CirConstantValue> = CommonizerMap(allValueArguments.size)
+        val annotationValueArguments: MutableMap<CirName, CirAnnotation> = CommonizerMap(allValueArguments.size)
 
         allValueArguments.forEach { (name, constantValue) ->
             val cirName = CirName.create(name)

@@ -30,6 +30,7 @@ import org.jetbrains.kotlin.cli.common.CLITool;
 import org.jetbrains.kotlin.cli.common.CompilerSystemProperties;
 import org.jetbrains.kotlin.cli.common.ExitCode;
 import org.jetbrains.kotlin.cli.common.Usage;
+import org.jetbrains.kotlin.cli.common.messages.MessageRenderer;
 import org.jetbrains.kotlin.cli.js.K2JSCompiler;
 import org.jetbrains.kotlin.cli.js.dce.K2JSDce;
 import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler;
@@ -62,7 +63,18 @@ public abstract class AbstractCliTest extends TestCaseWithTmpdir {
 
     private static final String BUILD_FILE_ARGUMENT_PREFIX = "-Xbuild-file=";
 
-    public static Pair<String, ExitCode> executeCompilerGrabOutput(@NotNull CLITool<?> compiler, @NotNull List<String> args) {
+    public static Pair<String, ExitCode> executeCompilerGrabOutput(
+            @NotNull CLITool<?> compiler,
+            @NotNull List<String> args
+    ) {
+        return executeCompilerGrabOutput(compiler, args, null);
+    }
+
+    public static Pair<String, ExitCode> executeCompilerGrabOutput(
+            @NotNull CLITool<?> compiler,
+            @NotNull List<String> args,
+            @Nullable MessageRenderer messageRenderer
+    ) {
         StringBuilder output = new StringBuilder();
 
         int index = 0;
@@ -73,7 +85,7 @@ public abstract class AbstractCliTest extends TestCaseWithTmpdir {
             } else {
                 next = index + next;
             }
-            Pair<String, ExitCode> pair = CompilerTestUtil.executeCompiler(compiler, args.subList(index, next));
+            Pair<String, ExitCode> pair = CompilerTestUtil.executeCompiler(compiler, args.subList(index, next), messageRenderer);
             output.append(pair.getFirst());
             if (pair.getSecond() != ExitCode.OK) {
                 return new Pair<>(output.toString(), pair.getSecond());
@@ -101,14 +113,23 @@ public abstract class AbstractCliTest extends TestCaseWithTmpdir {
                 .replace(PathUtil.getKotlinPathsForDistDirectory().getHomePath().getParentFile().getAbsolutePath(), "$DIST_DIR$")
                 .replace(org.jetbrains.kotlin.konan.file.File.Companion.getUserDir().getAbsolutePath(), "$USER_DIR$")
                 .replace(tmpDirAbsoluteDir, "$TMP_DIR$")
+                .replace("\\", "/")
+                .replace(KtTestUtil.getJdk8Home().getAbsolutePath().replace("\\", "/"), "$JDK_1_8")
+                .replace(KtTestUtil.getJdk11Home().getAbsolutePath().replace("\\", "/"), "$JDK_11")
+                .replace(KtTestUtil.getJdk17Home().getAbsolutePath().replace("\\", "/"), "$JDK_17")
                 .replaceAll("info: executable production duration: \\d+ms", "info: executable production duration: [time]")
+                .replace(KotlinCompilerVersion.VERSION, "$VERSION$")
                 .replace(" " + JvmMetadataVersion.INSTANCE, " $ABI_VERSION$")
                 .replace(" " + JsMetadataVersion.INSTANCE, " $ABI_VERSION$")
                 .replace(" " + JvmMetadataVersion.INSTANCE_NEXT, " $ABI_VERSION_NEXT$")
-                .replace("\\", "/")
-                .replace(KotlinCompilerVersion.VERSION, "$VERSION$")
                 .replace("\n" + Usage.BAT_DELIMITER_CHARACTERS_NOTE + "\n", "")
                 .replaceAll("log4j:WARN.*\n", "");
+
+
+        // Debug output for KT-64822 investigation
+        System.out.println("testDataAbsoluteDir: " + testDataAbsoluteDir);
+        System.out.println("pureOutput: " + pureOutput);
+        System.out.println("normalizedOutputWithoutExitCode: " + normalizedOutputWithoutExitCode);
 
         return exitCode == null ? normalizedOutputWithoutExitCode : (normalizedOutputWithoutExitCode + exitCode + "\n");
     }
@@ -230,6 +251,9 @@ public abstract class AbstractCliTest extends TestCaseWithTmpdir {
             return null;
         }
 
+        if (arg.equals("$JDK_1_8")) return KtTestUtil.getJdk8Home().getAbsolutePath();
+        if (arg.equals("$JDK_11_0")) return KtTestUtil.getJdk11Home().getAbsolutePath();
+
         String argWithColonsReplaced = arg
                 .replace("\\:", "$COLON$")
                 .replace(":", File.pathSeparator)
@@ -299,7 +323,7 @@ public abstract class AbstractCliTest extends TestCaseWithTmpdir {
                         KtTestUtil.getJdk17Home().getPath()
                 ).replace(
                         "$STDLIB_JS$",
-                        PathUtil.getKotlinPathsForCompiler().getJsStdLibJarPath().getAbsolutePath()
+                        PathUtil.getKotlinPathsForCompiler().getJsStdLibKlibPath().getAbsolutePath()
                 );
     }
 

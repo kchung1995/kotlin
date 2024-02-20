@@ -29,7 +29,7 @@ import org.jetbrains.kotlin.gradle.plugin.mpp.resolvableMetadataConfiguration
 import org.jetbrains.kotlin.gradle.plugin.sources.DefaultKotlinSourceSet
 import org.jetbrains.kotlin.gradle.plugin.sources.InternalKotlinSourceSet
 import org.jetbrains.kotlin.gradle.plugin.sources.internal
-import org.jetbrains.kotlin.gradle.utils.markResolvable
+import org.jetbrains.kotlin.gradle.utils.detachedResolvable
 import org.jetbrains.kotlin.gradle.utils.relativeOrAbsolute
 import org.jetbrains.kotlin.tooling.core.mutableExtrasOf
 
@@ -121,18 +121,33 @@ class IdeBinaryDependencyResolver @JvmOverloads constructor(
 
         val unresolvedDependencies = artifacts.failures
             .onEach { reason -> sourceSet.project.logger.info("Failed to resolve platform dependency on ${sourceSet.name}", reason) }
-            .map { reason ->
+            .mapNotNull { reason ->
+                val selector = (reason as? ModuleVersionResolveException)?.selector
 
-                val selector = (reason as? ModuleVersionResolveException)?.selector as? ModuleComponentSelector
-                /* Can't figure out the dependency here :( */
-                    ?: return@map IdeaKotlinUnresolvedBinaryDependency(
-                        coordinates = null, cause = reason.message?.takeIf { it.isNotBlank() }, extras = mutableExtrasOf()
+                /* We failed to resolve a library module (e.g., from a remote repository) */
+                if (selector is ModuleComponentSelector)
+                    return@mapNotNull IdeaKotlinUnresolvedBinaryDependency(
+                        coordinates = IdeaKotlinBinaryCoordinates(selector.group, selector.module, selector.version, null),
+                        cause = reason.message?.takeIf { it.isNotBlank() },
+                        extras = mutableExtrasOf()
                     )
 
+                /*
+                We failed to resolve the same project as the SourceSet was declared to in a
+                'PlatformLikeSourceSet' mode: We ignore this error:
+                https://youtrack.jetbrains.com/issue/KT-59020/
+                It seems like 'detachedConfiguration' causes an issue resolving to its project.
+                */
+                if (selector is ProjectComponentSelector &&
+                    selector.projectPath == sourceSet.project.path &&
+                    artifactResolutionStrategy is ArtifactResolutionStrategy.PlatformLikeSourceSet
+                ) {
+                    return@mapNotNull null
+                }
+
+                /* Can't figure out the dependency here :( */
                 IdeaKotlinUnresolvedBinaryDependency(
-                    coordinates = IdeaKotlinBinaryCoordinates(selector.group, selector.module, selector.version, null),
-                    cause = reason.message?.takeIf { it.isNotBlank() },
-                    extras = mutableExtrasOf()
+                    coordinates = null, cause = reason.message?.takeIf { it.isNotBlank() }, extras = mutableExtrasOf()
                 )
             }.toSet()
 
@@ -169,8 +184,14 @@ class IdeBinaryDependencyResolver @JvmOverloads constructor(
                 }
 
                 is OpaqueComponentArtifactIdentifier -> {
-                    /* Files within the build directory  still require a custom resolver */
-                    if (artifact.file.absoluteFile.startsWith(sourceSet.project.buildDir.absoluteFile)) return@mapNotNull null
+                    /* Files within the build directory still require a custom resolver */
+                    if (
+                        artifact.file.absoluteFile.startsWith(
+                            sourceSet.project.layout.buildDirectory.get().asFile.absoluteFile
+                        )
+                    ) {
+                        return@mapNotNull null
+                    }
 
                     IdeaKotlinResolvedBinaryDependency(
                         binaryType = binaryType, coordinates = IdeaKotlinBinaryCoordinates(
@@ -229,8 +250,7 @@ class IdeBinaryDependencyResolver @JvmOverloads constructor(
         if (sourceSet !is DefaultKotlinSourceSet) return null
         val project = sourceSet.project
 
-        val platformLikeCompileDependenciesConfiguration = project.configurations.detachedConfiguration()
-        platformLikeCompileDependenciesConfiguration.markResolvable()
+        val platformLikeCompileDependenciesConfiguration = project.configurations.detachedResolvable()
         platformLikeCompileDependenciesConfiguration.attributes.setupPlatformResolutionAttributes(sourceSet)
         platformLikeCompileDependenciesConfiguration.dependencies.addAll(sourceSet.resolvableMetadataConfiguration.allDependencies)
 

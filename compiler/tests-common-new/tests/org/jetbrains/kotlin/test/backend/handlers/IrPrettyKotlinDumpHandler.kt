@@ -8,6 +8,7 @@ package org.jetbrains.kotlin.test.backend.handlers
 import org.jetbrains.kotlin.ir.util.FakeOverridesStrategy
 import org.jetbrains.kotlin.ir.util.KotlinLikeDumpOptions
 import org.jetbrains.kotlin.ir.util.dumpKotlinLike
+import org.jetbrains.kotlin.test.Constructor
 import org.jetbrains.kotlin.test.backend.handlers.IrTextDumpHandler.Companion.computeDumpExtension
 import org.jetbrains.kotlin.test.backend.handlers.IrTextDumpHandler.Companion.groupWithTestFiles
 import org.jetbrains.kotlin.test.backend.ir.IrBackendInput
@@ -17,8 +18,10 @@ import org.jetbrains.kotlin.test.directives.CodegenTestDirectives.EXTERNAL_FILE
 import org.jetbrains.kotlin.test.directives.CodegenTestDirectives.SKIP_KT_DUMP
 import org.jetbrains.kotlin.test.directives.FirDiagnosticsDirectives
 import org.jetbrains.kotlin.test.directives.model.DirectivesContainer
+import org.jetbrains.kotlin.test.model.AfterAnalysisChecker
 import org.jetbrains.kotlin.test.model.BackendKind
 import org.jetbrains.kotlin.test.model.TestModule
+import org.jetbrains.kotlin.test.services.ServiceRegistrationData
 import org.jetbrains.kotlin.test.services.TestServices
 import org.jetbrains.kotlin.test.services.moduleStructure
 import org.jetbrains.kotlin.test.utils.MultiModuleInfoDumper
@@ -44,6 +47,9 @@ class IrPrettyKotlinDumpHandler(
     override val directiveContainers: List<DirectivesContainer>
         get() = listOf(CodegenTestDirectives, FirDiagnosticsDirectives)
 
+    override val additionalAfterAnalysisCheckers: List<Constructor<AfterAnalysisChecker>>
+        get() = listOf(::FirIrDumpIdenticalChecker)
+
     override fun processModule(module: TestModule, info: IrBackendInput) {
         if (DUMP_KT_IR !in module.directives || SKIP_KT_DUMP in module.directives) return
         dumpModuleKotlinLike(
@@ -51,6 +57,8 @@ class IrPrettyKotlinDumpHandler(
             KotlinLikeDumpOptions(
                 printFilePath = false,
                 printFakeOverridesStrategy = FakeOverridesStrategy.NONE,
+                normalizeNames = true, // KT-61983: K1 and K2 kotlin-like dumps are closer to each other when tempvar names are normalized
+                stableOrder = true,
             ),
         )
     }
@@ -71,16 +79,14 @@ internal fun dumpModuleKotlinLike(
     multiModuleInfoDumper: MultiModuleInfoDumper,
     options: KotlinLikeDumpOptions,
 ) {
-    info.processAllIrModuleFragments(module) { irModuleFragment, moduleName ->
-        val irFiles = irModuleFragment.files
-        val builder = multiModuleInfoDumper.builderForModule(moduleName)
-        val filteredIrFiles = irFiles.groupWithTestFiles(module).filterNot { (testFile, _) ->
-            testFile?.let { EXTERNAL_FILE in it.directives || it.isAdditional } ?: false
-        }.map { it.second }
-        val printFileName = filteredIrFiles.size > 1 || allModules.size > 1
-        val modifiedOptions = options.copy(printFileName = printFileName)
-        for (irFile in filteredIrFiles) {
-            builder.append(irFile.dumpKotlinLike(modifiedOptions))
-        }
+    val irFiles = info.irModuleFragment.files
+    val builder = multiModuleInfoDumper.builderForModule(module.name)
+    val filteredIrFiles = irFiles.groupWithTestFiles(module).filterNot { (testFile, _) ->
+        testFile?.let { EXTERNAL_FILE in it.directives || it.isAdditional } ?: false
+    }.map { it.second }
+    val printFileName = filteredIrFiles.size > 1 || allModules.size > 1
+    val modifiedOptions = options.copy(printFileName = printFileName)
+    for (irFile in filteredIrFiles) {
+        builder.append(irFile.dumpKotlinLike(modifiedOptions))
     }
 }

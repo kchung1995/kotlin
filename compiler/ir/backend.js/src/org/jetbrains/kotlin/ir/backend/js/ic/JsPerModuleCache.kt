@@ -6,9 +6,16 @@
 package org.jetbrains.kotlin.ir.backend.js.ic
 
 import org.jetbrains.kotlin.ir.backend.js.transformers.irToJs.*
+import org.jetbrains.kotlin.serialization.js.ModuleKind
 import java.io.File
 
-class JsPerModuleCache(private val moduleArtifacts: List<ModuleArtifact>) : JsMultiArtifactCache<JsPerModuleCache.CachedModuleInfo>() {
+/**
+ * This class maintains incremental cache files used by [JsExecutableProducer] for per-module compilation mode.
+ */
+class JsPerModuleCache(
+    private val moduleKind: ModuleKind,
+    private val moduleArtifacts: List<ModuleArtifact>
+) : JsMultiArtifactCache<JsPerModuleCache.CachedModuleInfo>() {
     companion object {
         private const val JS_MODULE_HEADER = "js.module.header.bin"
         private const val CACHED_MODULE_JS = "module.js"
@@ -57,12 +64,6 @@ class JsPerModuleCache(private val moduleArtifacts: List<ModuleArtifact>) : JsMu
 
     override fun loadJsIrModule(cacheInfo: CachedModuleInfo) = cacheInfo.artifact.loadJsIrModule()
 
-    override fun getMainModuleAndDependencies(cacheInfo: List<CachedModuleInfo>) =
-        cacheInfo.last() to cacheInfo.dropLast(1)
-
-    override fun fetchCompiledJsCodeForNullCacheInfo() =
-        error("Should never happen for per module granularity")
-
     override fun fetchCompiledJsCode(cacheInfo: CachedModuleInfo) = cacheInfo.artifact.artifactsDir?.let { cacheDir ->
         val jsCodeFile = File(cacheDir, CACHED_MODULE_JS).ifExists { this }
         val sourceMapFile = File(cacheDir, CACHED_MODULE_JS_MAP).ifExists { this }
@@ -79,8 +80,15 @@ class JsPerModuleCache(private val moduleArtifacts: List<ModuleArtifact>) : JsMu
         } ?: compilationOutputs
 
     override fun loadProgramHeadersFromCache(): List<CachedModuleInfo> {
+        val mainModule = moduleArtifacts.last()
         return moduleArtifacts.map { artifact ->
-            fun loadModuleInfo() = CachedModuleInfo(artifact, artifact.loadJsIrModule().makeModuleHeader())
+            fun loadModuleInfo() = CachedModuleInfo(
+                artifact,
+                artifact
+                    .loadJsIrModule(mainModule.moduleSafeName.takeIf { moduleKind !== ModuleKind.ES && artifact !== mainModule })
+                    .makeModuleHeader()
+            )
+
             val actualInfo = when {
                 artifact.forceRebuildJs -> loadModuleInfo()
                 artifact.fileArtifacts.any { it.isModified() } -> loadModuleInfo()

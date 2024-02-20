@@ -23,13 +23,14 @@ private fun taskOutputRegexForDebugLog(
 @Language("RegExp")
 private fun taskOutputRegexForInfoLog(
     taskName: String,
-) = """
-    ^\s*$
-    ^> Task $taskName$
-    ([\s\S]+?)
-    ^\s*$
+) =
+    """
+    ^\s*$\r?
+    ^> Task $taskName$\r?
+    ([\s\S]+?)\r?
+    ^\s*$\r?
     """.trimIndent()
-    .toRegex(RegexOption.MULTILINE)
+        .toRegex(RegexOption.MULTILINE)
 
 /**
  * Gets the output produced by a specific task during a Gradle build.
@@ -61,17 +62,20 @@ fun getOutputForTask(taskPath: String, output: String, logLevel: LogLevel = LogL
             LogLevel.DEBUG -> taskOutputRegexForDebugLog(taskPath)
             else -> throw throw IllegalStateException("Unsupported log lever for task output was given: $logLevel")
         })
-    .find(output)
-    ?.let { it.groupValues[1] }
-    ?: error(
-        """
-        Could not find output for task $taskPath.
-        =================
-        Build output is:
-        $output 
-        =================     
-        """.trimIndent()
-    )
+    .findAll(output)
+    .map { it.groupValues[1] }
+    .joinToString(System.lineSeparator())
+    .ifEmpty {
+        error(
+            """
+            Could not find output for task $taskPath.
+            =================
+            Build output is:
+            $output 
+            =================     
+            """.trimIndent()
+        )
+    }
 
 class CommandLineArguments(
     val args: List<String>,

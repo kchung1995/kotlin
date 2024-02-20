@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -19,50 +19,50 @@ import java.util.regex.Pattern;
 @TestMetadata("analysis/decompiled/decompiler-to-file-stubs/testData/additionalClsStubInfo")
 @TestDataPath("$PROJECT_ROOT")
 public class AdditionalStubInfoK2CompilerTestGenerated extends AbstractAdditionalStubInfoK2CompilerTest {
-    @Test
-    public void testAllFilesPresentInAdditionalClsStubInfo() throws Exception {
-        KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/decompiled/decompiler-to-file-stubs/testData/additionalClsStubInfo"), Pattern.compile("^([^\\.]+)$"), null, false);
-    }
+  @Test
+  public void testAllFilesPresentInAdditionalClsStubInfo() {
+    KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/decompiled/decompiler-to-file-stubs/testData/additionalClsStubInfo"), Pattern.compile("^([^\\.]+)$"), null, false);
+  }
 
-    @Test
-    @TestMetadata("AnnotatedFlexibleTypes")
-    public void testAnnotatedFlexibleTypes() throws Exception {
-        runTest("analysis/decompiled/decompiler-to-file-stubs/testData/additionalClsStubInfo/AnnotatedFlexibleTypes/");
-    }
+  @Test
+  @TestMetadata("AnnotatedFlexibleTypes")
+  public void testAnnotatedFlexibleTypes() {
+    runTest("analysis/decompiled/decompiler-to-file-stubs/testData/additionalClsStubInfo/AnnotatedFlexibleTypes/");
+  }
 
-    @Test
-    @TestMetadata("AnnotationValues")
-    public void testAnnotationValues() throws Exception {
-        runTest("analysis/decompiled/decompiler-to-file-stubs/testData/additionalClsStubInfo/AnnotationValues/");
-    }
+  @Test
+  @TestMetadata("AnnotationValues")
+  public void testAnnotationValues() {
+    runTest("analysis/decompiled/decompiler-to-file-stubs/testData/additionalClsStubInfo/AnnotationValues/");
+  }
 
-    @Test
-    @TestMetadata("Contracts")
-    public void testContracts() throws Exception {
-        runTest("analysis/decompiled/decompiler-to-file-stubs/testData/additionalClsStubInfo/Contracts/");
-    }
+  @Test
+  @TestMetadata("Contracts")
+  public void testContracts() {
+    runTest("analysis/decompiled/decompiler-to-file-stubs/testData/additionalClsStubInfo/Contracts/");
+  }
 
-    @Test
-    @TestMetadata("OuterClassesWithFlexibleArgs")
-    public void testOuterClassesWithFlexibleArgs() throws Exception {
-        runTest("analysis/decompiled/decompiler-to-file-stubs/testData/additionalClsStubInfo/OuterClassesWithFlexibleArgs/");
-    }
+  @Test
+  @TestMetadata("OuterClassesWithFlexibleArgs")
+  public void testOuterClassesWithFlexibleArgs() {
+    runTest("analysis/decompiled/decompiler-to-file-stubs/testData/additionalClsStubInfo/OuterClassesWithFlexibleArgs/");
+  }
 
-    @Test
-    @TestMetadata("ParameterName")
-    public void testParameterName() throws Exception {
-        runTest("analysis/decompiled/decompiler-to-file-stubs/testData/additionalClsStubInfo/ParameterName/");
-    }
+  @Test
+  @TestMetadata("ParameterName")
+  public void testParameterName() {
+    runTest("analysis/decompiled/decompiler-to-file-stubs/testData/additionalClsStubInfo/ParameterName/");
+  }
 
-    @Test
-    @TestMetadata("PropertyInitializer")
-    public void testPropertyInitializer() throws Exception {
-        runTest("analysis/decompiled/decompiler-to-file-stubs/testData/additionalClsStubInfo/PropertyInitializer/");
-    }
+  @Test
+  @TestMetadata("PropertyInitializer")
+  public void testPropertyInitializer() {
+    runTest("analysis/decompiled/decompiler-to-file-stubs/testData/additionalClsStubInfo/PropertyInitializer/");
+  }
 
-    @Test
-    @TestMetadata("TypeParametersInFlexibleTypes")
-    public void testTypeParametersInFlexibleTypes() throws Exception {
-        runTest("analysis/decompiled/decompiler-to-file-stubs/testData/additionalClsStubInfo/TypeParametersInFlexibleTypes/");
-    }
+  @Test
+  @TestMetadata("TypeParametersInFlexibleTypes")
+  public void testTypeParametersInFlexibleTypes() {
+    runTest("analysis/decompiled/decompiler-to-file-stubs/testData/additionalClsStubInfo/TypeParametersInFlexibleTypes/");
+  }
 }

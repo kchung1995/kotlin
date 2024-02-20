@@ -11,7 +11,6 @@ import org.gradle.api.logging.configuration.WarningMode
 import org.gradle.internal.logging.LoggingConfigurationBuildOptions.StacktraceOption
 import org.gradle.tooling.GradleConnector
 import org.gradle.util.GradleVersion
-import org.jetbrains.kotlin.cli.common.CompilerSystemProperties.COMPILE_INCREMENTAL_WITH_ARTIFACT_TRANSFORM
 import org.jetbrains.kotlin.gradle.model.ModelContainer
 import org.jetbrains.kotlin.gradle.model.ModelFetcherBuildAction
 import org.jetbrains.kotlin.gradle.report.BuildReportType
@@ -29,7 +28,6 @@ import org.junit.runner.RunWith
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.Paths
 import java.util.*
 import java.util.regex.Pattern
 import javax.xml.parsers.DocumentBuilderFactory
@@ -37,7 +35,7 @@ import kotlin.io.path.absolutePathString
 import kotlin.io.path.isDirectory
 import kotlin.test.*
 
-val SYSTEM_LINE_SEPARATOR: String = System.getProperty("line.separator")
+val SYSTEM_LINE_SEPARATOR: String = System.lineSeparator()
 
 @RunWith(value = RunnerWithMuteInDatabase::class)
 abstract class BaseGradleIT {
@@ -48,8 +46,6 @@ abstract class BaseGradleIT {
 
     open val defaultGradleVersion: GradleVersionRequired
         get() = GradleVersionRequired.None
-
-    val isTeamCityRun = System.getenv("TEAMCITY_VERSION") != null
 
     @Before
     open fun setUp() {
@@ -275,6 +271,7 @@ abstract class BaseGradleIT {
         val showDiagnosticsStacktrace: Boolean? = false, // false by default to not clutter the testdata + stacktraces change often
         val stacktraceMode: String? = StacktraceOption.FULL_STACKTRACE_LONG_OPTION,
         val konanDataDir: Path = konanDir,
+        val distributionDownloadFromMaven: Boolean? = false,
     ) {
         val safeAndroidGradlePluginVersion: AGPVersion
             get() = androidGradlePluginVersion ?: error("AGP version is expected to be set")
@@ -934,7 +931,7 @@ abstract class BaseGradleIT {
             options.incrementalJs?.let { add("-Pkotlin.incremental.js=$it") }
             options.incrementalJsKlib?.let { add("-Pkotlin.incremental.js.klib=$it") }
             options.usePreciseJavaTracking?.let { add("-Pkotlin.incremental.usePreciseJavaTracking=$it") }
-            options.useClasspathSnapshot?.let { add("-P${COMPILE_INCREMENTAL_WITH_ARTIFACT_TRANSFORM.property}=$it") }
+            options.useClasspathSnapshot?.let { add("-Pkotlin.incremental.useClasspathSnapshot=$it") }
             options.androidGradlePluginVersion?.let { add("-Pandroid_tools_version=$it") }
             if (options.debug) {
                 add("-Dorg.gradle.debug=true")
@@ -1003,6 +1000,10 @@ abstract class BaseGradleIT {
             }
 
             add("-Pkonan.data.dir=${options.konanDataDir.absolutePathString().normalize()}")
+
+            options.distributionDownloadFromMaven?.let {
+                add("-Pkotlin.native.distribution.downloadFromMaven=${it}")
+            }
 
             // Workaround: override a console type set in the user machine gradle.properties (since Gradle 4.3):
             add("--console=plain")
@@ -1148,4 +1149,25 @@ private object MavenLocalUrlProvider {
         get() = System.getProperty("M2_HOME")?.let { getLocalRepositoryFromXml(File(it, "conf/settings.xml")) }
 
     private val defaultM2RepoPath get() = File(homeDir, ".m2/repository").absolutePath
+}
+
+internal fun BaseGradleIT.Project.embedProject(other: BaseGradleIT.Project, renameTo: String? = null) {
+    setupWorkingDir()
+    other.setupWorkingDir(false)
+    val tempDir = createTempDir(if (isWindows) "" else "BaseGradleIT")
+    val embeddedModuleName = renameTo ?: other.projectName
+    try {
+        other.projectDir.copyRecursively(tempDir)
+        tempDir.copyRecursively(projectDir.resolve(embeddedModuleName))
+    } finally {
+        check(tempDir.deleteRecursively())
+    }
+    testCase.apply {
+        gradleSettingsScript().appendText("\ninclude(\"$embeddedModuleName\")")
+
+        val embeddedBuildScript = gradleBuildScript(embeddedModuleName)
+        if (embeddedBuildScript.extension == "kts") {
+            embeddedBuildScript.modify { it.replace(".version(\"$PLUGIN_MARKER_VERSION_PLACEHOLDER\")", "") }
+        }
+    }
 }

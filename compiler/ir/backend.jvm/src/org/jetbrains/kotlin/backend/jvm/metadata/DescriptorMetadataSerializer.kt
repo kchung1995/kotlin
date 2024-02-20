@@ -12,7 +12,6 @@ import org.jetbrains.kotlin.codegen.binding.CodegenBinding
 import org.jetbrains.kotlin.codegen.createFreeFakeLambdaDescriptor
 import org.jetbrains.kotlin.codegen.serialization.JvmSerializationBindings
 import org.jetbrains.kotlin.codegen.serialization.JvmSerializerExtension
-import org.jetbrains.kotlin.config.languageVersionSettings
 import org.jetbrains.kotlin.ir.declarations.DescriptorMetadataSource
 import org.jetbrains.kotlin.ir.declarations.IrClass
 import org.jetbrains.kotlin.ir.declarations.IrDeclarationOrigin
@@ -34,7 +33,7 @@ class DescriptorMetadataSerializer(
 ) : MetadataSerializer {
     private val serializerExtension = JvmSerializerExtension(serializationBindings, context.state, context.defaultTypeMapper)
     private val serializer: DescriptorSerializer? = run {
-        val languageVersionSettings = context.state.configuration.languageVersionSettings
+        val languageVersionSettings = context.config.languageVersionSettings
         when (val metadata = irClass.metadata) {
             is DescriptorMetadataSource.Class -> DescriptorSerializer.create(
                 metadata.descriptor, serializerExtension, (parent as? DescriptorMetadataSerializer)?.serializer,
@@ -59,10 +58,8 @@ class DescriptorMetadataSerializer(
             context.state.bindingTrace.record(
                 CodegenBinding.DELEGATED_PROPERTIES_WITH_METADATA,
                 // key for local delegated properties metadata in interfaces depends on jvmDefaultMode
-                if (irClass.isInterface && !context.config.jvmDefaultMode.forAllMethodsWithBody) context.defaultTypeMapper.mapClass(
-                    context.cachedDeclarations.getDefaultImplsClass(
-                        irClass
-                    )
+                if (irClass.isInterface && !context.config.jvmDefaultMode.isEnabled) context.defaultTypeMapper.mapClass(
+                    context.cachedDeclarations.getDefaultImplsClass(irClass)
                 ) else type,
                 localDelegatedProperties.mapNotNull { (it.owner.metadata as? DescriptorMetadataSource.LocalDelegatedProperty)?.descriptor }
             )

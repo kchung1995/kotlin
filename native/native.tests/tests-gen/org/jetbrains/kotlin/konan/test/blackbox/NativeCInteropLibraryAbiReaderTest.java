@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -19,14 +19,14 @@ import java.util.regex.Pattern;
 @TestMetadata("compiler/testData/klib/dump-abi/cinterop")
 @TestDataPath("$PROJECT_ROOT")
 public class NativeCInteropLibraryAbiReaderTest extends AbstractNativeCInteropLibraryAbiReaderTest {
-    @Test
-    public void testAllFilesPresentInCinterop() throws Exception {
-        KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/testData/klib/dump-abi/cinterop"), Pattern.compile("^(.+)\\.kt$"), null, true);
-    }
+  @Test
+  public void testAllFilesPresentInCinterop() {
+    KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/testData/klib/dump-abi/cinterop"), Pattern.compile("^(.+)\\.kt$"), null, true);
+  }
 
-    @Test
-    @TestMetadata("interop_class_inheritor.kt")
-    public void testInterop_class_inheritor() throws Exception {
-        runTest("compiler/testData/klib/dump-abi/cinterop/interop_class_inheritor.kt");
-    }
+  @Test
+  @TestMetadata("interop_class_inheritor.kt")
+  public void testInterop_class_inheritor() {
+    runTest("compiler/testData/klib/dump-abi/cinterop/interop_class_inheritor.kt");
+  }
 }

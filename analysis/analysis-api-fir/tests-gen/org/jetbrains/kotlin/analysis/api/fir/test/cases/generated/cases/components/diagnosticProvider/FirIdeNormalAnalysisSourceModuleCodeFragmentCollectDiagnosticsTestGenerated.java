@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -28,39 +28,51 @@ import java.util.regex.Pattern;
 @TestMetadata("analysis/analysis-api/testData/components/diagnosticsProvider/codeFragmentDiagnostics")
 @TestDataPath("$PROJECT_ROOT")
 public class FirIdeNormalAnalysisSourceModuleCodeFragmentCollectDiagnosticsTestGenerated extends AbstractCodeFragmentCollectDiagnosticsTest {
-    @NotNull
-    @Override
-    public AnalysisApiTestConfigurator getConfigurator() {
-        return AnalysisApiFirTestConfiguratorFactory.INSTANCE.createConfigurator(
-            new AnalysisApiTestConfiguratorFactoryData(
-                FrontendKind.Fir,
-                TestModuleKind.Source,
-                AnalysisSessionMode.Normal,
-                AnalysisApiMode.Ide
-            )
-        );
-    }
+  @NotNull
+  @Override
+  public AnalysisApiTestConfigurator getConfigurator() {
+    return AnalysisApiFirTestConfiguratorFactory.INSTANCE.createConfigurator(
+      new AnalysisApiTestConfiguratorFactoryData(
+        FrontendKind.Fir,
+        TestModuleKind.Source,
+        AnalysisSessionMode.Normal,
+        AnalysisApiMode.Ide
+      )
+    );
+  }
 
-    @Test
-    public void testAllFilesPresentInCodeFragmentDiagnostics() throws Exception {
-        KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/analysis-api/testData/components/diagnosticsProvider/codeFragmentDiagnostics"), Pattern.compile("^([^.]+)\\.kt$"), null, true);
-    }
+  @Test
+  public void testAllFilesPresentInCodeFragmentDiagnostics() {
+    KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/analysis-api/testData/components/diagnosticsProvider/codeFragmentDiagnostics"), Pattern.compile("^([^.]+)\\.kt$"), null, true);
+  }
 
-    @Test
-    @TestMetadata("localClass.kt")
-    public void testLocalClass() throws Exception {
-        runTest("analysis/analysis-api/testData/components/diagnosticsProvider/codeFragmentDiagnostics/localClass.kt");
-    }
+  @Test
+  @TestMetadata("evalJvm.kt")
+  public void testEvalJvm() {
+    runTest("analysis/analysis-api/testData/components/diagnosticsProvider/codeFragmentDiagnostics/evalJvm.kt");
+  }
 
-    @Test
-    @TestMetadata("localFunction.kt")
-    public void testLocalFunction() throws Exception {
-        runTest("analysis/analysis-api/testData/components/diagnosticsProvider/codeFragmentDiagnostics/localFunction.kt");
-    }
+  @Test
+  @TestMetadata("evalJvmJs.kt")
+  public void testEvalJvmJs() {
+    runTest("analysis/analysis-api/testData/components/diagnosticsProvider/codeFragmentDiagnostics/evalJvmJs.kt");
+  }
 
-    @Test
-    @TestMetadata("typeMismatch.kt")
-    public void testTypeMismatch() throws Exception {
-        runTest("analysis/analysis-api/testData/components/diagnosticsProvider/codeFragmentDiagnostics/typeMismatch.kt");
-    }
+  @Test
+  @TestMetadata("localClass.kt")
+  public void testLocalClass() {
+    runTest("analysis/analysis-api/testData/components/diagnosticsProvider/codeFragmentDiagnostics/localClass.kt");
+  }
+
+  @Test
+  @TestMetadata("localFunction.kt")
+  public void testLocalFunction() {
+    runTest("analysis/analysis-api/testData/components/diagnosticsProvider/codeFragmentDiagnostics/localFunction.kt");
+  }
+
+  @Test
+  @TestMetadata("typeMismatch.kt")
+  public void testTypeMismatch() {
+    runTest("analysis/analysis-api/testData/components/diagnosticsProvider/codeFragmentDiagnostics/typeMismatch.kt");
+  }
 }

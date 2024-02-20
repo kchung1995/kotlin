@@ -45,8 +45,8 @@ dependencies {
     embedded(project(":kotlin-annotation-processing-cli")) { isTransitive = false }
     embedded(project(":kotlin-annotation-processing-base")) { isTransitive = false }
 
-    testApi(project(":tools:kotlinp"))
-    testApi(project(":kotlinx-metadata-jvm"))
+    testApi(project(":tools:kotlinp-jvm"))
+    testApi(project(":kotlin-metadata-jvm"))
 }
 
 optInToExperimentalCompilerApi()
@@ -64,6 +64,7 @@ testsJar {}
 kaptTestTask("test", JavaLanguageVersion.of(8))
 kaptTestTask("testJdk11", JavaLanguageVersion.of(11))
 kaptTestTask("testJdk17", JavaLanguageVersion.of(17))
+kaptTestTask("testJdk21", JavaLanguageVersion.of(21))
 
 fun Project.kaptTestTask(name: String, javaLanguageVersion: JavaLanguageVersion) {
     val service = extensions.getByType<JavaToolchainService>()

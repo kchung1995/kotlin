@@ -5,7 +5,7 @@
 
 package org.jetbrains.kotlin.backend.jvm.mapping
 
-import org.jetbrains.kotlin.backend.common.lower.parentsWithSelf
+import org.jetbrains.kotlin.ir.util.parentsWithSelf
 import org.jetbrains.kotlin.backend.jvm.JvmBackendContext
 import org.jetbrains.kotlin.backend.jvm.JvmLoweredDeclarationOrigin
 import org.jetbrains.kotlin.backend.jvm.ir.*
@@ -104,7 +104,7 @@ class MethodSignatureMapper(private val context: JvmBackendContext, private val 
     private fun IrType.isJavaLangRecord() = getClass()!!.hasEqualFqName(JAVA_LANG_RECORD_FQ_NAME)
 
     private fun mangleMemberNameIfRequired(name: String, function: IrSimpleFunction): String {
-        val newName = JvmCodegenUtil.sanitizeNameIfNeeded(name, context.state.languageVersionSettings)
+        val newName = JvmCodegenUtil.sanitizeNameIfNeeded(name, context.config.languageVersionSettings)
 
         val suffix = if (function.isTopLevel) {
             if (function.isInvisibleInMultifilePart()) function.parentAsClass.name.asString() else null
@@ -398,12 +398,7 @@ class MethodSignatureMapper(private val context: JvmBackendContext, private val 
     // TODO get rid of 'caller' argument
     fun mapToCallableMethod(expression: IrCall, caller: IrFunction?): IrCallableMethod {
         val callee = expression.symbol.owner
-        val calleeParent = expression.superQualifierSymbol?.owner
-            ?: expression.dispatchReceiver?.type?.classOrNull?.owner?.let {
-                // Calling Object class methods on interfaces is permitted, but they're not interface methods.
-                if (it.isJvmInterface && callee.isMethodOfAny()) context.irBuiltIns.anyClass.owner else it
-            }
-            ?: callee.parentAsClass // Static call or type parameter
+        val calleeParent = expression.superQualifierSymbol?.owner ?: callee.parentAsClass
         val owner = typeMapper.mapOwner(calleeParent)
 
         val isInterface = calleeParent.isJvmInterface

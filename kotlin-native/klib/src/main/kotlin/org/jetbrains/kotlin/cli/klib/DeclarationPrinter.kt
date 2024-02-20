@@ -1,26 +1,28 @@
 package org.jetbrains.kotlin.cli.klib
 
-import org.jetbrains.kotlin.backend.konan.descriptors.getPackageFragments
 import org.jetbrains.kotlin.descriptors.*
+import org.jetbrains.kotlin.descriptors.DescriptorVisibilities.PUBLIC
+import org.jetbrains.kotlin.descriptors.DescriptorVisibilities.PROTECTED
+import org.jetbrains.kotlin.descriptors.DescriptorVisibilities.INTERNAL
 import org.jetbrains.kotlin.descriptors.impl.DeclarationDescriptorVisitorEmptyBodies
 import org.jetbrains.kotlin.utils.Printer
 
+// TODO: This class is used in dumping metadata by descriptors, "contents" command. Drop it after 2.0. KT-65380
 internal class DeclarationPrinter(
         out: Appendable,
-        private val headerRenderer: DeclarationHeaderRenderer,
         private val signatureRenderer: KlibSignatureRenderer
 ) {
     private val printer = Printer(out, 1, "    ")
 
-    private val DeclarationDescriptorWithVisibility.isPublicOrProtected: Boolean
-        get() = visibility == DescriptorVisibilities.PUBLIC || visibility == DescriptorVisibilities.PROTECTED
+    private val DeclarationDescriptorWithVisibility.isNonPrivate: Boolean
+        get() = visibility == PUBLIC || visibility == PROTECTED || visibility == INTERNAL
 
     private val CallableMemberDescriptor.isFakeOverride: Boolean
         get() = kind == CallableMemberDescriptor.Kind.FAKE_OVERRIDE
 
     private val DeclarationDescriptor.shouldBePrinted: Boolean
-        get() = this is ClassifierDescriptorWithTypeParameters && isPublicOrProtected
-                || this is CallableMemberDescriptor && isPublicOrProtected && !isFakeOverride
+        get() = this is ClassifierDescriptorWithTypeParameters && isNonPrivate
+                || this is CallableMemberDescriptor && isNonPrivate && !isFakeOverride
 
     fun print(module: ModuleDescriptor) {
         module.accept(PrinterVisitor(), Unit)
@@ -38,7 +40,7 @@ internal class DeclarationPrinter(
 
     private fun Printer.printPlain(header: String, signature: String? = null, suffix: String? = null) {
         if (signature != null) println(signature)
-        println(if (suffix != null ) header + suffix else header)
+        println(if (suffix != null) header + suffix else header)
     }
 
     private inner class PrinterVisitor : DeclarationDescriptorVisitorEmptyBodies<Unit, Unit>() {
@@ -51,14 +53,14 @@ internal class DeclarationPrinter(
                 .filter { it.shouldBePrinted }
                 .sortedBy { it.name }
             if (children.isNotEmpty()) {
-                printer.printWithBody(header = headerRenderer.render(descriptor)) {
+                printer.printWithBody(header = DefaultDeclarationHeaderRenderer.render(descriptor)) {
                     children.forEach { it.accept(this, data) }
                 }
             }
         }
 
         override fun visitClassDescriptor(descriptor: ClassDescriptor, data: Unit) {
-            val header = headerRenderer.render(descriptor)
+            val header = DefaultDeclarationHeaderRenderer.render(descriptor)
             val signature = signatureRenderer.render(descriptor)
 
             val children = descriptor.unsubstitutedMemberScope.getContributedDescriptors().filter { it.shouldBePrinted }
@@ -74,19 +76,19 @@ internal class DeclarationPrinter(
         }
 
         override fun visitFunctionDescriptor(descriptor: FunctionDescriptor, data: Unit) {
-            printer.printPlain(header = headerRenderer.render(descriptor), signature = signatureRenderer.render(descriptor))
+            printer.printPlain(header = DefaultDeclarationHeaderRenderer.render(descriptor), signature = signatureRenderer.render(descriptor))
         }
 
         override fun visitPropertyDescriptor(descriptor: PropertyDescriptor, data: Unit) {
-            printer.printPlain(header = headerRenderer.render(descriptor), signature = signatureRenderer.render(descriptor))
+            printer.printPlain(header = DefaultDeclarationHeaderRenderer.render(descriptor), signature = signatureRenderer.render(descriptor))
             descriptor.getter?.takeUnless { canSkipAccessor(it, descriptor) }?.let { getter ->
                 printer.pushIndent()
-                printer.printPlain(header = headerRenderer.render(getter), signature = signatureRenderer.render(getter))
+                printer.printPlain(header = DefaultDeclarationHeaderRenderer.render(getter), signature = signatureRenderer.render(getter))
                 printer.popIndent()
             }
             descriptor.setter?.takeUnless { canSkipAccessor(it, descriptor) }?.let { setter ->
                 printer.pushIndent()
-                printer.printPlain(header = headerRenderer.render(setter), signature = signatureRenderer.render(setter))
+                printer.printPlain(header = DefaultDeclarationHeaderRenderer.render(setter), signature = signatureRenderer.render(setter))
                 printer.popIndent()
             }
         }
@@ -96,11 +98,11 @@ internal class DeclarationPrinter(
         }
 
         override fun visitConstructorDescriptor(descriptor: ConstructorDescriptor, data: Unit) {
-            printer.printPlain(header = headerRenderer.render(descriptor), signature = signatureRenderer.render(descriptor))
+            printer.printPlain(header = DefaultDeclarationHeaderRenderer.render(descriptor), signature = signatureRenderer.render(descriptor))
         }
 
         override fun visitTypeAliasDescriptor(descriptor: TypeAliasDescriptor, data: Unit) {
-            printer.printPlain(header = headerRenderer.render(descriptor), signature = signatureRenderer.render(descriptor))
+            printer.printPlain(header = DefaultDeclarationHeaderRenderer.render(descriptor), signature = signatureRenderer.render(descriptor))
         }
     }
 }

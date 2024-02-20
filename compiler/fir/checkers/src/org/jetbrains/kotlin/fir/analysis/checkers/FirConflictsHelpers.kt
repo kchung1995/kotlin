@@ -13,19 +13,23 @@ import org.jetbrains.kotlin.diagnostics.reportOn
 import org.jetbrains.kotlin.fir.*
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirNameConflictsTracker
+import org.jetbrains.kotlin.fir.analysis.checkers.declaration.isEffectivelyFinal
 import org.jetbrains.kotlin.fir.analysis.diagnostics.FirErrors
 import org.jetbrains.kotlin.fir.declarations.*
+import org.jetbrains.kotlin.fir.declarations.FirValueParameter
 import org.jetbrains.kotlin.fir.declarations.impl.FirResolvedDeclarationStatusImpl.Companion.DEFAULT_STATUS_FOR_STATUSLESS_DECLARATIONS
 import org.jetbrains.kotlin.fir.declarations.impl.FirResolvedDeclarationStatusImpl.Companion.DEFAULT_STATUS_FOR_SUSPEND_MAIN_FUNCTION
 import org.jetbrains.kotlin.fir.declarations.impl.modifiersRepresentation
 import org.jetbrains.kotlin.fir.declarations.utils.nameOrSpecialName
 import org.jetbrains.kotlin.fir.expressions.FirBlock
+import org.jetbrains.kotlin.fir.expressions.FirComponentCall
+import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
+import org.jetbrains.kotlin.fir.references.FirResolvedNamedReference
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.outerType
 import org.jetbrains.kotlin.fir.resolve.providers.firProvider
 import org.jetbrains.kotlin.fir.resolve.scope
-import org.jetbrains.kotlin.fir.scopes.CallableCopyTypeCalculator
-import org.jetbrains.kotlin.fir.scopes.FirScope
+import org.jetbrains.kotlin.fir.scopes.*
 import org.jetbrains.kotlin.fir.scopes.impl.FirPackageMemberScope
 import org.jetbrains.kotlin.fir.scopes.impl.TypeAliasConstructorsSubstitutingScope
 import org.jetbrains.kotlin.fir.scopes.impl.toConeType
@@ -59,12 +63,14 @@ private fun FirBasedSymbol<*>.isCollectable(): Boolean {
         if (typeParameterSymbols.any { it.toConeType().hasError() }) return false
         if (receiverParameter?.typeRef?.coneType?.hasError() == true) return false
         if (this is FirFunctionSymbol<*> && valueParameterSymbols.any { it.resolvedReturnType.hasError() }) return false
+        @OptIn(SymbolInternals::class)
+        if (fir.isHiddenToOvercomeSignatureClash == true) return false
     }
 
     return when (this) {
         // - see tests with `fun () {}`.
         // you can't redeclare something that has no name.
-        is FirNamedFunctionSymbol -> source?.kind !is KtFakeSourceElementKind && name != SpecialNames.NO_NAME_PROVIDED
+        is FirNamedFunctionSymbol -> isCollectableAccordingToSource && name != SpecialNames.NO_NAME_PROVIDED
         is FirRegularClassSymbol -> name != SpecialNames.NO_NAME_PROVIDED
         // - see testEnumValuesValueOf.
         // it generates a static function that has
@@ -77,6 +83,9 @@ private fun FirBasedSymbol<*>.isCollectable(): Boolean {
     }
 }
 
+private val FirNamedFunctionSymbol.isCollectableAccordingToSource: Boolean
+    get() = source?.kind !is KtFakeSourceElementKind || source?.kind == KtFakeSourceElementKind.DataClassGeneratedMembers
+
 private val FirBasedSymbol<*>.resolvedStatus
     get() = when (this) {
         is FirCallableSymbol<*> -> resolvedStatus
@@ -84,7 +93,7 @@ private val FirBasedSymbol<*>.resolvedStatus
         else -> null
     }
 
-private fun isExpectAndActual(declaration1: FirBasedSymbol<*>, declaration2: FirBasedSymbol<*>): Boolean {
+internal fun isExpectAndActual(declaration1: FirBasedSymbol<*>, declaration2: FirBasedSymbol<*>): Boolean {
     val status1 = declaration1.resolvedStatus ?: return false
     val status2 = declaration2.resolvedStatus ?: return false
     return (status1.isExpect && status2.isActual) || (status1.isActual && status2.isExpect)
@@ -150,35 +159,101 @@ class FirDeclarationCollector<D : FirBasedSymbol<*>>(
 
 fun FirDeclarationCollector<FirBasedSymbol<*>>.collectClassMembers(klass: FirRegularClassSymbol) {
     val otherDeclarations = mutableMapOf<String, MutableList<FirBasedSymbol<*>>>()
-    val functionDeclarations = mutableMapOf<String, MutableList<FirBasedSymbol<*>>>()
+    val functionDeclarations = mutableMapOf<String, MutableList<FirFunctionSymbol<*>>>()
+    val declaredMemberScope = klass.declaredMemberScope(context)
+    val unsubstitutedScope = klass.unsubstitutedScope(context)
 
-    // TODO, KT-61243: Use declaredMemberScope
-    @OptIn(SymbolInternals::class)
-    for (it in klass.fir.declarations) {
-        if (!it.symbol.isCollectable()) continue
+    declaredMemberScope.processAllFunctions { declaredFunction ->
+        if (!declaredFunction.isCollectable()) {
+            return@processAllFunctions
+        }
 
-        when (it) {
-            is FirSimpleFunction -> collect(it.symbol, FirRedeclarationPresenter.represent(it.symbol), functionDeclarations)
-            is FirRegularClass -> {
-                collect(it.symbol, FirRedeclarationPresenter.represent(it.symbol), otherDeclarations)
+        collect(declaredFunction, FirRedeclarationPresenter.represent(declaredFunction), functionDeclarations)
 
-                // Objects have implicit FirPrimaryConstructors
-                if (it.symbol.classKind == ClassKind.OBJECT) {
-                    continue
-                }
+        unsubstitutedScope.processFunctionsByName(declaredFunction.name) { anotherFunction ->
+            if (anotherFunction != declaredFunction && anotherFunction.isCollectable() && anotherFunction.isVisibleInClass(klass)) {
+                collect(anotherFunction, FirRedeclarationPresenter.represent(anotherFunction), functionDeclarations)
+            }
+        }
+    }
 
-                it.symbol.expandedClassWithConstructorsScope(context)?.let { (_, scopeWithConstructors) ->
-                    scopeWithConstructors.processDeclaredConstructors { constructor ->
-                        collect(constructor, FirRedeclarationPresenter.represent(constructor, it.symbol), functionDeclarations)
-                    }
+    // Constructors of nested classes
+    // are collected when checking the outer
+    // class: this is because they may clash
+    // with functions from this outer class,
+    // so we should avoid checking them twice.
+    if (context.isTopLevel) {
+        unsubstitutedScope.processDeclaredConstructors {
+            if (it.isCollectable() && it.isVisibleInClass(klass)) {
+                collect(it, FirRedeclarationPresenter.represent(it, klass), functionDeclarations)
+            }
+        }
+    }
+
+    declaredMemberScope.processAllProperties { declaredProperty ->
+        if (!declaredProperty.isCollectable()) {
+            return@processAllProperties
+        }
+
+        collect(declaredProperty, FirRedeclarationPresenter.represent(declaredProperty), otherDeclarations)
+
+        unsubstitutedScope.processPropertiesByName(declaredProperty.name) { anotherProperty ->
+            if (anotherProperty != declaredProperty && anotherProperty.isCollectable() && anotherProperty.isVisibleInClass(klass)) {
+                collect(anotherProperty, FirRedeclarationPresenter.represent(anotherProperty), otherDeclarations)
+            }
+        }
+    }
+
+    fun processClassifier(it: FirClassifierSymbol<*>) {
+        when {
+            !it.isCollectable() || !it.isVisibleInClass(klass) -> return
+            it is FirRegularClassSymbol -> collect(it, FirRedeclarationPresenter.represent(it), otherDeclarations)
+            it is FirTypeAliasSymbol -> collect(it, FirRedeclarationPresenter.represent(it), otherDeclarations)
+            else -> {}
+        }
+
+        // This `if` can't be merged with the `when`
+        // above, because otherwise the smartcast
+        // below doesn't work.
+        if (it !is FirClassLikeSymbol<*>) {
+            return
+        }
+
+        it.expandedClassWithConstructorsScope(context)?.let { (expandedClass, scopeWithConstructors) ->
+            // Objects have implicit FirPrimaryConstructors
+            if (expandedClass.classKind == ClassKind.OBJECT) {
+                return@let
+            }
+
+            scopeWithConstructors.processDeclaredConstructors { constructor ->
+                collect(constructor, FirRedeclarationPresenter.represent(constructor, it), functionDeclarations)
+            }
+        }
+    }
+
+    // Scopes refer to inner classifiers
+    // through maps indexed by names,
+    // so only the last declaration is
+    // observed when processing all
+    // classifiers
+    for (declaredClassifier in klass.declarationSymbols) {
+        if (declaredClassifier is FirClassifierSymbol<*>) {
+            processClassifier(declaredClassifier)
+
+            unsubstitutedScope.processClassifiersByName(declaredClassifier.name) { anotherClassifier ->
+                if (anotherClassifier != declaredClassifier) {
+                    processClassifier(anotherClassifier)
                 }
             }
-            is FirTypeAlias -> collect(it.symbol, FirRedeclarationPresenter.represent(it.symbol), otherDeclarations)
-            is FirVariable -> collect(it.symbol, FirRedeclarationPresenter.represent(it.symbol), otherDeclarations)
-            else -> {}
         }
     }
 }
+
+private val FirClassifierSymbol<*>.name: Name
+    get() = when (this) {
+        is FirClassLikeSymbol -> name
+        is FirTypeParameterSymbol -> name
+    }
 
 fun collectConflictingLocalFunctionsFrom(block: FirBlock, context: CheckerContext): Map<FirFunctionSymbol<*>, Set<FirBasedSymbol<*>>> {
     val collectables =
@@ -209,17 +284,17 @@ fun collectConflictingLocalFunctionsFrom(block: FirBlock, context: CheckerContex
     return inspector.declarationConflictingSymbols
 }
 
-private fun <D : FirBasedSymbol<*>> FirDeclarationCollector<D>.collect(
-    declaration: D,
+private fun <D : FirBasedSymbol<*>, S : D> FirDeclarationCollector<D>.collect(
+    declaration: S,
     representation: String,
-    map: MutableMap<String, MutableList<D>>,
+    map: MutableMap<String, MutableList<S>>,
 ) {
     map.getOrPut(representation, ::mutableListOf).also {
         it.add(declaration)
 
         val conflicts = SmartSet.create<FirBasedSymbol<*>>()
         for (otherDeclaration in it) {
-            if (otherDeclaration != declaration && !isOverloadable(declaration, otherDeclaration, session)) {
+            if (otherDeclaration != declaration && !areNonConflictingCallables(declaration, otherDeclaration)) {
                 conflicts.add(otherDeclaration)
                 declarationConflictingSymbols.getOrPut(otherDeclaration) { SmartSet.create() }.add(declaration)
             }
@@ -390,7 +465,7 @@ private fun FirDeclarationCollector<FirBasedSymbol<*>>.collectTopLevelConflict(
         conflicting is FirMemberDeclaration &&
         !session.visibilityChecker.isVisible(conflicting, session, containingFile, emptyList(), dispatchReceiver = null)
     ) return
-    if (isOverloadable(declaration, conflictingSymbol, session)) return
+    if (areNonConflictingCallables(declaration, conflictingSymbol)) return
 
     declarationConflictingSymbols.getOrPut(declaration) { SmartSet.create() }.add(conflictingSymbol)
 }
@@ -417,20 +492,40 @@ private fun areCompatibleMainFunctions(
         && declaration1.representsMainFunctionAllowingConflictingOverloads(session)
         && declaration2.representsMainFunctionAllowingConflictingOverloads(session)
 
-private fun isOverloadable(
+private fun FirDeclarationCollector<*>.areNonConflictingCallables(
     declaration: FirBasedSymbol<*>,
     conflicting: FirBasedSymbol<*>,
-    session: FirSession,
 ): Boolean {
-    if (isExpectAndActual(declaration, conflicting)) return true
+    if (isExpectAndActual(declaration, conflicting) && declaration.moduleData != conflicting.moduleData) return true
 
     val declarationIsLowPriority = hasLowPriorityAnnotation(declaration.annotations)
     val conflictingIsLowPriority = hasLowPriorityAnnotation(conflicting.annotations)
     if (declarationIsLowPriority != conflictingIsLowPriority) return true
 
-    return declaration is FirCallableSymbol<*> &&
-            conflicting is FirCallableSymbol<*> &&
-            session.declarationOverloadabilityHelper.isOverloadable(declaration, conflicting)
+    if (declaration !is FirCallableSymbol<*> || conflicting !is FirCallableSymbol<*>) return false
+
+    val declarationIsFinal = declaration.isEffectivelyFinal(session)
+    val conflictingIsFinal = conflicting.isEffectivelyFinal(session)
+
+    if (declarationIsFinal && conflictingIsFinal) {
+        val declarationIsHidden = declaration.isDeprecationLevelHidden(session.languageVersionSettings)
+        if (declarationIsHidden) return true
+
+        val conflictingIsHidden = conflicting.isDeprecationLevelHidden(session.languageVersionSettings)
+        if (conflictingIsHidden) return true
+    }
+
+    return session.declarationOverloadabilityHelper.isOverloadable(declaration, conflicting)
+}
+
+internal fun FirVariable.getDestructuredParameter(): FirValueParameterSymbol? {
+    val initializer = initializer
+    if (initializer !is FirComponentCall) return null
+    if (initializer.source?.kind !is KtFakeSourceElementKind.DesugaredComponentFunctionCall) return null
+    val receiver = initializer.dispatchReceiver ?: initializer.extensionReceiver ?: return null
+    if (receiver !is FirPropertyAccessExpression) return null
+    val calleeReference = receiver.calleeReference as? FirResolvedNamedReference ?: return null
+    return calleeReference.resolvedSymbol as? FirValueParameterSymbol
 }
 
 /** Checks for redeclarations of value and type parameters, and local variables. */

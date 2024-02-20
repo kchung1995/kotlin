@@ -23,6 +23,7 @@ KtNamedClassOrObjectSymbol:
   symbolKind: CLASS_MEMBER
   typeParameters: []
   visibility: Public
+  getContainingFileSymbol: KtFileSymbol(generatedCompanionWorksAsValue.kt)
   getContainingModule: KtSourceModule "Sources of main"
   annotationApplicableTargets: null
   deprecationStatus: null

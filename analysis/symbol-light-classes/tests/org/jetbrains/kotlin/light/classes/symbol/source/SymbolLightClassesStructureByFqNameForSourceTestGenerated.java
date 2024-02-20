@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -19,14 +19,14 @@ import java.util.regex.Pattern;
 @TestMetadata("analysis/symbol-light-classes/testData/structureByFqName")
 @TestDataPath("$PROJECT_ROOT")
 public class SymbolLightClassesStructureByFqNameForSourceTestGenerated extends AbstractSymbolLightClassesStructureByFqNameForSourceTest {
-    @Test
-    public void testAllFilesPresentInStructureByFqName() throws Exception {
-        KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/symbol-light-classes/testData/structureByFqName"), Pattern.compile("^(.+)\\.(kt)$"), null, true);
-    }
+  @Test
+  public void testAllFilesPresentInStructureByFqName() {
+    KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/symbol-light-classes/testData/structureByFqName"), Pattern.compile("^(.+)\\.(kt)$"), null, true);
+  }
 
-    @Test
-    @TestMetadata("DefaultImpls.kt")
-    public void testDefaultImpls() throws Exception {
-        runTest("analysis/symbol-light-classes/testData/structureByFqName/DefaultImpls.kt");
-    }
+  @Test
+  @TestMetadata("DefaultImpls.kt")
+  public void testDefaultImpls() {
+    runTest("analysis/symbol-light-classes/testData/structureByFqName/DefaultImpls.kt");
+  }
 }

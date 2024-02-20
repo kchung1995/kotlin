@@ -14,14 +14,14 @@ configurations {
 
 dependencies {
     embedded(project(":kotlinx-metadata-klib")) { isTransitive = false }
-    embedded(project(":kotlinx-metadata")) { isTransitive = false }
+    embedded(project(":kotlin-metadata")) { isTransitive = false }
     embedded(project(":native:kotlin-klib-commonizer-api")) { isTransitive = false }
     embedded(project(":kotlin-tooling-core")) { isTransitive = false }
 
     // N.B. The order of "kotlinx-metadata*" dependencies makes sense for runtime classpath
     // of the "runCommonizer" task. Please, don't mix them up.
     compileOnly(project(":kotlinx-metadata-klib")) { isTransitive = false }
-    compileOnly(project(":kotlinx-metadata")) { isTransitive = false }
+    compileOnly(project(":kotlin-metadata")) { isTransitive = false }
     compileOnly(project(":native:kotlin-klib-commonizer-api")) { isTransitive = false }
     compileOnly(project(":kotlin-tooling-core")) { isTransitive = false }
     compileOnly(project(":compiler:cli-common"))
@@ -31,7 +31,7 @@ dependencies {
     compileOnly(project(":native:frontend.native"))
     compileOnly(project(":kotlin-util-klib-metadata"))
     compileOnly(intellijCore())
-    compileOnly(commonDependency("org.jetbrains.intellij.deps:trove4j"))
+    compileOnly(commonDependency("org.jetbrains.intellij.deps.fastutil:intellij-deps-fastutil"))
 
     // This dependency is necessary to keep the right dependency record inside of POM file:
     publishedCompile(project(":kotlin-compiler"))
@@ -41,7 +41,7 @@ dependencies {
     testImplementation(libs.junit4)
     testImplementation(projectTests(":compiler:tests-common"))
     testImplementation(project(":kotlinx-metadata-klib")) { isTransitive = false }
-    testImplementation(project(":kotlinx-metadata")) { isTransitive = false }
+    testImplementation(project(":kotlin-metadata")) { isTransitive = false }
     testImplementation(project(":native:kotlin-klib-commonizer-api"))
     testImplementation(project(":kotlin-tooling-core"))
     testApi(intellijCore())

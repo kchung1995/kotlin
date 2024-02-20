@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -28,63 +28,111 @@ import java.util.regex.Pattern;
 @TestMetadata("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope")
 @TestDataPath("$PROJECT_ROOT")
 public class FirIdeNormalAnalysisSourceModuleDeclaredMemberScopeTestGenerated extends AbstractDeclaredMemberScopeTest {
-    @NotNull
-    @Override
-    public AnalysisApiTestConfigurator getConfigurator() {
-        return AnalysisApiFirTestConfiguratorFactory.INSTANCE.createConfigurator(
-            new AnalysisApiTestConfiguratorFactoryData(
-                FrontendKind.Fir,
-                TestModuleKind.Source,
-                AnalysisSessionMode.Normal,
-                AnalysisApiMode.Ide
-            )
-        );
-    }
+  @NotNull
+  @Override
+  public AnalysisApiTestConfigurator getConfigurator() {
+    return AnalysisApiFirTestConfiguratorFactory.INSTANCE.createConfigurator(
+      new AnalysisApiTestConfiguratorFactoryData(
+        FrontendKind.Fir,
+        TestModuleKind.Source,
+        AnalysisSessionMode.Normal,
+        AnalysisApiMode.Ide
+      )
+    );
+  }
 
-    @Test
-    public void testAllFilesPresentInDeclaredMemberScope() throws Exception {
-        KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope"), Pattern.compile("^(.+)\\.kt$"), null, true);
-    }
+  @Test
+  public void testAllFilesPresentInDeclaredMemberScope() {
+    KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope"), Pattern.compile("^(.+)\\.kt$"), null, true);
+  }
 
-    @Test
-    @TestMetadata("enumEntryInitializer.kt")
-    public void testEnumEntryInitializer() throws Exception {
-        runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/enumEntryInitializer.kt");
-    }
+  @Test
+  @TestMetadata("class.kt")
+  public void testClass() {
+    runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/class.kt");
+  }
 
-    @Test
-    @TestMetadata("enumEntryInitializerWithEmptyBody.kt")
-    public void testEnumEntryInitializerWithEmptyBody() throws Exception {
-        runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/enumEntryInitializerWithEmptyBody.kt");
-    }
+  @Test
+  @TestMetadata("delegateInterface.kt")
+  public void testDelegateInterface() {
+    runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/delegateInterface.kt");
+  }
 
-    @Test
-    @TestMetadata("enumEntryInitializerWithFinalEnumMember.kt")
-    public void testEnumEntryInitializerWithFinalEnumMember() throws Exception {
-        runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/enumEntryInitializerWithFinalEnumMember.kt");
-    }
+  @Test
+  @TestMetadata("delegateInterfaceLibrary.kt")
+  public void testDelegateInterfaceLibrary() {
+    runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/delegateInterfaceLibrary.kt");
+  }
 
-    @Test
-    @TestMetadata("enumEntryInitializerWithOverriddenMember.kt")
-    public void testEnumEntryInitializerWithOverriddenMember() throws Exception {
-        runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/enumEntryInitializerWithOverriddenMember.kt");
-    }
+  @Test
+  @TestMetadata("enumClass.kt")
+  public void testEnumClass() {
+    runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/enumClass.kt");
+  }
 
-    @Test
-    @TestMetadata("javaDeclaredEnhancementScope.kt")
-    public void testJavaDeclaredEnhancementScope() throws Exception {
-        runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/javaDeclaredEnhancementScope.kt");
-    }
+  @Test
+  @TestMetadata("enumClassWithAbstractMembers.kt")
+  public void testEnumClassWithAbstractMembers() {
+    runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/enumClassWithAbstractMembers.kt");
+  }
 
-    @Test
-    @TestMetadata("javaDeclaredInheritList.kt")
-    public void testJavaDeclaredInheritList() throws Exception {
-        runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/javaDeclaredInheritList.kt");
-    }
+  @Test
+  @TestMetadata("enumClassWithFinalMembers.kt")
+  public void testEnumClassWithFinalMembers() {
+    runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/enumClassWithFinalMembers.kt");
+  }
 
-    @Test
-    @TestMetadata("javaInnerClassConstructor.kt")
-    public void testJavaInnerClassConstructor() throws Exception {
-        runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/javaInnerClassConstructor.kt");
-    }
+  @Test
+  @TestMetadata("enumEntryInitializer.kt")
+  public void testEnumEntryInitializer() {
+    runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/enumEntryInitializer.kt");
+  }
+
+  @Test
+  @TestMetadata("enumEntryInitializerWithEmptyBody.kt")
+  public void testEnumEntryInitializerWithEmptyBody() {
+    runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/enumEntryInitializerWithEmptyBody.kt");
+  }
+
+  @Test
+  @TestMetadata("enumEntryInitializerWithFinalEnumMember.kt")
+  public void testEnumEntryInitializerWithFinalEnumMember() {
+    runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/enumEntryInitializerWithFinalEnumMember.kt");
+  }
+
+  @Test
+  @TestMetadata("enumEntryInitializerWithOverriddenMember.kt")
+  public void testEnumEntryInitializerWithOverriddenMember() {
+    runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/enumEntryInitializerWithOverriddenMember.kt");
+  }
+
+  @Test
+  @TestMetadata("innerClass.kt")
+  public void testInnerClass() {
+    runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/innerClass.kt");
+  }
+
+  @Test
+  @TestMetadata("javaClass.kt")
+  public void testJavaClass() {
+    runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/javaClass.kt");
+  }
+
+  @Test
+  @TestMetadata("javaDeclaredEnhancementScope.kt")
+  public void testJavaDeclaredEnhancementScope() {
+    runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/javaDeclaredEnhancementScope.kt");
+  }
+
+  @Test
+  @TestMetadata("javaDeclaredInheritList.kt")
+  public void testJavaDeclaredInheritList() {
+    runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/javaDeclaredInheritList.kt");
+  }
+
+  @Test
+  @TestMetadata("javaInnerClassConstructor.kt")
+  public void testJavaInnerClassConstructor() {
+    runTest("analysis/analysis-api/testData/components/scopeProvider/declaredMemberScope/javaInnerClassConstructor.kt");
+  }
 }

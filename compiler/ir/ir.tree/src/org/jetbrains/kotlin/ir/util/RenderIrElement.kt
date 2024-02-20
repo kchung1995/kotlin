@@ -26,7 +26,7 @@ import org.jetbrains.kotlin.utils.addToStdlib.ifTrue
 fun IrElement.render(options: DumpIrTreeOptions = DumpIrTreeOptions()) =
     accept(RenderIrElementVisitor(options), null)
 
-class RenderIrElementVisitor(private val options: DumpIrTreeOptions = DumpIrTreeOptions()) :
+open class RenderIrElementVisitor(private val options: DumpIrTreeOptions = DumpIrTreeOptions()) :
     IrElementVisitor<String, Nothing?> {
 
     private val variableNameData = VariableNameData(options.normalizeNames)
@@ -750,12 +750,12 @@ private val IrFunction.safeReturnType: IrType?
 private fun IrLocalDelegatedProperty.renderLocalDelegatedPropertyFlags() =
     if (isVar) "var" else "val"
 
-private class VariableNameData(val normalizeNames: Boolean) {
+internal class VariableNameData(val normalizeNames: Boolean) {
     val nameMap: MutableMap<IrVariableSymbol, String> = mutableMapOf()
     var temporaryIndex: Int = 0
 }
 
-private fun IrVariable.normalizedName(data: VariableNameData): String {
+internal fun IrVariable.normalizedName(data: VariableNameData): String {
     if (data.normalizeNames && (origin == IrDeclarationOrigin.IR_TEMPORARY_VARIABLE || origin == IrDeclarationOrigin.FOR_LOOP_ITERATOR)) {
         return data.nameMap.getOrPut(symbol) { "tmp_${data.temporaryIndex++}" }
     }
@@ -871,9 +871,7 @@ private fun StringBuilder.renderAsAnnotationArgument(irElement: IrElement?, rend
         null -> append("<null>")
         is IrConstructorCall -> renderAsAnnotation(irElement, renderer, options)
         is IrConst<*> -> {
-            append('\'')
-            append(irElement.value.toString())
-            append('\'')
+            renderIrConstAsAnnotationArgument(irElement)
         }
         is IrVararg -> {
             appendIterableWith(irElement.elements, prefix = "[", postfix = "]", separator = ", ") {
@@ -886,6 +884,17 @@ private fun StringBuilder.renderAsAnnotationArgument(irElement: IrElement?, rend
             append("...")
         }
     }
+}
+
+private fun StringBuilder.renderIrConstAsAnnotationArgument(const: IrConst<*>) {
+    val quotes = when (const.kind) {
+        IrConstKind.String -> "\""
+        IrConstKind.Char -> "'"
+        else -> ""
+    }
+    append(quotes)
+    append(const.value.toString())
+    append(quotes)
 }
 
 private fun renderClassWithRenderer(declaration: IrClass, renderer: RenderIrElementVisitor?, options: DumpIrTreeOptions) =

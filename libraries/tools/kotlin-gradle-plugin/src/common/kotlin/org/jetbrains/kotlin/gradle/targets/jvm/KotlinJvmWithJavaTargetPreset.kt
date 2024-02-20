@@ -17,7 +17,8 @@ import org.jetbrains.kotlin.gradle.plugin.diagnostics.KotlinToolingDiagnostics
 import org.jetbrains.kotlin.gradle.plugin.diagnostics.reportDiagnostic
 import org.jetbrains.kotlin.gradle.targets.android.internal.InternalKotlinTargetPreset
 import org.jetbrains.kotlin.gradle.tasks.KotlinTasksProvider
-import org.jetbrains.kotlin.gradle.utils.configureExperimentalTryK2
+import org.jetbrains.kotlin.gradle.utils.configureExperimentalTryNext
+import org.jetbrains.kotlin.gradle.utils.maybeCreateResolvable
 
 @DeprecatedTargetPresetApi
 class KotlinJvmWithJavaTargetPreset(
@@ -31,17 +32,17 @@ class KotlinJvmWithJavaTargetPreset(
 
         project.plugins.apply(JavaPlugin::class.java)
 
-        @Suppress("UNCHECKED_CAST", "DEPRECATION")
+        @Suppress("UNCHECKED_CAST", "DEPRECATION", "TYPEALIAS_EXPANSION_DEPRECATION")
         val target = (project.objects.newInstance(
             KotlinWithJavaTarget::class.java,
             project,
             KotlinPlatformType.jvm,
             name,
             {
-                object : HasCompilerOptions<KotlinJvmCompilerOptions> {
+                object : DeprecatedHasCompilerOptions<KotlinJvmCompilerOptions> {
                     override val options: KotlinJvmCompilerOptions = project.objects
                         .newInstance(KotlinJvmCompilerOptionsDefault::class.java)
-                        .configureExperimentalTryK2(project)
+                        .configureExperimentalTryNext(project)
                 }
             },
             { compilerOptions: KotlinJvmCompilerOptions ->
@@ -61,6 +62,7 @@ class KotlinJvmWithJavaTargetPreset(
         }
 
         target.compilations.configureEach {
+            @Suppress("DEPRECATION")
             it.compilerOptions.options.moduleName.convention(
                 it.moduleNameForCompilation()
             )
@@ -71,12 +73,12 @@ class KotlinJvmWithJavaTargetPreset(
 
             compileDependencyFiles = project.files(
                 main.output.allOutputs,
-                project.configurations.maybeCreate(compileDependencyConfigurationName)
+                project.configurations.maybeCreateResolvable(compileDependencyConfigurationName)
             )
             runtimeDependencyFiles = project.files(
                 output.allOutputs,
                 main.output.allOutputs,
-                project.configurations.maybeCreate(runtimeDependencyConfigurationName)
+                project.configurations.maybeCreateResolvable(runtimeDependencyConfigurationName)
             )
         }
 

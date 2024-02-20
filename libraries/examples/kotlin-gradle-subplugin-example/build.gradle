@@ -4,7 +4,6 @@ plugins {
     id("java-gradle-plugin")
     id("org.jetbrains.kotlin.jvm")
     id("com.gradle.plugin-publish")
-    id("jps-compatible")
     id("maven-publish")
 }
 
@@ -13,16 +12,10 @@ repositories {
     mavenCentral()
 }
 
-pill {
-    variant = 'FULL'
-}
-
 dependencies {
     api project(':kotlin-gradle-plugin-api')
     // Use this dependency instead when building apart from the other modules:
     // compile "org.jetbrains.kotlin:kotlin-gradle-plugin-api:$kotlin_version"
-
-    api project(':kotlin-test:kotlin-test-junit')
 
     compileOnly RepoDependencies.kotlinStdlib(project)
     compileOnly project(':compiler')
@@ -48,15 +41,18 @@ extensions.extraProperties["kotlin.stdlib.default.dependency"] = "false"
 //}
 
 def sourceSet = sourceSets.main
-def jarTask = tasks.named(sourceSet.jarTaskName, Jar)
+def jarTask = tasks.named(sourceSet.jarTaskName, Jar) {
+    archiveClassifier.set("unshaded")
+}
 def shadowJarTask = EmbeddableKt.embeddableCompilerDummyForDependenciesRewriting(
     project,
     "${EmbeddableKt.EMBEDDABLE_COMPILER_TASK_NAME}${sourceSet.jarTaskName.capitalize()}"
 ) {
+    def emptyClassifier = provider { "" }
     RepoArtifacts.setupPublicJar(
         it,
         jarTask.flatMap { it.archiveBaseName },
-        jarTask.flatMap { it.archiveClassifier }
+        jarTask.flatMap { emptyClassifier }
     )
     RepoArtifacts.addEmbeddedRuntime(it)
     it.from(sourceSet.output)

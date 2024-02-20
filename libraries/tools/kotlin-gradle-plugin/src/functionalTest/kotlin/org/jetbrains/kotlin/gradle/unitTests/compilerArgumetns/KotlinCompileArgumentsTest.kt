@@ -20,8 +20,8 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 import org.jetbrains.kotlin.gradle.dsl.kotlinJvmExtension
 import org.jetbrains.kotlin.gradle.dsl.multiplatformExtension
 import org.jetbrains.kotlin.gradle.plugin.CreateCompilerArgumentsContext
-import org.jetbrains.kotlin.gradle.plugin.KotlinCompilerArgumentsProducer.ArgumentType.PluginClasspath
-import org.jetbrains.kotlin.gradle.plugin.KotlinCompilerArgumentsProducer.ArgumentType.Primitive
+import org.jetbrains.kotlin.gradle.plugin.KotlinCompilerArgumentsProducer
+import org.jetbrains.kotlin.gradle.plugin.KotlinCompilerArgumentsProducer.ArgumentType.*
 import org.jetbrains.kotlin.gradle.plugin.KotlinCompilerArgumentsProducer.CreateCompilerArgumentsContext.Companion.lenient
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.jetbrains.kotlin.gradle.util.assertNotNull
@@ -97,6 +97,7 @@ class KotlinCompileArgumentsTest {
         kotlin.jvm()
 
         val jvmMainCompilation = kotlin.jvm().compilations.getByName("main")
+        @Suppress("DEPRECATION")
         jvmMainCompilation.compilerOptions.options.languageVersion.set(KotlinVersion.KOTLIN_2_0)
 
         project.evaluate()
@@ -116,6 +117,7 @@ class KotlinCompileArgumentsTest {
         val kotlin = project.multiplatformExtension
         kotlin.jvm()
         val compilation = kotlin.jvm().compilations.main
+        @Suppress("DEPRECATION")
         compilation.compilerOptions.options.languageVersion.set(KotlinVersion.KOTLIN_2_0)
         val compileTask = compilation.compileTaskProvider.get() as KotlinCompile
 

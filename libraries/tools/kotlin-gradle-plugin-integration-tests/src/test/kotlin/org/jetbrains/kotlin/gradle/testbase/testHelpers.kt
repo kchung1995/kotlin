@@ -5,9 +5,12 @@
 
 package org.jetbrains.kotlin.gradle.testbase
 
+import org.gradle.util.GradleVersion
+import org.jetbrains.kotlin.gradle.util.isTeamCityRun
 import java.nio.file.Paths
 import java.nio.file.attribute.PosixFilePermission
 import kotlin.io.path.*
+import kotlin.test.fail
 
 /**
  * Makes a snapshot of the current state of [TestProject] into [destinationPath].
@@ -18,6 +21,8 @@ import kotlin.io.path.*
  * To run task with the same build option as test - use `run.sh` (or `run.bat`) script.
  */
 fun TestProject.makeSnapshotTo(destinationPath: String) {
+    if (isTeamCityRun) fail("Please remove `makeSnapshotTo()` call from test. It is utility for local debugging only!")
+
     val dest = Paths
         .get(destinationPath)
         .resolve(projectName)
@@ -89,19 +94,6 @@ private fun TestProject.formatEnvironmentForScript(envCommand: String): String {
 }
 
 /**
- *
- * Configures the JVM memory settings for the Gradle project.
- * @param memorySizeInGb The amount of memory to allocate to the JVM, in gigabytes.
- *                     Defaults to 1 gigabyte.
- */
-fun GradleProject.configureJvmMemory(memorySizeInGb: Number = 1) {
-    addPropertyToGradleProperties(
-        propertyName = "org.gradle.jvmargs",
-        mapOf("-Xmx" to "-Xmx${memorySizeInGb}g")
-    )
-}
-
-/**
  * Adds the given options to a Gradle property specified by name, in the project's Gradle properties file.
  * If the property does not exist, it is created.
  * @param propertyName The name of the Gradle property to modify or create.
@@ -164,4 +156,59 @@ fun GradleProject.addPropertyToGradleProperties(
         )
 
     }
+}
+
+/**
+ * Configures 'archivesBaseName' in Gradle older and newer versions compatible way avoiding
+ * deprecation warnings.
+ */
+internal fun TestProject.addArchivesBaseNameCompat(
+    archivesBaseName: String
+) {
+    if (gradleVersion >= GradleVersion.version(TestVersions.Gradle.G_8_5)) {
+        buildGradle.appendText(
+            """
+            |
+            |base {
+            |    archivesName = '$archivesBaseName'
+            |}
+            """.trimMargin()
+        )
+    } else if (gradleVersion < GradleVersion.version(TestVersions.Gradle.G_7_1)) {
+        buildGradle.appendText(
+            """
+            |
+            |archivesBaseName = '$archivesBaseName'
+            """.trimMargin()
+        )
+    } else {
+        buildGradle.appendText(
+            """
+            |
+            |base {
+            |    archivesBaseName = '$archivesBaseName'
+            |}
+            """.trimMargin()
+        )
+    }
+}
+
+/**
+ * Chooses compiler version used for JVM compilation in the build tools API mode.
+ *
+ * If the chosen version requires additional repositories, please consider using [DependencyManagement.DefaultDependencyManagement].
+ *
+ * Ensure [BuildOptions.runViaBuildToolsApi] is set to true for the builds!
+ */
+internal fun TestProject.chooseCompilerVersion(
+    version: String,
+) {
+    buildGradle.append(
+        //language=Gradle
+        """
+        kotlin {
+            compilerVersion.set("$version")
+        }
+        """.trimIndent()
+    )
 }

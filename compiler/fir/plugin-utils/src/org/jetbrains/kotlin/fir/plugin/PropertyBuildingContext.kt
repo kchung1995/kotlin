@@ -6,8 +6,10 @@
 package org.jetbrains.kotlin.fir.plugin
 
 import org.jetbrains.kotlin.GeneratedDeclarationKey
+import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.descriptors.Visibility
+import org.jetbrains.kotlin.fakeElement
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.declarations.*
 import org.jetbrains.kotlin.fir.declarations.builder.buildProperty
@@ -69,6 +71,8 @@ public class PropertyBuildingContext(
             moduleData = session.moduleData
             origin = key.origin
 
+            source = owner?.source?.fakeElement(KtFakeSourceElementKind.PluginGenerated)
+
             symbol = FirPropertySymbol(callableId)
             name = callableId.callableName
 
@@ -121,7 +125,7 @@ public class PropertyBuildingContext(
                 )
             }
             isLocal = false
-            bodyResolveState = FirPropertyBodyResolveState.EVERYTHING_RESOLVED
+            bodyResolveState = FirPropertyBodyResolveState.ALL_BODIES_RESOLVED
         }
     }
 }

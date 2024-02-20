@@ -15,7 +15,7 @@ KtKotlinPropertySymbol:
   isExtension: true
   isFromPrimaryConstructor: false
   isLateInit: false
-  isOverride: false
+  isOverride: true
   isStatic: false
   isVal: false
   modality: OPEN
@@ -29,6 +29,7 @@ KtKotlinPropertySymbol:
       annotationsList: []
       ownTypeArguments: []
       type: kotlin/Int
+    getContainingFileSymbol: KtFileSymbol(simple.kt)
     getContainingModule: KtSourceModule "Sources of main"
     deprecationStatus: null
   returnType: KtUsualClassType:
@@ -43,6 +44,8 @@ KtKotlinPropertySymbol:
     annotationsList: []
     ownTypeArguments: []
     type: A
+  getContainingFileSymbol: KtFileSymbol(simple.kt)
+  getContainingJvmClassName: A
   getContainingModule: KtSourceModule "Sources of main"
   deprecationStatus: null
   getterDeprecationStatus: null
@@ -64,7 +67,7 @@ KtFunctionSymbol:
   isInfix: false
   isInline: false
   isOperator: false
-  isOverride: false
+  isOverride: true
   isStatic: false
   isSuspend: false
   modality: OPEN
@@ -83,6 +86,8 @@ KtFunctionSymbol:
     annotationsList: []
     ownTypeArguments: []
     type: A
+  getContainingFileSymbol: KtFileSymbol(simple.kt)
+  getContainingJvmClassName: A
   getContainingModule: KtSourceModule "Sources of main"
   deprecationStatus: null
 
@@ -103,7 +108,7 @@ KtKotlinPropertySymbol:
   isExtension: false
   isFromPrimaryConstructor: false
   isLateInit: false
-  isOverride: false
+  isOverride: true
   isStatic: false
   isVal: true
   modality: OPEN
@@ -122,6 +127,8 @@ KtKotlinPropertySymbol:
     annotationsList: []
     ownTypeArguments: []
     type: A
+  getContainingFileSymbol: KtFileSymbol(simple.kt)
+  getContainingJvmClassName: A
   getContainingModule: KtSourceModule "Sources of main"
   deprecationStatus: null
   getterDeprecationStatus: null
@@ -143,7 +150,7 @@ KtFunctionSymbol:
   isInfix: false
   isInline: false
   isOperator: false
-  isOverride: false
+  isOverride: true
   isStatic: false
   isSuspend: false
   modality: OPEN
@@ -157,6 +164,7 @@ KtFunctionSymbol:
       annotationsList: []
       ownTypeArguments: []
       type: kotlin/Int
+    getContainingFileSymbol: KtFileSymbol(simple.kt)
     getContainingModule: KtSourceModule "Sources of main"
     deprecationStatus: null
   returnType: KtUsualClassType:
@@ -171,6 +179,8 @@ KtFunctionSymbol:
     annotationsList: []
     ownTypeArguments: []
     type: A
+  getContainingFileSymbol: KtFileSymbol(simple.kt)
+  getContainingJvmClassName: A
   getContainingModule: KtSourceModule "Sources of main"
   deprecationStatus: null
 
@@ -191,7 +201,7 @@ KtKotlinPropertySymbol:
   isExtension: false
   isFromPrimaryConstructor: false
   isLateInit: false
-  isOverride: false
+  isOverride: true
   isStatic: false
   isVal: false
   modality: OPEN
@@ -210,6 +220,8 @@ KtKotlinPropertySymbol:
     annotationsList: []
     ownTypeArguments: []
     type: A
+  getContainingFileSymbol: KtFileSymbol(simple.kt)
+  getContainingJvmClassName: A
   getContainingModule: KtSourceModule "Sources of main"
   deprecationStatus: null
   getterDeprecationStatus: null
@@ -234,7 +246,7 @@ KtKotlinPropertySymbol:
   isExtension: true
   isFromPrimaryConstructor: false
   isLateInit: false
-  isOverride: false
+  isOverride: true
   isStatic: false
   isVal: true
   modality: OPEN
@@ -248,6 +260,7 @@ KtKotlinPropertySymbol:
       annotationsList: []
       ownTypeArguments: []
       type: kotlin/Int
+    getContainingFileSymbol: KtFileSymbol(simple.kt)
     getContainingModule: KtSourceModule "Sources of main"
     deprecationStatus: null
   returnType: KtUsualClassType:
@@ -262,6 +275,8 @@ KtKotlinPropertySymbol:
     annotationsList: []
     ownTypeArguments: []
     type: A
+  getContainingFileSymbol: KtFileSymbol(simple.kt)
+  getContainingJvmClassName: A
   getContainingModule: KtSourceModule "Sources of main"
   deprecationStatus: null
   getterDeprecationStatus: null

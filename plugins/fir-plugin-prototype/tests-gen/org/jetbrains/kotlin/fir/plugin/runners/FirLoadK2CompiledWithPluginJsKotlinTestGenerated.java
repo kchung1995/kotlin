@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -20,32 +20,32 @@ import java.util.regex.Pattern;
 @TestMetadata("plugins/fir-plugin-prototype/testData/firLoadK2Compiled")
 @TestDataPath("$PROJECT_ROOT")
 public class FirLoadK2CompiledWithPluginJsKotlinTestGenerated extends AbstractFirLoadK2CompiledWithPluginJsKotlinTest {
-    @Test
-    public void testAllFilesPresentInFirLoadK2Compiled() throws Exception {
-        KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("plugins/fir-plugin-prototype/testData/firLoadK2Compiled"), Pattern.compile("^(.+)\\.kt$"), null, TargetBackend.JS_IR, true);
-    }
+  @Test
+  public void testAllFilesPresentInFirLoadK2Compiled() {
+    KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("plugins/fir-plugin-prototype/testData/firLoadK2Compiled"), Pattern.compile("^(.+)\\.kt$"), null, TargetBackend.JS_IR, true);
+  }
 
-    @Test
-    @TestMetadata("annotationsGeneratedInBackend.kt")
-    public void testAnnotationsGeneratedInBackend() throws Exception {
-        runTest("plugins/fir-plugin-prototype/testData/firLoadK2Compiled/annotationsGeneratedInBackend.kt");
-    }
+  @Test
+  @TestMetadata("annotationsGeneratedInBackend.kt")
+  public void testAnnotationsGeneratedInBackend() {
+    runTest("plugins/fir-plugin-prototype/testData/firLoadK2Compiled/annotationsGeneratedInBackend.kt");
+  }
 
-    @Test
-    @TestMetadata("annotationsGeneratedInBackend_MPP.kt")
-    public void testAnnotationsGeneratedInBackend_MPP() throws Exception {
-        runTest("plugins/fir-plugin-prototype/testData/firLoadK2Compiled/annotationsGeneratedInBackend_MPP.kt");
-    }
+  @Test
+  @TestMetadata("annotationsGeneratedInBackend_MPP.kt")
+  public void testAnnotationsGeneratedInBackend_MPP() {
+    runTest("plugins/fir-plugin-prototype/testData/firLoadK2Compiled/annotationsGeneratedInBackend_MPP.kt");
+  }
 
-    @Test
-    @TestMetadata("simple.kt")
-    public void testSimple() throws Exception {
-        runTest("plugins/fir-plugin-prototype/testData/firLoadK2Compiled/simple.kt");
-    }
+  @Test
+  @TestMetadata("simple.kt")
+  public void testSimple() {
+    runTest("plugins/fir-plugin-prototype/testData/firLoadK2Compiled/simple.kt");
+  }
 
-    @Test
-    @TestMetadata("simple-lang-ver-2.1.kt")
-    public void testSimple_lang_ver_2_1() throws Exception {
-        runTest("plugins/fir-plugin-prototype/testData/firLoadK2Compiled/simple-lang-ver-2.1.kt");
-    }
+  @Test
+  @TestMetadata("simple-lang-ver-2.1.kt")
+  public void testSimple_lang_ver_2_1() {
+    runTest("plugins/fir-plugin-prototype/testData/firLoadK2Compiled/simple-lang-ver-2.1.kt");
+  }
 }

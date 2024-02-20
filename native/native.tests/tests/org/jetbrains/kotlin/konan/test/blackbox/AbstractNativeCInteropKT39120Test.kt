@@ -5,7 +5,6 @@
 
 package org.jetbrains.kotlin.konan.test.blackbox
 
-import com.intellij.openapi.util.text.StringUtilRt
 import com.intellij.testFramework.TestDataFile
 import org.jetbrains.kotlin.konan.test.blackbox.support.*
 import org.jetbrains.kotlin.konan.test.blackbox.support.compilation.TestCompilationArtifact.KLIB
@@ -16,8 +15,8 @@ import org.jetbrains.kotlin.konan.test.blackbox.support.settings.Timeouts
 import org.jetbrains.kotlin.konan.test.blackbox.support.util.DEFAULT_FILE_NAME
 import org.jetbrains.kotlin.konan.test.blackbox.support.util.DEFAULT_MODULE_NAME
 import org.jetbrains.kotlin.konan.test.blackbox.support.util.getAbsoluteFile
-import org.jetbrains.kotlin.konan.test.blackbox.support.util.getContents
-import org.jetbrains.kotlin.test.services.JUnit5Assertions.assertEquals
+import org.jetbrains.kotlin.konan.test.blackbox.support.util.dumpMetadata
+import org.jetbrains.kotlin.test.services.JUnit5Assertions.assertEqualsToFile
 import org.junit.jupiter.api.Assumptions
 import org.junit.jupiter.api.Tag
 import kotlin.test.assertIs
@@ -37,21 +36,17 @@ abstract class AbstractNativeCInteropKT39120Test : AbstractNativeCInteropBaseTes
         val golden1File = testPathFull.resolve("pod1.contents.gold.txt")
         val golden2File = testPathFull.resolve("pod2.contents.gold.txt")
 
-        val includeFrameworkArgs = TestCompilerArgs("-compiler-option", "-F${testDataDir.canonicalPath}")
+        val includeFrameworkArgs = TestCInteropArgs("-compiler-option", "-F${testDataDir.canonicalPath}")
         val klib1: KLIB = cinteropToLibrary(targets, def1File, buildDir, includeFrameworkArgs).assertSuccess().resultingArtifact
-        val contents1 = klib1.getContents(kotlinNativeClassLoader.classLoader)
+        val metadata1 = klib1.dumpMetadata(kotlinNativeClassLoader.classLoader, false, null)
+        val actualFiltered1Output = filterContentsOutput(metadata1, " pod.Version|POD|class Pod")
+        assertEqualsToFile(golden1File, actualFiltered1Output)
 
-        val expectedFiltered1Output = golden1File.readText()
-        val actualFiltered1Output = filterContentsOutput(contents1, " pod.Version|POD|class Pod")
-        assertEquals(StringUtilRt.convertLineSeparators(expectedFiltered1Output), StringUtilRt.convertLineSeparators(actualFiltered1Output))
-
-        val cinterop2ExtraArgs = TestCompilerArgs("-l", klib1.klibFile.canonicalPath, "-compiler-option", "-fmodules")
+        val cinterop2ExtraArgs = TestCInteropArgs("-l", klib1.klibFile.canonicalPath, "-compiler-option", "-fmodules")
         val klib2: KLIB = cinteropToLibrary(targets, def2File, buildDir, includeFrameworkArgs + cinterop2ExtraArgs).assertSuccess().resultingArtifact
-        val contents2 = klib2.getContents(kotlinNativeClassLoader.classLoader)
-
-        val expectedFiltered2Output = golden2File.readText()
-        val actualFiltered2Output = filterContentsOutput(contents2, " pod.Version|POD|class Pod")
-        assertEquals(StringUtilRt.convertLineSeparators(expectedFiltered2Output), StringUtilRt.convertLineSeparators(actualFiltered2Output))
+        val metadata2 = klib2.dumpMetadata(kotlinNativeClassLoader.classLoader, false, null)
+        val actualFiltered2Output = filterContentsOutput(metadata2, " pod.Version|POD|class Pod")
+        assertEqualsToFile(golden2File, actualFiltered2Output)
 
         val ktFile = testPathFull.resolve(DEFAULT_FILE_NAME)
         if (ktFile.exists()) {
@@ -60,7 +55,7 @@ abstract class AbstractNativeCInteropKT39120Test : AbstractNativeCInteropBaseTes
                 files += TestFile.createCommitted(ktFile, this)
             }
             val compilationResult = compileToExecutable(
-                createTestCaseNoTestRun(module, TestCompilerArgs(listOf())),
+                createTestCaseNoTestRun(module, TestCompilerArgs.EMPTY),
                 klib1.asLibraryDependency(),
                 klib2.asLibraryDependency()
             )
@@ -79,10 +74,13 @@ abstract class AbstractNativeCInteropKT39120Test : AbstractNativeCInteropBaseTes
         }
     }
 
-    private fun filterContentsOutput(contents: String, pattern: String) =
-        contents.split("\n").filter {
-            it.contains(Regex(pattern))
-        }.joinToString(separator = "\n").replace("@ExperimentalForeignApi ", "")
+    private fun filterContentsOutput(contents: String, pattern: String): String {
+        val regex = Regex(pattern)
+        return contents.lineSequence()
+            .filter { it.contains(regex) }
+            .filterNot { it.trim() == "@kotlinx/cinterop/ExperimentalForeignApi" }
+            .joinToString("\n")
+    }
 
     private fun createTestCaseNoTestRun(module: TestModule.Exclusive, compilerArgs: TestCompilerArgs) = TestCase(
         id = TestCaseId.Named(module.name),

@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -19,26 +19,26 @@ import java.util.regex.Pattern;
 @TestMetadata("analysis/low-level-api-fir/testData/errorResistance")
 @TestDataPath("$PROJECT_ROOT")
 public class ErrorResistanceTestGenerated extends AbstractErrorResistanceTest {
-    @Test
-    public void testAllFilesPresentInErrorResistance() throws Exception {
-        KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/low-level-api-fir/testData/errorResistance"), Pattern.compile("^(.+)\\.kt$"), null, true);
-    }
+  @Test
+  public void testAllFilesPresentInErrorResistance() {
+    KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/low-level-api-fir/testData/errorResistance"), Pattern.compile("^(.+)\\.kt$"), null, true);
+  }
 
-    @Test
-    @TestMetadata("builderInference.kt")
-    public void testBuilderInference() throws Exception {
-        runTest("analysis/low-level-api-fir/testData/errorResistance/builderInference.kt");
-    }
+  @Test
+  @TestMetadata("builderInference.kt")
+  public void testBuilderInference() {
+    runTest("analysis/low-level-api-fir/testData/errorResistance/builderInference.kt");
+  }
 
-    @Test
-    @TestMetadata("propertyDelegate.kt")
-    public void testPropertyDelegate() throws Exception {
-        runTest("analysis/low-level-api-fir/testData/errorResistance/propertyDelegate.kt");
-    }
+  @Test
+  @TestMetadata("propertyDelegate.kt")
+  public void testPropertyDelegate() {
+    runTest("analysis/low-level-api-fir/testData/errorResistance/propertyDelegate.kt");
+  }
 
-    @Test
-    @TestMetadata("propertyInitializer.kt")
-    public void testPropertyInitializer() throws Exception {
-        runTest("analysis/low-level-api-fir/testData/errorResistance/propertyInitializer.kt");
-    }
+  @Test
+  @TestMetadata("propertyInitializer.kt")
+  public void testPropertyInitializer() {
+    runTest("analysis/low-level-api-fir/testData/errorResistance/propertyInitializer.kt");
+  }
 }

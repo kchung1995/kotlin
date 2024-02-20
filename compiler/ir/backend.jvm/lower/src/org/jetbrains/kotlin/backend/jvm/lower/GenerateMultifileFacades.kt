@@ -42,7 +42,7 @@ import org.jetbrains.kotlin.name.JvmStandardClassIds.JVM_SYNTHETIC_ANNOTATION_FQ
 import org.jetbrains.kotlin.resolve.inline.INLINE_ONLY_ANNOTATION_FQ_NAME
 import org.jetbrains.kotlin.resolve.jvm.diagnostics.JvmBackendErrors
 
-internal val generateMultifileFacadesPhase = makeCustomPhase<JvmBackendContext, IrModuleFragment>(
+internal val generateMultifileFacadesPhase = makeCustomPhase(
     name = "GenerateMultifileFacades",
     description = "Generate JvmMultifileClass facades, based on the information provided by FileClassLowering",
     prerequisite = setOf(fileClassPhase),
@@ -51,7 +51,7 @@ internal val generateMultifileFacadesPhase = makeCustomPhase<JvmBackendContext, 
 
         // In -Xmultifile-parts-inherit mode, instead of generating "bridge" methods in the facade which call into parts,
         // we construct an inheritance chain such that all part members are present as fake overrides in the facade.
-        val shouldGeneratePartHierarchy = context.state.languageVersionSettings.getFlag(JvmAnalysisFlags.inheritMultifileParts)
+        val shouldGeneratePartHierarchy = context.config.languageVersionSettings.getFlag(JvmAnalysisFlags.inheritMultifileParts)
         input.files.addAll(
             generateMultifileFacades(input, context, shouldGeneratePartHierarchy, functionDelegates)
         )

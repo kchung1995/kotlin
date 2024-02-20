@@ -14,6 +14,7 @@ import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.ir.UNDEFINED_OFFSET
 import org.jetbrains.kotlin.ir.builders.declarations.buildConstructor
 import org.jetbrains.kotlin.ir.builders.declarations.buildFun
+import org.jetbrains.kotlin.ir.builders.setSourceRange
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.expressions.impl.*
 import org.jetbrains.kotlin.ir.types.defaultType
@@ -106,9 +107,9 @@ private class JvmOverloadsAnnotationLowering(val context: JvmBackendContext) : C
         }
 
         wrapperIrFunction.body = if (target is IrConstructor) {
-            IrBlockBodyImpl(UNDEFINED_OFFSET, UNDEFINED_OFFSET, listOf(call))
+            context.irFactory.createBlockBody(UNDEFINED_OFFSET, UNDEFINED_OFFSET, listOf(call))
         } else {
-            IrExpressionBodyImpl(
+            context.irFactory.createExpressionBody(
                 UNDEFINED_OFFSET, UNDEFINED_OFFSET, call
             )
         }
@@ -120,6 +121,7 @@ private class JvmOverloadsAnnotationLowering(val context: JvmBackendContext) : C
         val res = when (oldFunction) {
             is IrConstructor -> {
                 buildConstructor {
+                    setSourceRange(oldFunction)
                     origin = JvmLoweredDeclarationOrigin.JVM_OVERLOADS_WRAPPER
                     name = oldFunction.name
                     visibility = oldFunction.visibility
@@ -128,11 +130,12 @@ private class JvmOverloadsAnnotationLowering(val context: JvmBackendContext) : C
                 }
             }
             is IrSimpleFunction -> buildFun {
+                setSourceRange(oldFunction)
                 origin = JvmLoweredDeclarationOrigin.JVM_OVERLOADS_WRAPPER
                 name = oldFunction.name
                 visibility = oldFunction.visibility
                 modality =
-                    if (context.state.languageVersionSettings.supportsFeature(LanguageFeature.GenerateJvmOverloadsAsFinal)) Modality.FINAL
+                    if (context.config.languageVersionSettings.supportsFeature(LanguageFeature.GenerateJvmOverloadsAsFinal)) Modality.FINAL
                     else oldFunction.modality
                 returnType = oldFunction.returnType
                 isInline = oldFunction.isInline

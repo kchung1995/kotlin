@@ -5,6 +5,7 @@
 
 package org.jetbrains.kotlin.backend.konan.driver.phases
 
+import org.jetbrains.kotlin.backend.common.phaser.createSimpleNamedCompilerPhase
 import org.jetbrains.kotlin.backend.konan.KonanConfigKeys
 import org.jetbrains.kotlin.backend.konan.OutputFiles
 import org.jetbrains.kotlin.backend.konan.driver.PhaseContext
@@ -25,7 +26,7 @@ internal val WriteKlibPhase = createSimpleNamedCompilerPhase<PhaseContext, KlibW
 ) { context, input ->
     val config = context.config
     val configuration = config.configuration
-    val outputFiles = OutputFiles(input.customOutputPath?.removeSuffixIfPresent(".klib")
+    val outputFiles = OutputFiles(input.customOutputPath
             ?: config.outputPath, config.target, config.produce)
     val nopack = configuration.getBoolean(KonanConfigKeys.NOPACK)
     val output = outputFiles.klibOutputFileName(!nopack)

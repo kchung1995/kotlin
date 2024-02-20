@@ -66,6 +66,7 @@ enum class PositioningStrategy(private val strategy: String? = null) {
     LATEINIT_MODIFIER,
     INLINE_OR_VALUE_MODIFIER,
     INNER_MODIFIER,
+    SUSPEND_MODIFIER,
     SELECTOR_BY_QUALIFIED,
     REFERENCE_BY_QUALIFIED,
     REFERENCED_NAME_BY_QUALIFIED,
@@ -92,6 +93,7 @@ enum class PositioningStrategy(private val strategy: String? = null) {
     QUESTION_MARK_BY_TYPE,
     ANNOTATION_USE_SITE,
     IMPORT_LAST_NAME,
+    IMPORT_LAST_BUT_ONE_NAME,
     DATA_MODIFIER,
     SPREAD_OPERATOR,
     DECLARATION_WITH_BODY,
@@ -104,6 +106,7 @@ enum class PositioningStrategy(private val strategy: String? = null) {
     LABEL,
     COMMAS,
     OPERATOR_MODIFIER,
+    INFIX_MODIFIER,
     NON_FINAL_MODIFIER_OR_NAME,
     ENUM_MODIFIER,
     FIELD_KEYWORD,
@@ -117,6 +120,7 @@ enum class PositioningStrategy(private val strategy: String? = null) {
     CALL_ELEMENT_WITH_DOT,
     EXPECT_ACTUAL_MODIFIER,
     TYPEALIAS_TYPE_REFERENCE,
+    SUPERTYPE_INITIALIZED_IN_EXPECTED_CLASS_DIAGNOSTIC,
     ;
 
     val expressionToCreate get() = "SourceElementPositioningStrategies.${strategy ?: name}"

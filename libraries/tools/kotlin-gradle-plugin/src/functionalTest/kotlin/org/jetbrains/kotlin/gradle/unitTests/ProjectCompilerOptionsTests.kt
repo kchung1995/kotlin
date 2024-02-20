@@ -18,6 +18,7 @@ import org.jetbrains.kotlin.gradle.tasks.withType
 import org.jetbrains.kotlin.gradle.util.*
 import org.jetbrains.kotlin.gradle.utils.named
 import org.jetbrains.kotlin.test.util.JUnit4Assertions.assertTrue
+import kotlin.test.Ignore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -81,6 +82,97 @@ class ProjectCompilerOptionsTests {
     }
 
     @Test
+    fun nativeLanguageSettingsOverridesTargetOptions() {
+        val project = buildProjectWithMPP {
+            with(multiplatformExtension) {
+                linuxX64 {
+                    compilerOptions {
+                        progressiveMode.set(true)
+                    }
+                }
+
+                applyDefaultHierarchyTemplate()
+
+                sourceSets.getByName("linuxX64Main").languageSettings {
+                    progressiveMode = false
+                }
+            }
+        }
+
+        project.evaluate()
+
+        assertEquals(false, project.kotlinNativeTask("compileKotlinLinuxX64").compilerOptions.progressiveMode.get())
+    }
+
+    @Test
+    fun jvmTargetCompilerOptionsDSL() {
+        val project = buildProjectWithMPP {
+            with(multiplatformExtension) {
+                jvm {
+                    compilerOptions {
+                        noJdk.set(true)
+                    }
+                }
+
+                applyDefaultHierarchyTemplate()
+            }
+        }
+
+        project.evaluate()
+
+        assertEquals(true, project.kotlinJvmTask("compileKotlinJvm").compilerOptions.noJdk.get())
+        assertEquals(true, project.kotlinJvmTask("compileTestKotlinJvm").compilerOptions.noJdk.get())
+    }
+
+    @Test
+    fun jvmTaskOverridesTargetOptions() {
+        val project = buildProjectWithMPP {
+            tasks.withType<KotlinCompilationTask<*>>().configureEach {
+                if (it.name == "compileKotlinJvm") {
+                    it.compilerOptions.progressiveMode.set(false)
+                }
+            }
+
+            with(multiplatformExtension) {
+                jvm {
+                    compilerOptions {
+                        progressiveMode.set(true)
+                    }
+                }
+
+                applyDefaultHierarchyTemplate()
+            }
+        }
+
+        project.evaluate()
+
+        assertEquals(false, project.kotlinJvmTask("compileKotlinJvm").compilerOptions.progressiveMode.get())
+    }
+
+    @Test
+    fun jvmLanguageSettingsOverridesTargetOptions() {
+        val project = buildProjectWithMPP {
+            with(multiplatformExtension) {
+                jvm {
+                    compilerOptions {
+                        progressiveMode.set(true)
+                    }
+                }
+
+                applyDefaultHierarchyTemplate()
+
+                sourceSets.getByName("jvmMain").languageSettings {
+                    progressiveMode = false
+                }
+            }
+        }
+
+        project.evaluate()
+
+        assertEquals(false, project.kotlinJvmTask("compileKotlinJvm").compilerOptions.progressiveMode.get())
+    }
+
+    @Test
     fun jsTargetCompilerOptionsDsl() {
         val project = buildProjectWithMPP {
             with(multiplatformExtension) {
@@ -123,6 +215,29 @@ class ProjectCompilerOptionsTests {
         project.evaluate()
 
         assertEquals(false, project.kotlinJsTask("compileKotlinJs").compilerOptions.suppressWarnings.get())
+    }
+
+    @Test
+    fun jsLanguageSettingsOverridesTargetOptions() {
+        val project = buildProjectWithMPP {
+            with(multiplatformExtension) {
+                js {
+                    compilerOptions {
+                        progressiveMode.set(true)
+                    }
+                }
+
+                applyDefaultHierarchyTemplate()
+
+                sourceSets.getByName("jsMain").languageSettings {
+                    progressiveMode = false
+                }
+            }
+        }
+
+        project.evaluate()
+
+        assertEquals(false, project.kotlinJsTask("compileKotlinJs").compilerOptions.progressiveMode.get())
     }
 
     @Test

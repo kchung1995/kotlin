@@ -31,6 +31,7 @@ fun CompilerConfiguration.setupJvmSpecificArguments(arguments: K2JVMCompilerArgu
         val value =
             when (releaseTargetArg) {
                 "1.6" -> 6
+                "1.7" -> 7
                 "1.8" -> 8
                 else -> releaseTargetArg.toIntOrNull()
             }
@@ -41,7 +42,7 @@ fun CompilerConfiguration.setupJvmSpecificArguments(arguments: K2JVMCompilerArgu
             if (value != getJavaVersion() || arguments.jdkHome != null) {
                 put(JVMConfigurationKeys.JDK_RELEASE, value)
             }
-            if (jvmTargetArg != null && jvmTargetArg != releaseTargetArg) {
+            if (jvmTargetArg != null && !isCompatibleJvmTargetAndRelease(jvmTargetArg, releaseTargetArg)) {
                 messageCollector.report(
                     ERROR,
                     "'-Xjdk-release=$releaseTargetArg' option conflicts with '-jvm-target $jvmTargetArg'. " +
@@ -52,7 +53,15 @@ fun CompilerConfiguration.setupJvmSpecificArguments(arguments: K2JVMCompilerArgu
     }
 
     val jvmTargetValue = when (releaseTargetArg) {
-        "6" -> "1.6"
+        "6", "1.6", "7", "1.7" -> {
+            if (jvmTargetArg == null) {
+                messageCollector.report(
+                    ERROR,
+                    "'-Xjdk-release=$releaseTargetArg' option requires explicit JVM target. Please specify the '-jvm-target' option"
+                )
+            }
+            jvmTargetArg
+        }
         "8" -> "1.8"
         null -> jvmTargetArg
         else -> releaseTargetArg
@@ -75,15 +84,7 @@ fun CompilerConfiguration.setupJvmSpecificArguments(arguments: K2JVMCompilerArgu
         }
     }
 
-    val jvmDefaultMode = languageVersionSettings.getFlag(JvmAnalysisFlags.jvmDefaultMode)
     val jvmTarget = get(JVMConfigurationKeys.JVM_TARGET) ?: JvmTarget.DEFAULT
-
-    if (jvmDefaultMode == JvmDefaultMode.ENABLE || jvmDefaultMode == JvmDefaultMode.ENABLE_WITH_DEFAULT_IMPLS) {
-        messageCollector.report(
-            WARNING,
-            "'-Xjvm-default=${jvmDefaultMode.description}' is deprecated, please use '-Xjvm-default=all|all-compatibility'"
-        )
-    }
 
     val stringConcat = arguments.stringConcat
     if (stringConcat != null) {
@@ -108,6 +109,15 @@ fun CompilerConfiguration.setupJvmSpecificArguments(arguments: K2JVMCompilerArgu
     handleClosureGenerationSchemeArgument("-Xlambdas", arguments.lambdas, JVMConfigurationKeys.LAMBDAS)
 
     addAll(JVMConfigurationKeys.ADDITIONAL_JAVA_MODULES, arguments.additionalJavaModules?.asList())
+}
+
+private fun isCompatibleJvmTargetAndRelease(jvmTarget: String, release: String): Boolean {
+    if (jvmTarget == "1.8") {
+        // This is needed to be able to compile stdlib with -jvm-target 1.8 and -Xjdk-release=1.6/1.7.
+        return release in listOf("6", "1.6", "7", "1.7", "8", "1.8")
+    }
+
+    return jvmTarget == release
 }
 
 private fun CompilerConfiguration.handleClosureGenerationSchemeArgument(
@@ -321,8 +331,6 @@ fun CompilerConfiguration.configureAdvancedJvmOptions(arguments: K2JVMCompilerAr
     if (arguments.enableJvmPreview) {
         messageCollector.report(INFO, "Using preview Java language features")
     }
-
-    arguments.declarationsOutputPath?.let { put(JVMConfigurationKeys.DECLARATIONS_JSON_PATH, it) }
 
     val nThreadsRaw = parseBackendThreads(arguments.backendThreads, messageCollector)
     val nThreads = if (nThreadsRaw == 0) Runtime.getRuntime().availableProcessors() else nThreadsRaw

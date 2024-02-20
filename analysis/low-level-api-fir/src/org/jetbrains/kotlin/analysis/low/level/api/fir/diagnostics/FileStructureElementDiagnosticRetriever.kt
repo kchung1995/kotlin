@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -13,53 +13,75 @@ import org.jetbrains.kotlin.analysis.low.level.api.fir.file.structure.visitScrip
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContextForProvider
 import org.jetbrains.kotlin.fir.analysis.collectors.DiagnosticCollectorComponents
+import org.jetbrains.kotlin.fir.correspondingProperty
+import org.jetbrains.kotlin.fir.declarations.FirConstructor
 import org.jetbrains.kotlin.fir.declarations.FirDeclaration
 import org.jetbrains.kotlin.fir.declarations.FirFile
-import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.declarations.FirScript
-import org.jetbrains.kotlin.fir.declarations.FirValueParameter
-import org.jetbrains.kotlin.fir.declarations.impl.FirDefaultPropertyAccessor
+import org.jetbrains.kotlin.fir.declarations.impl.FirPrimaryConstructor
 import org.jetbrains.kotlin.fir.resolve.SessionHolderImpl
 import org.jetbrains.kotlin.util.withSourceCodeAnalysisExceptionUnwrapping
 
-internal abstract class FileStructureElementDiagnosticRetriever {
-    abstract fun retrieve(
-        firFile: FirFile,
-        collector: FileStructureElementDiagnosticsCollector,
-        moduleComponents: LLFirModuleResolveComponents,
-    ): FileStructureElementDiagnosticList
-}
-
-internal class ClassDiagnosticRetriever(
-    private val structureElementDeclaration: FirRegularClass
-) : FileStructureElementDiagnosticRetriever() {
-    override fun retrieve(
-        firFile: FirFile,
-        collector: FileStructureElementDiagnosticsCollector,
-        moduleComponents: LLFirModuleResolveComponents,
-    ): FileStructureElementDiagnosticList {
+internal sealed class FileStructureElementDiagnosticRetriever(
+    val declaration: FirDeclaration,
+    private val file: FirFile,
+    private val moduleComponents: LLFirModuleResolveComponents,
+) {
+    fun retrieve(collector: FileStructureElementDiagnosticsCollector): FileStructureElementDiagnosticList {
         val sessionHolder = SessionHolderImpl(moduleComponents.session, moduleComponents.scopeSessionProvider.getScopeSession())
-        val context = PersistenceContextCollector.collectContext(sessionHolder, firFile, structureElementDeclaration)
+        val context = if (declaration is FirFile) {
+            PersistentCheckerContextFactory.createEmptyPersistenceCheckerContext(sessionHolder)
+        } else {
+            PersistenceContextCollector.collectContext(sessionHolder, file, declaration)
+        }
+
         return withSourceCodeAnalysisExceptionUnwrapping {
-            collector.collectForStructureElement(structureElementDeclaration) { components ->
-                Visitor(structureElementDeclaration, context, components)
+            collector.collectForStructureElement(declaration) { components ->
+                createVisitor(context, components)
             }
         }
     }
 
-    private class Visitor(
-        private val structureElementDeclaration: FirRegularClass,
-        context: CheckerContextForProvider,
-        components: DiagnosticCollectorComponents
-    ) : LLFirDiagnosticVisitor(context, components) {
+    abstract fun createVisitor(context: CheckerContextForProvider, components: DiagnosticCollectorComponents): LLFirDiagnosticVisitor
+}
 
-        override fun shouldVisitDeclaration(declaration: FirDeclaration): Boolean {
-            return when {
-                declaration == structureElementDeclaration -> true
-                shouldDiagnosticsAlwaysBeCheckedOn(declaration) -> true
-                declaration is FirDefaultPropertyAccessor -> shouldVisitDeclaration(declaration.propertySymbol.fir)
-                declaration is FirValueParameter -> shouldVisitDeclaration(declaration.containingFunctionSymbol.fir)
-                else -> false
+internal class ClassDiagnosticRetriever(
+    declaration: FirDeclaration,
+    file: FirFile,
+    moduleComponents: LLFirModuleResolveComponents,
+) : FileStructureElementDiagnosticRetriever(
+    declaration,
+    file,
+    moduleComponents,
+) {
+    override fun createVisitor(context: CheckerContextForProvider, components: DiagnosticCollectorComponents): LLFirDiagnosticVisitor {
+        return Visitor(declaration, context, components)
+    }
+
+    private class Visitor(
+        private val structureElementDeclaration: FirDeclaration,
+        context: CheckerContextForProvider,
+        components: DiagnosticCollectorComponents,
+    ) : LLFirDiagnosticVisitor(context, components) {
+        override fun shouldVisitDeclaration(declaration: FirDeclaration): Boolean = when {
+            declaration === structureElementDeclaration -> true
+            insideFakeDeclaration -> true
+            declaration.isImplicitConstructor -> true
+            else -> false
+        }
+
+        private var insideFakeDeclaration: Boolean = false
+
+        override fun visitNestedElements(element: FirElement) {
+            if (element.isImplicitConstructor) {
+                insideFakeDeclaration = true
+                try {
+                    super.visitNestedElements(element)
+                } finally {
+                    insideFakeDeclaration = false
+                }
+            } else {
+                super.visitNestedElements(element)
             }
         }
     }
@@ -73,55 +95,57 @@ internal class ClassDiagnosticRetriever(
     }
 }
 
+internal val FirElement.isImplicitConstructor: Boolean
+    get() = this is FirConstructor && source?.kind == KtFakeSourceElementKind.ImplicitConstructor
+
 internal class SingleNonLocalDeclarationDiagnosticRetriever(
-    private val structureElementDeclaration: FirDeclaration
-) : FileStructureElementDiagnosticRetriever() {
-    override fun retrieve(
-        firFile: FirFile,
-        collector: FileStructureElementDiagnosticsCollector,
-        moduleComponents: LLFirModuleResolveComponents,
-    ): FileStructureElementDiagnosticList {
-        val sessionHolder = SessionHolderImpl(moduleComponents.session, moduleComponents.scopeSessionProvider.getScopeSession())
-        val context = PersistenceContextCollector.collectContext(sessionHolder, firFile, structureElementDeclaration)
-        return withSourceCodeAnalysisExceptionUnwrapping {
-            collector.collectForStructureElement(structureElementDeclaration) { components ->
-                Visitor(context, components)
-            }
-        }
+    declaration: FirDeclaration,
+    file: FirFile,
+    moduleComponents: LLFirModuleResolveComponents,
+) : FileStructureElementDiagnosticRetriever(
+    declaration,
+    file,
+    moduleComponents,
+) {
+    override fun createVisitor(context: CheckerContextForProvider, components: DiagnosticCollectorComponents): LLFirDiagnosticVisitor {
+        return Visitor(context, components)
     }
 
     private class Visitor(
         context: CheckerContextForProvider,
-        components: DiagnosticCollectorComponents
+        components: DiagnosticCollectorComponents,
     ) : LLFirDiagnosticVisitor(context, components) {
+        override fun visitConstructor(constructor: FirConstructor, data: Nothing?) {
+            super.visitConstructor(constructor, data)
 
-        override fun shouldVisitDeclaration(declaration: FirDeclaration): Boolean {
-            return true
+            if (constructor is FirPrimaryConstructor) {
+                for (valueParameter in constructor.valueParameters) {
+                    valueParameter.correspondingProperty?.let {
+                        visitProperty(it, data)
+                    }
+                }
+            }
         }
     }
 }
 
-internal object FileDiagnosticRetriever : FileStructureElementDiagnosticRetriever() {
-    override fun retrieve(
-        firFile: FirFile,
-        collector: FileStructureElementDiagnosticsCollector,
-        moduleComponents: LLFirModuleResolveComponents,
-    ): FileStructureElementDiagnosticList =
-        withSourceCodeAnalysisExceptionUnwrapping {
-            collector.collectForStructureElement(firFile) { components ->
-                Visitor(components, moduleComponents)
-            }
-        }
+internal class FileDiagnosticRetriever(
+    declaration: FirDeclaration,
+    file: FirFile,
+    moduleComponents: LLFirModuleResolveComponents,
+) : FileStructureElementDiagnosticRetriever(
+    declaration,
+    file,
+    moduleComponents,
+) {
+    override fun createVisitor(context: CheckerContextForProvider, components: DiagnosticCollectorComponents): LLFirDiagnosticVisitor {
+        return Visitor(context, components)
+    }
 
     private class Visitor(
+        context: CheckerContextForProvider,
         components: DiagnosticCollectorComponents,
-        moduleComponents: LLFirModuleResolveComponents,
-    ) : LLFirDiagnosticVisitor(
-        PersistentCheckerContextFactory.createEmptyPersistenceCheckerContext(
-            SessionHolderImpl(moduleComponents.session, moduleComponents.scopeSessionProvider.getScopeSession())
-        ),
-        components,
-    ) {
+    ) : LLFirDiagnosticVisitor(context, components) {
         override fun visitFile(file: FirFile, data: Nothing?) {
             withAnnotationContainer(file) {
                 visitWithFile(file) {
@@ -135,19 +159,17 @@ internal object FileDiagnosticRetriever : FileStructureElementDiagnosticRetrieve
     }
 }
 
-internal class ScriptDiagnosticRetriever(private val script: FirScript) : FileStructureElementDiagnosticRetriever() {
-    override fun retrieve(
-        firFile: FirFile,
-        collector: FileStructureElementDiagnosticsCollector,
-        moduleComponents: LLFirModuleResolveComponents,
-    ): FileStructureElementDiagnosticList {
-        val sessionHolder = SessionHolderImpl(moduleComponents.session, moduleComponents.scopeSessionProvider.getScopeSession())
-        val context = PersistenceContextCollector.collectContext(sessionHolder, firFile, script)
-        return withSourceCodeAnalysisExceptionUnwrapping {
-            collector.collectForStructureElement(script) { components ->
-                Visitor(context, components)
-            }
-        }
+internal class ScriptDiagnosticRetriever(
+    declaration: FirDeclaration,
+    file: FirFile,
+    moduleComponents: LLFirModuleResolveComponents,
+) : FileStructureElementDiagnosticRetriever(
+    declaration,
+    file,
+    moduleComponents,
+) {
+    override fun createVisitor(context: CheckerContextForProvider, components: DiagnosticCollectorComponents): LLFirDiagnosticVisitor {
+        return Visitor(context, components)
     }
 
     private class Visitor(

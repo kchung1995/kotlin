@@ -34,7 +34,7 @@ dependencies {
     testApi(project(":compiler:cli"))
     testApi(project(":plugins:parcelize:parcelize-runtime"))
     testApi(project(":kotlin-android-extensions-runtime"))
-    testApi(project(":kotlin-test:kotlin-test-jvm"))
+    testApi(kotlinTest())
 
     testApi(projectTests(":compiler:tests-common-new"))
     testApi(projectTests(":compiler:test-infrastructure"))
@@ -65,13 +65,14 @@ dependencies {
 
     parcelizeRuntimeForTests(project(":plugins:parcelize:parcelize-runtime")) { isTransitive = false }
     parcelizeRuntimeForTests(project(":kotlin-android-extensions-runtime")) { isTransitive = false }
+    parcelizeRuntimeForTests(commonDependency("org.jetbrains.kotlinx:kotlinx-collections-immutable-jvm")) { isTransitive = false }
 
     layoutLib("org.jetbrains.intellij.deps.android.tools:layoutlib:26.5.0") { isTransitive = false }
     layoutLibApi("com.android.tools.layoutlib:layoutlib-api:26.5.0") { isTransitive = false }
 }
 
 optInToExperimentalCompilerApi()
-optInToIrSymbolInternals()
+optInToUnsafeDuringIrConstructionAPI()
 
 sourceSets {
     "main" { none() }
@@ -86,7 +87,7 @@ sourcesJar()
 javadocJar()
 testsJar()
 
-val robolectricDependencyDir = "$buildDir/robolectricDependencies"
+val robolectricDependencyDir = layout.buildDirectory.dir("robolectricDependencies")
 val prepareRobolectricDependencies by tasks.registering(Copy::class) {
     from(robolectricDependency)
     into(robolectricDependencyDir)
@@ -105,6 +106,7 @@ projectTest(jUnitMode = JUnitMode.JUnit5) {
 
     val parcelizeRuntimeForTestsConf: FileCollection = parcelizeRuntimeForTests
     val robolectricClasspathConf: FileCollection = robolectricClasspath
+    val robolectricDependencyDir: Provider<Directory> = robolectricDependencyDir
     val layoutLibConf: FileCollection = layoutLib
     val layoutLibApiConf: FileCollection = layoutLibApi
     doFirst {
@@ -112,7 +114,7 @@ projectTest(jUnitMode = JUnitMode.JUnit5) {
         systemProperty("robolectric.classpath", robolectricClasspathConf.asPath)
 
         systemProperty("robolectric.offline", "true")
-        systemProperty("robolectric.dependency.dir", robolectricDependencyDir)
+        systemProperty("robolectric.dependency.dir", robolectricDependencyDir.get().asFile)
 
         systemProperty("layoutLib.path", layoutLibConf.singleFile.canonicalPath)
         systemProperty("layoutLibApi.path", layoutLibApiConf.singleFile.canonicalPath)

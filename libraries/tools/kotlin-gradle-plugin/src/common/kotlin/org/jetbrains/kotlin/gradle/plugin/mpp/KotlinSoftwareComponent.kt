@@ -7,7 +7,9 @@ package org.jetbrains.kotlin.gradle.plugin.mpp
 
 import org.gradle.api.Project
 import org.gradle.api.artifacts.*
-import org.gradle.api.attributes.*
+import org.gradle.api.attributes.Attribute
+import org.gradle.api.attributes.AttributeContainer
+import org.gradle.api.attributes.Usage
 import org.gradle.api.capabilities.Capability
 import org.gradle.api.component.ComponentWithCoordinates
 import org.gradle.api.component.ComponentWithVariants
@@ -18,16 +20,18 @@ import org.gradle.api.provider.SetProperty
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.tasks.TaskProvider
 import org.gradle.jvm.tasks.Jar
+import org.jetbrains.kotlin.gradle.dsl.metadataTarget
 import org.jetbrains.kotlin.gradle.dsl.multiplatformExtension
-import org.jetbrains.kotlin.gradle.plugin.*
+import org.jetbrains.kotlin.gradle.plugin.KotlinCompilation
 import org.jetbrains.kotlin.gradle.plugin.KotlinCompilation.Companion.MAIN_COMPILATION_NAME
 import org.jetbrains.kotlin.gradle.plugin.KotlinPluginLifecycle.Stage.AfterFinaliseCompilations
+import org.jetbrains.kotlin.gradle.plugin.KotlinTarget
+import org.jetbrains.kotlin.gradle.plugin.ProjectLocalConfigurations
 import org.jetbrains.kotlin.gradle.plugin.PropertiesProvider.Companion.kotlinPropertiesProvider
-import org.jetbrains.kotlin.gradle.utils.markResolvable
+import org.jetbrains.kotlin.gradle.plugin.await
+import org.jetbrains.kotlin.gradle.plugin.mpp.DefaultKotlinUsageContext.PublishOnlyIf
 import org.jetbrains.kotlin.gradle.targets.metadata.*
-import org.jetbrains.kotlin.gradle.targets.metadata.COMMON_MAIN_ELEMENTS_CONFIGURATION_NAME
-import org.jetbrains.kotlin.gradle.targets.metadata.isCompatibilityMetadataVariantEnabled
-import org.jetbrains.kotlin.gradle.targets.metadata.isKotlinGranularMetadataEnabled
+import org.jetbrains.kotlin.gradle.utils.*
 import org.jetbrains.kotlin.gradle.utils.Future
 import org.jetbrains.kotlin.gradle.utils.future
 import org.jetbrains.kotlin.gradle.utils.setProperty
@@ -41,7 +45,7 @@ abstract class KotlinSoftwareComponent(
 
     override fun getName(): String = name
 
-    private val metadataTarget get() = project.multiplatformExtension.metadata() as KotlinMetadataTarget
+    private val metadataTarget get() = project.multiplatformExtension.metadataTarget
 
     private val _variants = project.future {
         AfterFinaliseCompilations.await()
@@ -132,9 +136,7 @@ abstract class KotlinSoftwareComponent(
         }
     }
 
-    // This property is declared in the parent type to allow the usages to reference it without forcing the subtypes to load,
-    // which is needed for compatibility with older Gradle versions
-    var publicationDelegate: MavenPublication? = null
+    val publicationDelegate: MavenPublication? get() = project.kotlinMultiplatformRootPublication.lenient.getOrNull()
 }
 
 class KotlinSoftwareComponentWithCoordinatesAndPublication(project: Project, name: String, kotlinTargets: Iterable<KotlinTarget>) :
@@ -204,15 +206,13 @@ class DefaultKotlinUsageContext(
          * attributes schema migration, or create proper, non-detached configurations for publishing that are separated from the
          * configurations used for project-to-project dependencies
          */
-        val result = project.configurations.detachedConfiguration().markResolvable().attributes
+        val result = project.configurations.detachedResolvable().attributes
 
-        // Capture type parameter T:
-        fun <T> copyAttribute(attribute: Attribute<T>, from: AttributeContainer, to: AttributeContainer) {
-            to.attribute<T>(attribute, from.getAttribute(attribute)!!)
-        }
-
-        filterOutNonPublishableAttributes(configurationAttributes.keySet())
-            .forEach { copyAttribute(it, configurationAttributes, result) }
+        configurationAttributes.copyAttributesTo(
+            project,
+            dest = result,
+            keys = filterOutNonPublishableAttributes(configurationAttributes.keySet())
+        )
 
         return result
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -20,20 +20,20 @@ import java.util.regex.Pattern;
 @TestMetadata("compiler/testData/diagnostics/irInterpreter")
 @TestDataPath("$PROJECT_ROOT")
 public class FirLightTreeWithInterpreterDiagnosticsTestGenerated extends AbstractFirLightTreeWithInterpreterDiagnosticsTest {
-    @Test
-    public void testAllFilesPresentInIrInterpreter() throws Exception {
-        KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/testData/diagnostics/irInterpreter"), Pattern.compile("^(.+)\\.kt$"), null, TargetBackend.JVM_IR, true);
-    }
+  @Test
+  public void testAllFilesPresentInIrInterpreter() {
+    KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("compiler/testData/diagnostics/irInterpreter"), Pattern.compile("^(.+)\\.kt$"), null, TargetBackend.JVM_IR, true);
+  }
 
-    @Test
-    @TestMetadata("exceptionFromInterpreter.kt")
-    public void testExceptionFromInterpreter() throws Exception {
-        runTest("compiler/testData/diagnostics/irInterpreter/exceptionFromInterpreter.kt");
-    }
+  @Test
+  @TestMetadata("exceptionFromInterpreter.kt")
+  public void testExceptionFromInterpreter() {
+    runTest("compiler/testData/diagnostics/irInterpreter/exceptionFromInterpreter.kt");
+  }
 
-    @Test
-    @TestMetadata("recursionAccess.kt")
-    public void testRecursionAccess() throws Exception {
-        runTest("compiler/testData/diagnostics/irInterpreter/recursionAccess.kt");
-    }
+  @Test
+  @TestMetadata("recursionAccess.kt")
+  public void testRecursionAccess() {
+    runTest("compiler/testData/diagnostics/irInterpreter/recursionAccess.kt");
+  }
 }

@@ -27,7 +27,6 @@ import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.jvm.tasks.Jar
 import org.gradle.jvm.toolchain.JavaToolchainService
 import org.gradle.kotlin.dsl.*
-import org.gradle.kotlin.dsl.support.uppercaseFirstChar
 import org.gradle.plugin.devel.plugins.JavaGradlePluginPlugin
 import org.gradle.plugin.devel.tasks.ValidatePlugins
 import org.jetbrains.dokka.DokkaVersion
@@ -61,6 +60,7 @@ enum class GradlePluginVariant(
     GRADLE_76("gradle76", "7.6", "7.6", "https://docs.gradle.org/7.6.1/javadoc/"),
     GRADLE_80("gradle80", "8.0", "8.0", "https://docs.gradle.org/8.0.2/javadoc/"),
     GRADLE_81("gradle81", "8.1", "8.1", "https://docs.gradle.org/8.1.1/javadoc/"),
+    GRADLE_82("gradle82", "8.2", "8.2", "https://docs.gradle.org/8.2.1/javadoc/"),
 }
 
 val commonSourceSetName = "common"
@@ -79,15 +79,16 @@ fun Project.configureCommonPublicationSettingsForGradle(
                 .configureEach {
                     configureKotlinPomAttributes(project)
                     if (sbom && project.name !in internalPlugins) {
+                        val buildDirectory = project.layout.buildDirectory
                         if (name == "pluginMaven") {
                             val sbomTask = configureSbom(target = "PluginMaven")
-                            artifact("$buildDir/spdx/PluginMaven/PluginMaven.spdx.json") {
+                            artifact(buildDirectory.file("spdx/PluginMaven/PluginMaven.spdx.json")) {
                                 extension = "spdx.json"
                                 builtBy(sbomTask)
                             }
                         } else if (name == "Main") {
                             val sbomTask = configureSbom()
-                            artifact("$buildDir/spdx/MainPublication/MainPublication.spdx.json") {
+                            artifact(buildDirectory.file("spdx/MainPublication/MainPublication.spdx.json")) {
                                 extension = "spdx.json"
                                 builtBy(sbomTask)
                             }
@@ -128,6 +129,7 @@ private val internalPlugins = setOf(
     "android-test-fixes",
     "gradle-warnings-detector",
     "kotlin-compiler-args-properties",
+    "fus-statistics-gradle-plugin",
 )
 
 private val testPlugins = internalPlugins + setOf(
@@ -153,7 +155,7 @@ fun Project.createGradleCommonSourceSet(): SourceSet {
 
         dependencies {
             compileOnlyConfigurationName(kotlinStdlib())
-            "commonGradleApiCompileOnly"("dev.gradleplugins:gradle-api:8.2")
+            "commonGradleApiCompileOnly"("dev.gradleplugins:gradle-api:8.5")
             if (this@createGradleCommonSourceSet.name !in testPlugins) {
                 compileOnlyConfigurationName(project(":kotlin-gradle-plugin-api")) {
                     capabilities {
@@ -493,7 +495,7 @@ fun Project.createGradlePluginVariant(
     }
 
     configurations.configureEach {
-        if (this@configureEach.name.startsWith(variantSourceSet.name)) {
+        if (this@configureEach.name.startsWith(variantSourceSet.name) && (isCanBeResolved || isCanBeConsumed)) {
             attributes {
                 attribute(
                     GradlePluginApiVersion.GRADLE_PLUGIN_API_VERSION_ATTRIBUTE,
@@ -631,6 +633,7 @@ fun Project.addBomCheckTask() {
             project(":gradle:kotlin-compiler-args-properties").path,
             project(":kotlin-gradle-build-metrics").path,
             project(":kotlin-gradle-statistics").path,
+            project(":libraries:tools:gradle:fus-statistics-gradle-plugin").path
         )
         val projectPath = this@addBomCheckTask.path
 
@@ -661,6 +664,7 @@ fun Project.addBomCheckTask() {
 fun Project.configureDokkaPublication(
     shouldLinkGradleApi: Boolean = false,
     configurePublishingToKotlinlang: Boolean = false,
+    additionalDokkaTaskConfiguration: DokkaTask.() -> Unit = {}
 ) {
 
     val dokkaVersioningPluginVersion = "1.8.10"
@@ -687,6 +691,7 @@ fun Project.configureDokkaPublication(
             }
             dokkaTask.configure {
                 description = "Generates documentation in 'javadoc' format for '${variantSourceSet.javadocTaskName}' variant"
+                notCompatibleWithConfigurationCache("Dokka is not compatible with Configuration Cache yet.")
 
                 plugins.dependencies.add(
                     project.dependencies.create("org.jetbrains.dokka:javadoc-plugin:${DokkaVersion.version}")
@@ -712,6 +717,8 @@ fun Project.configureDokkaPublication(
                         }
                     }
                 }
+
+                additionalDokkaTaskConfiguration()
             }
 
             tasks.named<Jar>(variantSourceSet.javadocJarTaskName) {
@@ -761,6 +768,8 @@ fun Project.configureDokkaPublication(
                             }
                         }
                     }
+
+                    additionalDokkaTaskConfiguration()
                 }
             }
         }
@@ -772,7 +781,8 @@ fun Project.configureDokkaPublication(
 private fun GradleExternalDocumentationLinkBuilder.addWorkaroundForElementList(pluginVariant: GradlePluginVariant) {
     if (pluginVariant == GradlePluginVariant.GRADLE_76 ||
         pluginVariant == GradlePluginVariant.GRADLE_80 ||
-        pluginVariant == GradlePluginVariant.GRADLE_81
+        pluginVariant == GradlePluginVariant.GRADLE_81 ||
+        pluginVariant == GradlePluginVariant.GRADLE_82
     ) {
         packageListUrl.set(URL("${pluginVariant.gradleApiJavadocUrl}element-list"))
     }

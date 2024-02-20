@@ -1,15 +1,16 @@
 /*
- * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
 package org.jetbrains.kotlin.light.classes.symbol.annotations
 
 import com.intellij.psi.PsiAnnotationParameterList
-import com.intellij.psi.PsiModifierList
+import com.intellij.psi.PsiElement
 import org.jetbrains.kotlin.analysis.api.annotations.KtAnnotationApplication
 import org.jetbrains.kotlin.analysis.api.annotations.KtAnnotationApplicationWithArgumentsInfo
 import org.jetbrains.kotlin.asJava.classes.lazyPub
+import org.jetbrains.kotlin.light.classes.symbol.*
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtCallElement
@@ -17,7 +18,7 @@ import org.jetbrains.kotlin.psi.KtCallElement
 internal class SymbolLightLazyAnnotation(
     val annotationsProvider: AnnotationsProvider,
     private val annotationApplication: KtAnnotationApplication,
-    owner: PsiModifierList,
+    owner: PsiElement,
 ) : SymbolLightAbstractAnnotation(owner) {
     init {
         requireNotNull(annotationApplication.classId)
@@ -26,6 +27,10 @@ internal class SymbolLightLazyAnnotation(
     private val classId: ClassId get() = annotationApplication.classId!!
 
     private val fqName: FqName = classId.asSingleFqName()
+
+    override fun createReferenceInformationProvider(): ReferenceInformationProvider = ReferenceInformationHolder(
+        referenceName = classId.shortClassName.asString(),
+    )
 
     val annotationApplicationWithArgumentsInfo: Lazy<KtAnnotationApplicationWithArgumentsInfo> =
         (annotationApplication as? KtAnnotationApplicationWithArgumentsInfo)?.let(::lazyOf) ?: lazyPub {
@@ -39,10 +44,8 @@ internal class SymbolLightLazyAnnotation(
     override fun getQualifiedName(): String = fqName.asString()
 
     private val _parameterList: PsiAnnotationParameterList by lazyPub {
-        if (annotationApplication.isCallWithArguments) {
-            symbolLightAnnotationParameterList { annotationApplicationWithArgumentsInfo.value.arguments }
-        } else {
-            symbolLightAnnotationParameterList()
+        symbolLightAnnotationParameterList {
+            annotationApplicationWithArgumentsInfo.value.normalizedArguments()
         }
     }
 

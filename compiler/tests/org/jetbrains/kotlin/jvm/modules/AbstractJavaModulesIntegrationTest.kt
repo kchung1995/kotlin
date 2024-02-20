@@ -35,6 +35,7 @@ abstract class AbstractJavaModulesIntegrationTest(
         addModules: List<String> = emptyList(),
         additionalKotlinArguments: List<String> = emptyList(),
         manifest: Manifest? = null,
+        destination: File? = null,
         checkKotlinOutput: (String) -> Unit = this.checkKotlinOutput(name),
     ): File {
         val paths = (modulePath + ForTestCompileRuntime.runtimeJarForTests()).joinToString(separator = File.pathSeparator) { it.path }
@@ -51,7 +52,8 @@ abstract class AbstractJavaModulesIntegrationTest(
 
         return compileLibrary(
             name,
-            additionalOptions = kotlinOptions,
+            destination ?: File(tmpdir, "$name.jar"),
+            kotlinOptions,
             compileJava = { _, javaFiles, outputDir ->
                 val javaOptions = mutableListOf(
                     "-d", outputDir.path,
@@ -63,11 +65,10 @@ abstract class AbstractJavaModulesIntegrationTest(
                 }
                 KotlinTestUtils.compileJavaFilesExternallyWithJava11(javaFiles, javaOptions)
             },
-            checkKotlinOutput = checkKotlinOutput,
-            manifest = manifest
+            checkKotlinOutput,
+            manifest
         )
     }
-
 
     private fun checkKotlinOutput(moduleName: String): (String) -> Unit {
         val expectedFirFile = File(testDataDirectory, "$moduleName.fir.txt")
@@ -75,8 +76,6 @@ abstract class AbstractJavaModulesIntegrationTest(
             KotlinTestUtils.assertEqualsToFile(
                 if (languageVersion.usesK2 && expectedFirFile.exists()) expectedFirFile else File(testDataDirectory, "$moduleName.txt"),
                 getNormalizedCompilerOutput(actual, null, testDataPath, tmpdir.absolutePath)
-                    .replace((System.getenv("JDK_11_0") ?: System.getenv("JDK_11")).replace("\\", "/"), "\$JDK11")
-                    .replace((System.getenv("JDK_17_0") ?: System.getenv("JDK_17")).replace("\\", "/"), "\$JDK17")
             )
         }
     }
@@ -348,5 +347,28 @@ abstract class AbstractJavaModulesIntegrationTest(
         module("main", checkKotlinOutput = {
             assertTrue(it, it.trimEnd().endsWith("COMPILATION_ERROR"))
         })
+    }
+
+    // TODO (KT-60797): missing JAVA_MODULE_DOES_NOT_DEPEND_ON_MODULE.
+    fun testNoDependencyOnNamed() = muteForK2 {
+        // This is a test on the JAVA_MODULE_DOES_NOT_DEPEND_ON_MODULE diagnostic.
+        val lib = module("lib")
+        module("main", listOf(lib), listOf("lib"))
+    }
+
+    // TODO (KT-60797): missing JAVA_MODULE_DOES_NOT_READ_UNNAMED_MODULE.
+    fun testNoDependencyOnUnnamed() = muteForK2 {
+        // This is a test on the JAVA_MODULE_DOES_NOT_READ_UNNAMED_MODULE diagnostic.
+        // Most of the other tests in this class are compiling modules to jars, however here we need to compile the module to a directory.
+        // The reason is twofold:
+        // 1) Currently the compiler adds all classpath entries as module path entries as long as we're compiling a named module (i.e. have
+        //    `module-info.java` in the sources), see `configureSourceRoots` in `KotlinToJVMBytecodeCompiler.kt`. This is most likely
+        //    incorrect.
+        // 2) All jars found in the module path which are NOT named modules are loaded as automatic modules, see
+        //    `ClasspathRootsResolver.modularBinaryRoot`. Combined with p.1, it means that _any_ jar in the dependencies will be loaded
+        //    as either a named or an automatic module; there's no way to observe a jar that is a part of the unnamed module.
+        // In this test we're checking the diagnostic about using symbols from unnamed modules, so we need to compile 'lib' to a directory.
+        val lib = module("lib", destination = File(tmpdir, name))
+        module("main", additionalKotlinArguments = listOf("-classpath", lib.path))
     }
 }

@@ -5,6 +5,7 @@
 
 package org.jetbrains.kotlin.fir.scopes.impl
 
+import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.descriptors.Visibility
 import org.jetbrains.kotlin.fir.*
@@ -14,11 +15,14 @@ import org.jetbrains.kotlin.fir.declarations.impl.FirDefaultPropertyAccessor
 import org.jetbrains.kotlin.fir.declarations.impl.FirDefaultPropertyGetter
 import org.jetbrains.kotlin.fir.declarations.impl.FirDefaultPropertySetter
 import org.jetbrains.kotlin.fir.declarations.utils.*
+import org.jetbrains.kotlin.fir.expressions.builder.buildExpressionStub
 import org.jetbrains.kotlin.fir.resolve.substitution.ChainedSubstitutor
 import org.jetbrains.kotlin.fir.resolve.substitution.ConeSubstitutor
 import org.jetbrains.kotlin.fir.resolve.substitution.substitutorByMap
+import org.jetbrains.kotlin.fir.resolve.toSymbol
+import org.jetbrains.kotlin.fir.scopes.CallableCopyDeferredReturnTypeCalculation
 import org.jetbrains.kotlin.fir.scopes.CallableCopySubstitution
-import org.jetbrains.kotlin.fir.scopes.callableCopySubstitutionForTypeUpdater
+import org.jetbrains.kotlin.fir.scopes.callableCopyDeferredTypeCalculation
 import org.jetbrains.kotlin.fir.symbols.ConeClassLikeLookupTag
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.*
@@ -26,9 +30,11 @@ import org.jetbrains.kotlin.fir.types.*
 import org.jetbrains.kotlin.fir.types.builder.buildResolvedTypeRef
 import org.jetbrains.kotlin.fir.types.impl.ConeTypeParameterTypeImpl
 import org.jetbrains.kotlin.fir.types.impl.FirImplicitTypeRefImplWithoutSource
+import org.jetbrains.kotlin.fir.utils.exceptions.withFirEntry
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.utils.addToStdlib.runIf
+import org.jetbrains.kotlin.utils.exceptions.checkWithAttachment
 
 object FirFakeOverrideGenerator {
     fun createSubstitutionOverrideFunction(
@@ -44,7 +50,7 @@ object FirFakeOverrideGenerator {
         newParameterTypes: List<ConeKotlinType?>? = null,
         newTypeParameters: List<FirTypeParameter>? = null,
         isExpect: Boolean = baseFunction.isExpect,
-        callableCopySubstitutionForTypeUpdater: CallableCopySubstitution? = null
+        callableCopySubstitutionForTypeUpdater: CallableCopySubstitution? = null,
     ): FirNamedFunctionSymbol {
         createSubstitutionOverrideFunction(
             symbolForSubstitutionOverride, session, baseFunction, derivedClassLookupTag,
@@ -93,7 +99,7 @@ object FirFakeOverrideGenerator {
             newReceiverType,
             newContextReceiverTypes,
             newReturnType,
-            callableCopySubstitutionForTypeUpdater = callableCopySubstitutionForTypeUpdater
+            deferredReturnTypeCalculation = callableCopySubstitutionForTypeUpdater
         ).apply {
             originalForSubstitutionOverrideAttr = baseFunction
         }
@@ -114,29 +120,27 @@ object FirFakeOverrideGenerator {
         newReturnType: ConeKotlinType? = null,
         newModality: Modality? = null,
         newVisibility: Visibility? = null,
-        callableCopySubstitutionForTypeUpdater: CallableCopySubstitution? = null
-    ): FirSimpleFunction {
-        checkStatusIsResolved(baseFunction)
+        deferredReturnTypeCalculation: CallableCopyDeferredReturnTypeCalculation? = null,
+        newSource: KtSourceElement? = derivedClassLookupTag?.toSymbol(session)?.source ?: baseFunction.source,
+    ): FirSimpleFunction = buildSimpleFunction {
+        source = newSource
+        moduleData = session.nullableModuleData ?: baseFunction.moduleData
+        this.origin = origin
+        name = baseFunction.name
+        status = baseFunction.status.copy(newVisibility, newModality, isExpect = isExpect, isOverride = true)
+        symbol = newSymbol
+        resolvePhase = origin.resolvePhaseForCopy
 
-        return buildSimpleFunction {
-            source = baseFunction.source
-            moduleData = session.nullableModuleData ?: baseFunction.moduleData
-            this.origin = origin
-            name = baseFunction.name
-            status = baseFunction.status.copy(newVisibility, newModality, isExpect = isExpect)
-            symbol = newSymbol
-            resolvePhase = baseFunction.resolvePhase
-
-            dispatchReceiverType = newDispatchReceiverType
-            attributes = baseFunction.attributes.copy()
-            typeParameters += configureAnnotationsTypeParametersAndSignature(
-                session, baseFunction, newParameterTypes, newTypeParameters,
-                newReceiverType, newContextReceiverTypes, newReturnType, callableCopySubstitutionForTypeUpdater, newSymbol
-            ).filterIsInstance<FirTypeParameter>()
-            deprecationsProvider = baseFunction.deprecationsProvider
-        }.apply {
-            containingClassForStaticMemberAttr = derivedClassLookupTag.takeIf { shouldOverrideSetContainingClass(baseFunction) }
-        }
+        dispatchReceiverType = newDispatchReceiverType
+        attributes = baseFunction.attributes.copy()
+        typeParameters += configureAnnotationsTypeParametersAndSignature(
+            session, baseFunction, newParameterTypes, newTypeParameters,
+            newReceiverType, newContextReceiverTypes, newReturnType, deferredReturnTypeCalculation, newSymbol,
+            copyDefaultValues = false,
+        ).filterIsInstance<FirTypeParameter>()
+        deprecationsProvider = baseFunction.deprecationsProvider
+    }.apply {
+        containingClassForStaticMemberAttr = derivedClassLookupTag.takeIf { shouldOverrideSetContainingClass(baseFunction) }
     }
 
     fun createCopyForFirConstructor(
@@ -151,47 +155,50 @@ object FirFakeOverrideGenerator {
         newContextReceiverTypes: List<ConeKotlinType?>?,
         newTypeParameters: List<FirTypeParameterRef>?,
         isExpect: Boolean,
-        callableCopySubstitutionForTypeUpdater: CallableCopySubstitution?
-    ): FirConstructor {
-        checkStatusIsResolved(baseConstructor)
-
+        deferredReturnTypeCalculation: CallableCopyDeferredReturnTypeCalculation?,
+        newSource: KtSourceElement? = null,
+    ): FirConstructor = buildConstructor {
         // TODO: consider using here some light-weight functions instead of pseudo-real FirMemberFunctionImpl
         // As second alternative, we can invent some light-weight kind of FirRegularClass
-        return buildConstructor {
-            annotations += baseConstructor.annotations
-            moduleData = session.nullableModuleData ?: baseConstructor.moduleData
-            this.origin = origin
-            receiverParameter = baseConstructor.receiverParameter?.let { receiverParameter ->
-                buildReceiverParameterCopy(receiverParameter) {
-                    typeRef = receiverParameter.typeRef.withReplacedConeType(null)
-                }
+        annotations += baseConstructor.annotations
+        source = newSource ?: derivedClassLookupTag?.toSymbol(session)?.source ?: baseConstructor.source
+        moduleData = session.nullableModuleData ?: baseConstructor.moduleData
+        this.origin = origin
+        receiverParameter = baseConstructor.receiverParameter?.let { receiverParameter ->
+            buildReceiverParameterCopy(receiverParameter) {
+                typeRef = receiverParameter.typeRef.withReplacedConeType(null)
             }
-
-            status = baseConstructor.status.copy(isExpect = isExpect)
-            symbol = fakeOverrideSymbol
-
-            typeParameters += configureAnnotationsTypeParametersAndSignature(
-                session,
-                baseConstructor,
-                newParameterTypes,
-                newTypeParameters,
-                newReceiverType = null,
-                newContextReceiverTypes,
-                newReturnType,
-                callableCopySubstitutionForTypeUpdater,
-                fakeOverrideSymbol
-            )
-
-            dispatchReceiverType = newDispatchReceiverType
-
-            resolvePhase = baseConstructor.resolvePhase
-            source = baseConstructor.source
-            attributes = baseConstructor.attributes.copy()
-            deprecationsProvider = baseConstructor.deprecationsProvider
-        }.apply {
-            originalForSubstitutionOverrideAttr = baseConstructor
-            containingClassForStaticMemberAttr = derivedClassLookupTag.takeIf { shouldOverrideSetContainingClass(baseConstructor) }
         }
+
+        status = baseConstructor.status.copy(isExpect = isExpect)
+        symbol = fakeOverrideSymbol
+
+        typeParameters += configureAnnotationsTypeParametersAndSignature(
+            session,
+            baseConstructor,
+            newParameterTypes,
+            newTypeParameters,
+            newReceiverType = null,
+            newContextReceiverTypes,
+            newReturnType,
+            deferredReturnTypeCalculation,
+            fakeOverrideSymbol,
+            // Copying default values here is important, because constructors don't
+            // override anything and we rely on this fact when mapping arguments
+            // during resolution.
+            // See: FirDefaultParametersResolver.declaresDefaultValue()
+            // See: testData/diagnostics/linked/declarations/classifier-declaration/class-declaration/constructor-declaration/p-5/pos/3.4.kt
+            copyDefaultValues = true,
+        )
+
+        dispatchReceiverType = newDispatchReceiverType
+
+        resolvePhase = origin.resolvePhaseForCopy
+        attributes = baseConstructor.attributes.copy()
+        deprecationsProvider = baseConstructor.deprecationsProvider
+    }.apply {
+        originalForSubstitutionOverrideAttr = baseConstructor
+        containingClassForStaticMemberAttr = derivedClassLookupTag.takeIf { shouldOverrideSetContainingClass(baseConstructor) }
     }
 
     private fun FirFunctionBuilder.configureAnnotationsTypeParametersAndSignature(
@@ -202,8 +209,9 @@ object FirFakeOverrideGenerator {
         newReceiverType: ConeKotlinType?,
         newContextReceiverTypes: List<ConeKotlinType?>?,
         newReturnType: ConeKotlinType?,
-        callableCopySubstitutionForTypeUpdater: CallableCopySubstitution?,
+        deferredReturnTypeCalculation: CallableCopyDeferredReturnTypeCalculation?,
         symbolForOverride: FirFunctionSymbol<*>,
+        copyDefaultValues: Boolean = false,
     ): List<FirTypeParameterRef> {
         return when {
             baseFunction.typeParameters.isEmpty() -> {
@@ -214,8 +222,9 @@ object FirFakeOverrideGenerator {
                     newReceiverType,
                     newContextReceiverTypes,
                     newReturnType,
-                    callableCopySubstitutionForTypeUpdater,
+                    deferredReturnTypeCalculation,
                     origin,
+                    copyDefaultValues,
                 )
                 emptyList()
             }
@@ -243,6 +252,7 @@ object FirFakeOverrideGenerator {
                     copiedReturnType,
                     newCallableCopySubstitutionForTypeUpdater,
                     origin,
+                    copyDefaultValues,
                 )
                 copiedTypeParameters
             }
@@ -254,8 +264,9 @@ object FirFakeOverrideGenerator {
                     newReceiverType,
                     newContextReceiverTypes,
                     newReturnType,
-                    callableCopySubstitutionForTypeUpdater,
+                    deferredReturnTypeCalculation,
                     origin,
+                    copyDefaultValues,
                 )
                 newTypeParameters
             }
@@ -269,20 +280,22 @@ object FirFakeOverrideGenerator {
         newReceiverType: ConeKotlinType?,
         newContextReceiverTypes: List<ConeKotlinType?>?,
         newReturnType: ConeKotlinType?,
-        callableCopySubstitutionForTypeUpdater: CallableCopySubstitution?,
+        deferredTypeCalculation: CallableCopyDeferredReturnTypeCalculation?,
         origin: FirDeclarationOrigin,
+        copyDefaultValues: Boolean = false,
     ) {
+        checkStatusIsResolved(baseFunction)
         annotations += baseFunction.annotations
 
         @Suppress("NAME_SHADOWING")
-        val callableCopySubstitutionForTypeUpdater = callableCopySubstitutionForTypeUpdater
+        val deferredTypeCalculation = deferredTypeCalculation
             ?: runIf(baseFunction.returnTypeRef is FirImplicitTypeRef) {
                 CallableCopySubstitution(ConeSubstitutor.Empty, baseFunction.symbol)
             }
 
-        if (callableCopySubstitutionForTypeUpdater != null) {
+        if (deferredTypeCalculation != null) {
             returnTypeRef = FirImplicitTypeRefImplWithoutSource
-            attributes.callableCopySubstitutionForTypeUpdater = callableCopySubstitutionForTypeUpdater
+            attributes.callableCopyDeferredTypeCalculation = deferredTypeCalculation
         } else {
             returnTypeRef = baseFunction.returnTypeRef.withReplacedReturnType(newReturnType)
         }
@@ -294,17 +307,18 @@ object FirFakeOverrideGenerator {
                 }
             }
         }
+
         valueParameters += baseFunction.valueParameters.zip(
             newParameterTypes ?: List(baseFunction.valueParameters.size) { null }
         ) { valueParameter, newType ->
-            buildValueParameterCopy(valueParameter) {
-                this.origin = origin
-                returnTypeRef = valueParameter.returnTypeRef.withReplacedConeType(newType)
-                symbol = FirValueParameterSymbol(valueParameter.name)
-                containingFunctionSymbol = fakeFunctionSymbol
-            }.apply {
-                originalForSubstitutionOverrideAttr = valueParameter
-            }
+            buildCopyForValueParameter(
+                valueParameter,
+                valueParameter.returnTypeRef.withReplacedConeType(newType),
+                origin,
+                fakeFunctionSymbol,
+                this@configureAnnotationsAndSignature.source ?: valueParameter.source,
+                copyDefaultValues,
+            )
         }
 
         contextReceivers += baseFunction.contextReceivers.zip(
@@ -314,6 +328,30 @@ object FirFakeOverrideGenerator {
                 typeRef = contextReceiver.typeRef.withReplacedConeType(newType)
             }
         }
+    }
+
+    private fun buildCopyForValueParameter(
+        original: FirValueParameter,
+        returnTypeRef: FirTypeRef,
+        origin: FirDeclarationOrigin,
+        containingFunctionSymbol: FirFunctionSymbol<*>,
+        source: KtSourceElement?,
+        copyDefaultValues: Boolean = true,
+    ): FirValueParameter = buildValueParameterCopy(original) {
+        this.origin = origin
+        this.source = source
+        this.returnTypeRef = returnTypeRef
+        symbol = FirValueParameterSymbol(original.name)
+        this.containingFunctionSymbol = containingFunctionSymbol
+        defaultValue = defaultValue
+            ?.takeIf { copyDefaultValues }
+            ?.let {
+                buildExpressionStub {
+                    coneTypeOrNull = returnTypeRef.coneTypeOrNull
+                }
+            }
+
+        resolvePhase = origin.resolvePhaseForCopy
     }
 
     fun createSubstitutionOverrideProperty(
@@ -328,12 +366,12 @@ object FirFakeOverrideGenerator {
         newReturnType: ConeKotlinType? = null,
         newTypeParameters: List<FirTypeParameter>? = null,
         isExpect: Boolean = baseProperty.isExpect,
-        callableCopySubstitutionForTypeUpdater: CallableCopySubstitution? = null
+        callableCopySubstitutionForTypeUpdater: CallableCopySubstitution? = null,
     ): FirPropertySymbol {
         createCopyForFirProperty(
             symbolForSubstitutionOverride, baseProperty, derivedClassLookupTag, session, origin,
             isExpect, newDispatchReceiverType, newTypeParameters, newReceiverType, newContextReceiverTypes, newReturnType,
-            callableCopySubstitutionForTypeUpdater = callableCopySubstitutionForTypeUpdater
+            deferredReturnTypeCalculation = callableCopySubstitutionForTypeUpdater
         ).apply {
             originalForSubstitutionOverrideAttr = baseProperty
         }
@@ -362,56 +400,53 @@ object FirFakeOverrideGenerator {
         newReturnType: ConeKotlinType? = null,
         newModality: Modality? = null,
         newVisibility: Visibility? = null,
-        callableCopySubstitutionForTypeUpdater: CallableCopySubstitution? = null
-    ): FirProperty {
-        checkStatusIsResolved(baseProperty)
+        deferredReturnTypeCalculation: CallableCopyDeferredReturnTypeCalculation? = null,
+        newSource: KtSourceElement? = derivedClassLookupTag?.toSymbol(session)?.source ?: baseProperty.source,
+    ): FirProperty = buildProperty {
+        source = newSource
+        moduleData = session.nullableModuleData ?: baseProperty.moduleData
+        this.origin = origin
+        name = baseProperty.name
+        isVar = baseProperty.isVar
+        this.symbol = newSymbol
+        isLocal = false
+        status = baseProperty.status.copy(newVisibility, newModality, isExpect = isExpect, isOverride = true)
 
-        return buildProperty {
-            source = baseProperty.source
-            moduleData = session.nullableModuleData ?: baseProperty.moduleData
-            this.origin = origin
-            name = baseProperty.name
-            isVar = baseProperty.isVar
-            this.symbol = newSymbol
-            isLocal = false
-            status = baseProperty.status.copy(newVisibility, newModality, isExpect = isExpect)
+        resolvePhase = origin.resolvePhaseForCopy
+        dispatchReceiverType = newDispatchReceiverType
+        attributes = baseProperty.attributes.copy()
+        typeParameters += configureAnnotationsTypeParametersAndSignature(
+            session,
+            baseProperty,
+            newTypeParameters,
+            newReceiverType,
+            newContextReceiverTypes,
+            newReturnType,
+            deferredReturnTypeCalculation
+        )
+        deprecationsProvider = baseProperty.deprecationsProvider
 
-            resolvePhase = baseProperty.resolvePhase
-            dispatchReceiverType = newDispatchReceiverType
-            attributes = baseProperty.attributes.copy()
-            typeParameters += configureAnnotationsTypeParametersAndSignature(
-                session,
-                baseProperty,
-                newTypeParameters,
-                newReceiverType,
-                newContextReceiverTypes,
-                newReturnType,
-                callableCopySubstitutionForTypeUpdater
-            )
-            deprecationsProvider = baseProperty.deprecationsProvider
+        getter = baseProperty.getter?.buildCopyIfNeeded(
+            moduleData = session.nullableModuleData ?: baseProperty.moduleData,
+            origin = origin,
+            propertyReturnTypeRef = this@buildProperty.returnTypeRef,
+            propertySymbol = newSymbol,
+            dispatchReceiverType = dispatchReceiverType,
+            derivedClassLookupTag = derivedClassLookupTag,
+            baseProperty = baseProperty,
+        )
 
-            getter = baseProperty.getter?.buildCopyIfNeeded(
-                moduleData = session.nullableModuleData ?: baseProperty.moduleData,
-                origin = origin,
-                propertyReturnTypeRef = this@buildProperty.returnTypeRef,
-                propertySymbol = newSymbol,
-                dispatchReceiverType = dispatchReceiverType,
-                derivedClassLookupTag = derivedClassLookupTag,
-                baseProperty = baseProperty,
-            )
-
-            setter = baseProperty.setter?.buildCopyIfNeeded(
-                moduleData = session.nullableModuleData ?: baseProperty.moduleData,
-                origin = origin,
-                propertyReturnTypeRef = this@buildProperty.returnTypeRef,
-                propertySymbol = newSymbol,
-                dispatchReceiverType = dispatchReceiverType,
-                derivedClassLookupTag = derivedClassLookupTag,
-                baseProperty = baseProperty,
-            )
-        }.apply {
-            containingClassForStaticMemberAttr = derivedClassLookupTag.takeIf { shouldOverrideSetContainingClass(baseProperty) }
-        }
+        setter = baseProperty.setter?.buildCopyIfNeeded(
+            moduleData = session.nullableModuleData ?: baseProperty.moduleData,
+            origin = origin,
+            propertyReturnTypeRef = this@buildProperty.returnTypeRef,
+            propertySymbol = newSymbol,
+            dispatchReceiverType = dispatchReceiverType,
+            derivedClassLookupTag = derivedClassLookupTag,
+            baseProperty = baseProperty,
+        )
+    }.apply {
+        containingClassForStaticMemberAttr = derivedClassLookupTag.takeIf { shouldOverrideSetContainingClass(baseProperty) }
     }
 
     private fun FirPropertyAccessor.buildCopyIfNeeded(
@@ -453,9 +488,9 @@ object FirFakeOverrideGenerator {
             propertySymbol = propertySymbol,
             modality = modality ?: Modality.FINAL,
             effectiveVisibility = effectiveVisibility,
-            resolvePhase = resolvePhase,
+            resolvePhase = origin.resolvePhaseForCopy,
         ).apply {
-            replaceAnnotations(annotations)
+            replaceAnnotations(this@buildCopy.annotations)
         }
         is FirDefaultPropertySetter -> FirDefaultPropertySetter(
             source = source,
@@ -466,9 +501,9 @@ object FirFakeOverrideGenerator {
             propertySymbol = propertySymbol,
             modality = modality ?: Modality.FINAL,
             effectiveVisibility = effectiveVisibility,
-            resolvePhase = resolvePhase,
+            resolvePhase = origin.resolvePhaseForCopy,
         ).apply {
-            replaceAnnotations(annotations)
+            replaceAnnotations(this@buildCopy.annotations)
         }
         else -> buildPropertyAccessorCopy(this) {
             this.symbol = FirPropertyAccessorSymbol()
@@ -477,24 +512,23 @@ object FirFakeOverrideGenerator {
             this.propertySymbol = propertySymbol
             this.dispatchReceiverType = dispatchReceiverType
             this.body = null
+            resolvePhase = origin.resolvePhaseForCopy
         }.also {
             if (it.isSetter) {
-                val newParameter = buildValueParameterCopy(it.valueParameters.first()) {
-                    this.symbol = FirValueParameterSymbol(symbol.name)
-                    this.returnTypeRef = propertyReturnTypeRef
-                }
+                val originalParameter = it.valueParameters.first()
+                val newParameter = buildCopyForValueParameter(
+                    original = originalParameter,
+                    returnTypeRef = propertyReturnTypeRef,
+                    origin = origin,
+                    containingFunctionSymbol = it.symbol,
+                    source = originalParameter.source,
+                )
                 it.replaceValueParameters(listOf(newParameter))
             } else {
                 it.replaceReturnTypeRef(propertyReturnTypeRef)
             }
         }
     }.also { accessor ->
-        when (accessor.origin) {
-            FirDeclarationOrigin.IntersectionOverride -> accessor.originalForIntersectionOverrideAttr = this
-            is FirDeclarationOrigin.SubstitutionOverride -> accessor.originalForSubstitutionOverrideAttr = this
-            else -> {}
-        }
-
         accessor.containingClassForStaticMemberAttr = derivedClassLookupTag.takeIf {
             accessor is FirDefaultPropertyAccessor || shouldOverrideSetContainingClass(baseProperty)
         }
@@ -513,28 +547,26 @@ object FirFakeOverrideGenerator {
         newReturnType: ConeKotlinType? = null,
         newModality: Modality? = null,
         newVisibility: Visibility? = null,
-        callableCopySubstitutionForTypeUpdater: CallableCopySubstitution? = null
-    ): FirField {
-        return buildField {
-            source = baseField.source
-            moduleData = session.nullableModuleData ?: baseField.moduleData
-            this.origin = origin
-            name = baseField.name
-            isVar = baseField.isVar
-            this.symbol = newSymbol
-            status = baseField.status.copy(newVisibility, newModality, isExpect = isExpect)
+        deferredReturnTypeCalculation: CallableCopyDeferredReturnTypeCalculation? = null,
+    ): FirField = buildField {
+        source = baseField.source
+        moduleData = session.nullableModuleData ?: baseField.moduleData
+        this.origin = origin
+        name = baseField.name
+        isVar = baseField.isVar
+        this.symbol = newSymbol
+        status = baseField.status.copy(newVisibility, newModality, isExpect = isExpect)
 
-            resolvePhase = baseField.resolvePhase
-            dispatchReceiverType = newDispatchReceiverType
-            attributes = baseField.attributes.copy()
-            configureAnnotationsAndSignature(
-                baseField, newReceiverType, newContextReceiverTypes, newReturnType,
-                callableCopySubstitutionForTypeUpdater, updateReceiver = false
-            )
-            deprecationsProvider = baseField.deprecationsProvider
-        }.apply {
-            containingClassForStaticMemberAttr = derivedClassLookupTag.takeIf { shouldOverrideSetContainingClass(baseField) }
-        }
+        resolvePhase = origin.resolvePhaseForCopy
+        dispatchReceiverType = newDispatchReceiverType
+        attributes = baseField.attributes.copy()
+        configureAnnotationsAndSignature(
+            baseField, newReceiverType, newContextReceiverTypes, newReturnType,
+            deferredReturnTypeCalculation, updateReceiver = false
+        )
+        deprecationsProvider = baseField.deprecationsProvider
+    }.apply {
+        containingClassForStaticMemberAttr = derivedClassLookupTag.takeIf { shouldOverrideSetContainingClass(baseField) }
     }
 
     private fun FirPropertyBuilder.configureAnnotationsTypeParametersAndSignature(
@@ -544,12 +576,12 @@ object FirFakeOverrideGenerator {
         newReceiverType: ConeKotlinType?,
         newContextReceiverTypes: List<ConeKotlinType?>?,
         newReturnType: ConeKotlinType?,
-        callableCopySubstitutionForTypeUpdater: CallableCopySubstitution?
+        deferredReturnTypeCalculation: CallableCopyDeferredReturnTypeCalculation?,
     ): List<FirTypeParameter> {
         return when {
             baseProperty.typeParameters.isEmpty() -> {
                 configureAnnotationsAndSignature(
-                    baseProperty, newReceiverType, newContextReceiverTypes, newReturnType, callableCopySubstitutionForTypeUpdater
+                    baseProperty, newReceiverType, newContextReceiverTypes, newReturnType, deferredReturnTypeCalculation
                 )
                 emptyList()
             }
@@ -572,7 +604,7 @@ object FirFakeOverrideGenerator {
             }
             else -> {
                 configureAnnotationsAndSignature(
-                    baseProperty, newReceiverType, newContextReceiverTypes, newReturnType, callableCopySubstitutionForTypeUpdater
+                    baseProperty, newReceiverType, newContextReceiverTypes, newReturnType, deferredReturnTypeCalculation
                 )
                 newTypeParameters
             }
@@ -584,7 +616,7 @@ object FirFakeOverrideGenerator {
         newReceiverType: ConeKotlinType?,
         newContextReceiverTypes: List<ConeKotlinType?>?,
         newReturnType: ConeKotlinType?,
-        substitutor: ConeSubstitutor
+        substitutor: ConeSubstitutor,
     ): Triple<ConeKotlinType?, List<ConeKotlinType?>, Maybe<ConeKotlinType?>> {
         val copiedReceiverType = newReceiverType?.let {
             substitutor.substituteOrNull(it)
@@ -616,20 +648,21 @@ object FirFakeOverrideGenerator {
         newReceiverType: ConeKotlinType?,
         newContextReceiverTypes: List<ConeKotlinType?>?,
         newReturnType: ConeKotlinType?,
-        callableCopySubstitutionForTypeUpdater: CallableCopySubstitution?,
-        updateReceiver: Boolean = true
+        deferredReturnTypeCalculation: CallableCopyDeferredReturnTypeCalculation?,
+        updateReceiver: Boolean = true,
     ) {
+        checkStatusIsResolved(baseVariable)
         annotations += baseVariable.annotations
 
         @Suppress("NAME_SHADOWING")
-        val callableCopySubstitutionForTypeUpdater = callableCopySubstitutionForTypeUpdater
+        val deferredReturnTypeCalculation = deferredReturnTypeCalculation
             ?: runIf(baseVariable.returnTypeRef is FirImplicitTypeRef) {
                 CallableCopySubstitution(ConeSubstitutor.Empty, baseVariable.symbol)
             }
 
-        if (callableCopySubstitutionForTypeUpdater != null) {
+        if (deferredReturnTypeCalculation != null) {
             returnTypeRef = FirImplicitTypeRefImplWithoutSource
-            attributes.callableCopySubstitutionForTypeUpdater = callableCopySubstitutionForTypeUpdater
+            attributes.callableCopyDeferredTypeCalculation = deferredReturnTypeCalculation
         } else {
             returnTypeRef = baseVariable.returnTypeRef.withReplacedReturnType(newReturnType)
         }
@@ -657,29 +690,25 @@ object FirFakeOverrideGenerator {
         derivedClassLookupTag: ConeClassLikeLookupTag,
         newReturnType: ConeKotlinType?,
         origin: FirDeclarationOrigin.SubstitutionOverride,
-    ): FirFieldSymbol {
+    ): FirFieldSymbol = buildField {
         val symbol = FirFieldSymbol(CallableId(derivedClassLookupTag.classId, baseField.name))
-        buildField {
-            moduleData = session.nullableModuleData ?: baseField.moduleData
-            this.symbol = symbol
-            this.origin = origin
-            returnTypeRef = baseField.returnTypeRef.withReplacedConeType(newReturnType)
+        moduleData = session.nullableModuleData ?: baseField.moduleData
+        this.symbol = symbol
+        this.origin = origin
+        returnTypeRef = baseField.returnTypeRef.withReplacedConeType(newReturnType)
 
-            source = baseField.source
-            resolvePhase = baseField.resolvePhase
-            name = baseField.name
-            isVar = baseField.isVar
-            status = baseField.status
-            resolvePhase = baseField.resolvePhase
-            annotations += baseField.annotations
-            attributes = baseField.attributes.copy()
-            dispatchReceiverType = baseField.dispatchReceiverType
-        }.apply {
-            originalForSubstitutionOverrideAttr = baseField
-            containingClassForStaticMemberAttr = derivedClassLookupTag.takeIf { shouldOverrideSetContainingClass(baseField) }
-        }
-        return symbol
-    }
+        source = baseField.source
+        name = baseField.name
+        isVar = baseField.isVar
+        status = baseField.status
+        resolvePhase = origin.resolvePhaseForCopy
+        annotations += baseField.annotations
+        attributes = baseField.attributes.copy()
+        dispatchReceiverType = baseField.dispatchReceiverType
+    }.apply {
+        originalForSubstitutionOverrideAttr = baseField
+        containingClassForStaticMemberAttr = derivedClassLookupTag.takeIf { shouldOverrideSetContainingClass(baseField) }
+    }.symbol
 
     // Returns a list of type parameters, and a substitutor that should be used for all other types
     fun createNewTypeParametersAndSubstitutor(
@@ -688,7 +717,7 @@ object FirFakeOverrideGenerator {
         symbolForOverride: FirBasedSymbol<*>,
         substitutor: ConeSubstitutor,
         origin: FirDeclarationOrigin,
-        forceTypeParametersRecreation: Boolean = true
+        forceTypeParametersRecreation: Boolean = true,
     ): Pair<List<FirTypeParameterRef>, ConeSubstitutor> {
         if (member.typeParameters.isEmpty()) return Pair(member.typeParameters, substitutor)
         val newTypeParameters = member.typeParameters.map { typeParameterRef ->
@@ -697,7 +726,7 @@ object FirFakeOverrideGenerator {
                 source = typeParameter.source
                 moduleData = typeParameter.moduleData
                 this.origin = origin
-                resolvePhase = FirResolvePhase.DECLARATIONS
+                resolvePhase = origin.resolvePhaseForCopy
                 name = typeParameter.name
                 symbol = FirTypeParameterSymbol()
                 variance = typeParameter.variance
@@ -749,10 +778,36 @@ object FirFakeOverrideGenerator {
     }
 
     private fun checkStatusIsResolved(member: FirCallableDeclaration) {
-        check(member.status is FirResolvedDeclarationStatus) {
-            "Status should be resolved for a declaration to create it fake override, " +
-                    "otherwise the status of the fake override will never be resolved." +
-                    "The status was unresolved for ${member::class.java.simpleName}"
+        checkWithAttachment(
+            member.status is FirResolvedDeclarationStatus,
+            message = {
+                "Status should be resolved for a declaration to create its fake override, " +
+                        "otherwise the status of the fake override will never be resolved." +
+                        "The status was unresolved for ${member::class.java.simpleName}"
+            }
+        ) {
+            withFirEntry("declaration", member)
+            withEntry("declarationStatus", member.status) { it.toString() }
         }
     }
+
+    /**
+     * In Low Level FIR we cannot be sure that all copied elements are already resolved,
+     * so we play safe with [FirResolvePhase.STATUS] phase in such cases.
+     * Example:
+     * ```kotlin
+     * class MyClass : BaseClass<@Anno("super $constant") Int>()
+     *
+     * abstract class BaseClass<T : @Anno("bound $constant") Number> {
+     *     var property: SCHEME
+     * }
+     * ```
+     * here we can have `BaseClass.property` already in [FirResolvePhase.BODY_RESOLVE] phase,
+     * but `MyClass` in [FirResolvePhase.STATUS].
+     * So [FirResolvePhase.BODY_RESOLVE] on the fake override will lead to the problem because
+     * effectively we will have unresolved `@Anno("super $constant")` annotation inside "fully resolve"
+     * function
+     */
+    private val FirDeclarationOrigin.resolvePhaseForCopy: FirResolvePhase
+        get() = if (isLazyResolvable) FirResolvePhase.STATUS else FirResolvePhase.BODY_RESOLVE
 }

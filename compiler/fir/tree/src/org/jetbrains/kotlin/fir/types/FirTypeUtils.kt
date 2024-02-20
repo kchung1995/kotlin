@@ -11,6 +11,7 @@ import org.jetbrains.kotlin.fir.utils.exceptions.withFirEntry
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.types.ConstantValueKind
+import org.jetbrains.kotlin.utils.addToStdlib.runIf
 import org.jetbrains.kotlin.utils.exceptions.errorWithAttachment
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.contract
@@ -85,7 +86,7 @@ val FirTypeRef.isArrayType: Boolean
                 || StandardClassIds.unsignedArrayTypeByElementType.values.any { isBuiltinType(it, false) }
 
 val FirExpression.isNullLiteral: Boolean
-    get() = this is FirConstExpression<*> &&
+    get() = this is FirLiteralExpression<*> &&
             this.kind == ConstantValueKind.Null &&
             this.value == null &&
             this.source != null
@@ -156,24 +157,26 @@ fun FirTypeProjection.toConeTypeProjection(): ConeTypeProjection = when (this) {
     else -> errorWithAttachment("Unexpected ${this::class.simpleName}") { withFirEntry("projection", this@toConeTypeProjection) }
 }
 
-val FirTypeRef.canBeNull: Boolean
-    get() = coneType.canBeNull
+fun ConeKotlinType.arrayElementType(checkUnsignedArrays: Boolean = true): ConeKotlinType? {
+    return when (val argument = arrayElementTypeArgument(checkUnsignedArrays)) {
+        is ConeKotlinTypeProjection -> argument.type
+        else -> null
+    }
+}
 
-val ConeKotlinType.canBeNull: Boolean
-    get() {
-        if (isMarkedNullable) {
-            return true
-        }
-        return when (this) {
-            is ConeFlexibleType -> upperBound.canBeNull
-            is ConeDefinitelyNotNullType -> false
-            is ConeTypeParameterType -> this.lookupTag.typeParameterSymbol.resolvedBounds.all { it.coneType.canBeNull }
-            is ConeIntersectionType -> intersectedTypes.all { it.canBeNull }
-            else -> isNullable
-        }
+fun ConeKotlinType.arrayElementTypeArgument(checkUnsignedArrays: Boolean = true): ConeTypeProjection? {
+    val type = this.lowerBoundIfFlexible()
+    if (type !is ConeClassLikeType) return null
+    val classId = type.lookupTag.classId
+    if (classId == StandardClassIds.Array) {
+        return type.typeArguments.first()
+    }
+    val elementType = StandardClassIds.elementTypeByPrimitiveArrayType[classId] ?: runIf(checkUnsignedArrays) {
+        StandardClassIds.elementTypeByUnsignedArrayType[classId]
+    }
+    if (elementType != null) {
+        return elementType.constructClassLikeType(emptyArray(), isNullable = false)
     }
 
-val FirIntersectionTypeRef.isLeftValidForDefinitelyNotNullable
-    get() = leftType.coneType.let { it is ConeTypeParameterType && it.canBeNull && !it.isMarkedNullable }
-
-val FirIntersectionTypeRef.isRightValidForDefinitelyNotNullable get() = rightType.coneType.isAny
+    return null
+}

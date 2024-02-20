@@ -10,8 +10,7 @@ import org.jetbrains.kotlin.konan.properties.resolvablePropertyList
 import org.jetbrains.kotlin.konan.target.Distribution
 import org.jetbrains.kotlin.konan.target.KonanTarget
 import org.jetbrains.kotlin.konan.test.blackbox.support.MutedOption
-import org.jetbrains.kotlin.konan.test.blackbox.support.TestKind
-import org.jetbrains.kotlin.konan.test.blackbox.support.runner.LocalTestRunner
+import org.jetbrains.kotlin.konan.test.blackbox.support.runner.RunnerWithExecutor
 import org.jetbrains.kotlin.konan.test.blackbox.support.runner.NoopTestRunner
 import org.jetbrains.kotlin.konan.test.blackbox.support.runner.Runner
 import org.jetbrains.kotlin.test.services.JUnit5Assertions.assertTrue
@@ -104,20 +103,19 @@ internal value class CustomKlibs(val klibs: Set<File>) {
 }
 
 /**
- * Whether to force [TestKind.STANDALONE] for all tests where [TestKind] is assumed to be [TestKind.REGULAR] otherwise:
- * - either explicitly specified in the test data file: // KIND: REGULAR
- * - or // KIND: is not specified in the test data file and thus automatically considered as [TestKind.REGULAR]
- */
-@JvmInline
-internal value class ForcedStandaloneTestKind(val value: Boolean)
-
-/**
  * Whether tests should be compiled only (true) or compiled and executed (false, the default).
  *
- * TODO: need to reconsider this setting when other [Runner]s than [LocalTestRunner] and [NoopTestRunner] are supported
+ * TODO: need to reconsider this setting when other [Runner]s than [RunnerWithExecutor] and [NoopTestRunner] are supported
  */
 @JvmInline
 internal value class ForcedNoopTestRunner(val value: Boolean)
+
+/**
+ * Controls whether tests that support TestRunner should be executed once in the binary.
+ * Their execution result is shared between tests from the same test executable.
+ */
+@JvmInline
+internal value class SharedExecutionTestRunner(val value: Boolean)
 
 /**
  * Optimization mode to be applied.
@@ -135,7 +133,7 @@ internal enum class OptimizationMode(private val description: String, val compil
  */
 internal enum class ThreadStateChecker(val compilerFlag: String?) {
     DISABLED(null),
-    ENABLED("-Xcheck-state-at-external-calls");
+    ENABLED("-Xbinary=checkStateAtExternalCalls=true");
 
     override fun toString() = compilerFlag?.let { "($it)" }.orEmpty()
 }
@@ -210,6 +208,7 @@ internal sealed class CacheMode {
     abstract val staticCacheForDistributionLibrariesRootDir: File?
     abstract val useStaticCacheForUserLibraries: Boolean
     abstract val makePerFileCaches: Boolean
+    abstract val alias: Alias
 
     val useStaticCacheForDistributionLibraries: Boolean get() = staticCacheForDistributionLibrariesRootDir != null
 
@@ -217,6 +216,7 @@ internal sealed class CacheMode {
         override val staticCacheForDistributionLibrariesRootDir: File? get() = null
         override val useStaticCacheForUserLibraries: Boolean get() = false
         override val makePerFileCaches: Boolean = false
+        override val alias = Alias.NO
     }
 
     class WithStaticCache(
@@ -224,7 +224,8 @@ internal sealed class CacheMode {
         kotlinNativeTargets: KotlinNativeTargets,
         optimizationMode: OptimizationMode,
         override val useStaticCacheForUserLibraries: Boolean,
-        override val makePerFileCaches: Boolean
+        override val makePerFileCaches: Boolean,
+        override val alias: Alias,
     ) : CacheMode() {
         override val staticCacheForDistributionLibrariesRootDir: File = File(distribution.klib)
             .resolve("cache")

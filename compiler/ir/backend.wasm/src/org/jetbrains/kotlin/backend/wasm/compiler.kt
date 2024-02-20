@@ -7,16 +7,22 @@ package org.jetbrains.kotlin.backend.wasm
 
 import org.jetbrains.kotlin.backend.common.linkage.issues.checkNoUnboundSymbols
 import org.jetbrains.kotlin.backend.common.phaser.PhaseConfig
-import org.jetbrains.kotlin.backend.common.phaser.invokeToplevel
+import org.jetbrains.kotlin.backend.common.phaser.PhaserState
 import org.jetbrains.kotlin.backend.wasm.ir2wasm.JsModuleAndQualifierReference
 import org.jetbrains.kotlin.backend.wasm.ir2wasm.WasmCompiledModuleFragment
 import org.jetbrains.kotlin.backend.wasm.ir2wasm.WasmModuleFragmentGenerator
 import org.jetbrains.kotlin.backend.wasm.ir2wasm.toJsStringLiteral
+import org.jetbrains.kotlin.backend.wasm.lower.JsInteropFunctionsLowering
 import org.jetbrains.kotlin.backend.wasm.lower.markExportedDeclarations
+import org.jetbrains.kotlin.backend.wasm.utils.SourceMapGenerator
+import org.jetbrains.kotlin.backend.wasm.export.ExportModelGenerator
 import org.jetbrains.kotlin.config.CompilerConfiguration
 import org.jetbrains.kotlin.ir.backend.js.MainModule
 import org.jetbrains.kotlin.ir.backend.js.ModulesStructure
 import org.jetbrains.kotlin.ir.backend.js.SourceMapsInfo
+import org.jetbrains.kotlin.ir.backend.js.export.ExportModelToTsDeclarations
+import org.jetbrains.kotlin.ir.backend.js.export.ExportedModule
+import org.jetbrains.kotlin.ir.backend.js.export.TypeScriptFragment
 import org.jetbrains.kotlin.ir.backend.js.loadIr
 import org.jetbrains.kotlin.ir.declarations.IrFactory
 import org.jetbrains.kotlin.ir.declarations.IrModuleFragment
@@ -27,19 +33,35 @@ import org.jetbrains.kotlin.js.config.WasmTarget
 import org.jetbrains.kotlin.js.sourceMap.SourceFilePathResolver
 import org.jetbrains.kotlin.js.sourceMap.SourceMap3Builder
 import org.jetbrains.kotlin.name.FqName
+import org.jetbrains.kotlin.serialization.js.ModuleKind
+import org.jetbrains.kotlin.utils.addToStdlib.runIf
+import org.jetbrains.kotlin.utils.addToStdlib.ifNotEmpty
 import org.jetbrains.kotlin.wasm.ir.convertors.WasmIrToBinary
 import org.jetbrains.kotlin.wasm.ir.convertors.WasmIrToText
 import org.jetbrains.kotlin.wasm.ir.source.location.SourceLocation
 import org.jetbrains.kotlin.wasm.ir.source.location.SourceLocationMapping
 import java.io.ByteArrayOutputStream
 import java.io.File
+import kotlin.math.exp
 
 class WasmCompilerResult(
     val wat: String?,
     val jsUninstantiatedWrapper: String?,
     val jsWrapper: String,
     val wasm: ByteArray,
-    val sourceMap: String?
+    val debugInformation: DebugInformation?,
+    val dts: String?
+)
+
+class DebugInformation(
+    val sourceMapForBinary: String?,
+    val sourceMapForText: String?,
+)
+
+data class LoweredIrWithExtraArtifacts(
+    val loweredIr: List<IrModuleFragment>,
+    val backendContext: WasmBackendContext,
+    val typeScriptFragment: TypeScriptFragment?
 )
 
 fun compileToLoweredIr(
@@ -47,8 +69,9 @@ fun compileToLoweredIr(
     phaseConfig: PhaseConfig,
     irFactory: IrFactory,
     exportedDeclarations: Set<FqName> = emptySet(),
+    generateTypeScriptFragment: Boolean,
     propertyLazyInitialization: Boolean,
-): Pair<List<IrModuleFragment>, WasmBackendContext> {
+): LoweredIrWithExtraArtifacts {
     val mainModule = depsDescriptors.mainModule
     val configuration = depsDescriptors.compilerConfiguration
     val (moduleFragment, dependencyModules, irBuiltIns, symbolTable, irLinker) = loadIr(
@@ -83,14 +106,27 @@ fun compileToLoweredIr(
         for (file in module.files)
             markExportedDeclarations(context, file, exportedDeclarations)
 
-    wasmPhases.invokeToplevel(phaseConfig, context, allModules)
+    val typeScriptFragment = runIf(generateTypeScriptFragment) {
+        val exportModel = ExportModelGenerator(context).generateExport(allModules)
+        val exportModelToDtsTranslator = ExportModelToTsDeclarations()
+        val fragment = exportModelToDtsTranslator.generateTypeScriptFragment(ModuleKind.ES, exportModel.declarations)
+        TypeScriptFragment(exportModelToDtsTranslator.generateTypeScript("", ModuleKind.ES, listOf(fragment)))
+    }
 
-    return Pair(allModules, context)
+    val phaserState = PhaserState<IrModuleFragment>()
+    loweringList.forEachIndexed { _, lowering ->
+        allModules.forEach { module ->
+            lowering.invoke(phaseConfig, phaserState, context, module)
+        }
+    }
+
+    return LoweredIrWithExtraArtifacts(allModules, context, typeScriptFragment)
 }
 
 fun compileWasm(
     allModules: List<IrModuleFragment>,
     backendContext: WasmBackendContext,
+    typeScriptFragment: TypeScriptFragment?,
     baseFileName: String,
     emitNameSection: Boolean = false,
     allowIncompleteImplementations: Boolean = false,
@@ -105,9 +141,16 @@ fun compileWasm(
     allModules.forEach { codeGenerator.collectInterfaceTables(it) }
     allModules.forEach { codeGenerator.generateModule(it) }
 
+    val sourceMapGeneratorForBinary = runIf(generateSourceMaps) {
+        SourceMapGenerator("$baseFileName.wasm", backendContext.configuration)
+    }
+    val sourceMapGeneratorForText = runIf(generateWat && generateSourceMaps) {
+        SourceMapGenerator("$baseFileName.wat", backendContext.configuration)
+    }
+
     val linkedModule = compiledWasmModule.linkWasmCompiledFragments()
     val wat = if (generateWat) {
-        val watGenerator = WasmIrToText()
+        val watGenerator = WasmIrToText(sourceMapGeneratorForText)
         watGenerator.appendWasmModule(linkedModule)
         watGenerator.toString()
     } else {
@@ -116,18 +159,13 @@ fun compileWasm(
 
     val os = ByteArrayOutputStream()
 
-    val sourceMapFileName = "$baseFileName.map".takeIf { generateSourceMaps }
-    val sourceLocationMappings =
-        if (generateSourceMaps) mutableListOf<SourceLocationMapping>() else null
-
     val wasmIrToBinary =
         WasmIrToBinary(
             os,
             linkedModule,
             allModules.last().descriptor.name.asString(),
             emitNameSection,
-            sourceMapFileName,
-            sourceLocationMappings
+            sourceMapGeneratorForBinary
         )
 
     wasmIrToBinary.appendWasmModule()
@@ -135,57 +173,32 @@ fun compileWasm(
     val byteArray = os.toByteArray()
     val jsUninstantiatedWrapper: String?
     val jsWrapper: String
-    if (backendContext.configuration.get(JSConfigurationKeys.WASM_TARGET, WasmTarget.JS) == WasmTarget.JS) {
+    if (backendContext.isWasmJsTarget) {
         jsUninstantiatedWrapper = compiledWasmModule.generateAsyncJsWrapper(
             "./$baseFileName.wasm",
             backendContext.jsModuleAndQualifierReferences
         )
-        jsWrapper = generateEsmExportsWrapper("./$baseFileName.uninstantiated.mjs")
+        jsWrapper = compiledWasmModule.generateEsmExportsWrapper(
+            "./$baseFileName.uninstantiated.mjs",
+            backendContext.jsModuleAndQualifierReferences
+        )
     } else {
         jsUninstantiatedWrapper = null
         jsWrapper = compiledWasmModule.generateAsyncWasiWrapper("./$baseFileName.wasm")
     }
+
 
     return WasmCompilerResult(
         wat = wat,
         jsUninstantiatedWrapper = jsUninstantiatedWrapper,
         jsWrapper = jsWrapper,
         wasm = byteArray,
-        sourceMap = generateSourceMap(backendContext.configuration, sourceLocationMappings)
+        debugInformation = DebugInformation(
+            sourceMapGeneratorForBinary?.generate(),
+            sourceMapGeneratorForText?.generate(),
+        ),
+        dts = typeScriptFragment?.raw
     )
-}
-
-private fun generateSourceMap(
-    configuration: CompilerConfiguration,
-    sourceLocationMappings: MutableList<SourceLocationMapping>?
-): String? {
-    if (sourceLocationMappings == null) return null
-
-    val sourceMapsInfo = SourceMapsInfo.from(configuration) ?: return null
-
-    val sourceMapBuilder =
-        SourceMap3Builder(null, { error("This should not be called for Kotlin/Wasm") }, sourceMapsInfo.sourceMapPrefix)
-
-    val pathResolver =
-        SourceFilePathResolver.create(sourceMapsInfo.sourceRoots, sourceMapsInfo.sourceMapPrefix, sourceMapsInfo.outputDir)
-
-    var prev: SourceLocation? = null
-
-    for (mapping in sourceLocationMappings) {
-        val location = mapping.sourceLocation as? SourceLocation.Location ?: continue
-
-        if (location == prev) continue
-
-        prev = location
-
-        location.apply {
-            // TODO resulting path goes too deep since temporary directory we compiled first is deeper than final destination.
-            val relativePath = pathResolver.getPathRelativeToSourceRoots(File(file)).substring(3)
-            sourceMapBuilder.addMapping(relativePath, null, { null }, line, column, null, mapping.offset)
-        }
-    }
-
-    return sourceMapBuilder.build()
 }
 
 fun WasmCompiledModuleFragment.generateAsyncWasiWrapper(wasmFilePath: String): String = """
@@ -207,7 +220,8 @@ const wasmInstance = new WebAssembly.Instance(wasmModule, wasi.getImportObject()
 
 wasi.initialize(wasmInstance);
 
-export default wasmInstance.exports;
+const exports = wasmInstance.exports
+${generateExports()}
 """
 
 fun WasmCompiledModuleFragment.generateAsyncJsWrapper(
@@ -226,7 +240,7 @@ fun WasmCompiledModuleFragment.generateAsyncJsWrapper(
         .sorted()
         .joinToString("") {
             val moduleSpecifier = it.toJsStringLiteral()
-            "        $moduleSpecifier: imports[$moduleSpecifier] ?? await import($moduleSpecifier),\n"
+            "        $moduleSpecifier: imports[$moduleSpecifier],\n"
         }
 
     val referencesToQualifiedAndImportedDeclarations = jsModuleAndQualifierReferences
@@ -238,7 +252,7 @@ fun WasmCompiledModuleFragment.generateAsyncJsWrapper(
                 append(it.jsVariableName)
                 append(" = ")
                 if (module != null) {
-                    append("(imports[${module.toJsStringLiteral()}] ?? await import(${module.toJsStringLiteral()}))")
+                    append("imports[${module.toJsStringLiteral()}]")
                     if (qualifier != null)
                         append(".")
                 }
@@ -344,10 +358,59 @@ For more information, see https://kotl.in/wasm-help
 """
 }
 
-fun generateEsmExportsWrapper(asyncWrapperFileName: String): String = /*language=js */ """
+fun WasmCompiledModuleFragment.generateEsmExportsWrapper(
+    asyncWrapperFileName: String,
+    jsModuleAndQualifierReferences: MutableSet<JsModuleAndQualifierReference>
+): String {
+    val importedModules = jsModuleImports
+        .map {
+            val moduleSpecifier = it.toJsStringLiteral().toString()
+            val importVariableString = JsModuleAndQualifierReference.encode(it)
+            moduleSpecifier to importVariableString
+        }
+
+    val referencesToImportedDeclarations = jsModuleAndQualifierReferences
+        .filter { it.module != null }
+        .map {
+            val module = it.module!!
+            val stringLiteral = module.toJsStringLiteral().toString()
+            stringLiteral to if (it.qualifier != null) {
+                it.importVariableName
+            } else {
+                it.jsVariableName
+            }
+        }
+
+    val allModules = (importedModules + referencesToImportedDeclarations)
+        .distinctBy {
+            it.first
+        }.sortedBy { it.first }
+
+    val importsImportedSection = allModules.joinToString("\n") {
+        buildString {
+            append("import * as ")
+            append(it.second)
+            append(" from ")
+            append(it.first)
+            append(";")
+        }
+    }
+
+    val imports = allModules.joinToString(",\n") {
+        "    ${it.first}: ${it.second}"
+    }
+
+    /*language=js */
+    return """
+$importsImportedSection
 import { instantiate } from ${asyncWrapperFileName.toJsStringLiteral()};
-export default (await instantiate()).exports;
+
+const exports = (await instantiate({
+$imports
+})).exports;
+${generateExports()}
 """
+}
 
 fun writeCompilationResult(
     result: WasmCompilerResult,
@@ -365,7 +428,48 @@ fun writeCompilationResult(
     }
     File(dir, "$fileNameBase.mjs").writeText(result.jsWrapper)
 
-    if (result.sourceMap != null) {
-        File(dir, "$fileNameBase.map").writeText(result.sourceMap)
+    result.debugInformation?.sourceMapForBinary?.let {
+        File(dir, "$fileNameBase.wasm.map").writeText(it)
     }
+    result.debugInformation?.sourceMapForText?.let {
+        File(dir, "$fileNameBase.wat.map").writeText(it)
+    }
+
+    if (result.dts != null) {
+        File(dir, "$fileNameBase.d.ts").writeText(result.dts)
+    }
+}
+
+fun WasmCompiledModuleFragment.generateExports(): String {
+    // TODO: necessary to move export check onto common place
+    val exportNames = exports
+        .filterNot { it.name.startsWith(JsInteropFunctionsLowering.CALL_FUNCTION) }
+        .ifNotEmpty {
+            joinToString(",\n") {
+                "    ${it.name}"
+            }
+        }?.let {
+            """
+            |const {
+                |$it
+            |}
+        """.trimMargin()
+        }
+
+    /*language=js */
+    return """
+export default new Proxy(exports, {
+    _shownError: false,
+    get(target, prop) {
+        if (!this._shownError) {
+            this._shownError = true;
+            if (typeof console !== "undefined") {
+                console.error("Do not use default import. Use corresponding named import instead.")
+            }
+        }
+        return target[prop];
+    }
+});
+${exportNames?.let { "export $it = exports;" }}
+"""
 }

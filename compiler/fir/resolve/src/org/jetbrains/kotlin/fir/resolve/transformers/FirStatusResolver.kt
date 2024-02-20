@@ -10,23 +10,17 @@ import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.declarations.*
 import org.jetbrains.kotlin.fir.declarations.impl.FirDeclarationStatusImpl
 import org.jetbrains.kotlin.fir.declarations.impl.FirResolvedDeclarationStatusImpl
-import org.jetbrains.kotlin.fir.declarations.utils.effectiveVisibility
-import org.jetbrains.kotlin.fir.declarations.utils.isExpect
-import org.jetbrains.kotlin.fir.declarations.utils.isOverride
-import org.jetbrains.kotlin.fir.declarations.utils.visibility
+import org.jetbrains.kotlin.fir.declarations.utils.*
 import org.jetbrains.kotlin.fir.extensions.FirStatusTransformerExtension
 import org.jetbrains.kotlin.fir.extensions.extensionService
 import org.jetbrains.kotlin.fir.extensions.statusTransformerExtensions
 import org.jetbrains.kotlin.fir.resolve.ScopeSession
-import org.jetbrains.kotlin.fir.resolve.toSymbol
 import org.jetbrains.kotlin.fir.scopes.ProcessorAction
 import org.jetbrains.kotlin.fir.scopes.unsubstitutedScope
 import org.jetbrains.kotlin.fir.toEffectiveVisibility
 import org.jetbrains.kotlin.fir.types.*
 import org.jetbrains.kotlin.fir.utils.exceptions.withFirEntry
 import org.jetbrains.kotlin.fir.visibilityChecker
-import org.jetbrains.kotlin.types.EnrichedProjectionKind
-import org.jetbrains.kotlin.types.Variance
 import org.jetbrains.kotlin.utils.exceptions.errorWithAttachment
 
 class FirStatusResolver(
@@ -41,10 +35,11 @@ class FirStatusResolver(
             FirDeclarationStatusImpl.Modifier.LATEINIT,
             FirDeclarationStatusImpl.Modifier.TAILREC,
             FirDeclarationStatusImpl.Modifier.EXTERNAL,
+            FirDeclarationStatusImpl.Modifier.OVERRIDE,
         )
 
         private val MODIFIERS_FROM_OVERRIDDEN: List<FirDeclarationStatusImpl.Modifier> =
-            FirDeclarationStatusImpl.Modifier.values().toList() - NOT_INHERITED_MODIFIERS
+            FirDeclarationStatusImpl.Modifier.entries - NOT_INHERITED_MODIFIERS
     }
 
     private val extensionStatusTransformers = session.extensionService.statusTransformerExtensions
@@ -250,18 +245,7 @@ class FirStatusResolver(
                 isLocal -> Visibilities.Local
                 else -> resolveVisibility(declaration, containingClass, containingProperty, overriddenStatuses)
             }
-
-            Visibilities.Private -> when {
-                declaration is FirPropertyAccessor -> if (containingProperty?.visibility == Visibilities.PrivateToThis) {
-                    Visibilities.PrivateToThis
-                } else {
-                    Visibilities.Private
-                }
-
-                isPrivateToThis(declaration, containingClass) -> Visibilities.PrivateToThis
-                else -> Visibilities.Private
-            }
-
+            Visibilities.Private -> Visibilities.Private
             else -> status.visibility
         }
 
@@ -271,13 +255,14 @@ class FirStatusResolver(
             } else {
                 it
             }
-        } ?: resolveModality(declaration, containingClass)
+        } ?: resolveModality(declaration, containingProperty, containingClass)
         if (overriddenStatuses.isNotEmpty()) {
             for (modifier in MODIFIERS_FROM_OVERRIDDEN) {
                 status[modifier] = status[modifier] || overriddenStatuses.fold(false) { acc, overriddenStatus ->
                     acc || overriddenStatus[modifier]
                 }
             }
+            status[FirDeclarationStatusImpl.Modifier.OVERRIDE] = true
         }
 
         val parentEffectiveVisibility = when {
@@ -320,75 +305,6 @@ class FirStatusResolver(
         return status.resolved(visibility, modality, effectiveVisibility)
     }
 
-    private fun isPrivateToThis(
-        declaration: FirDeclaration,
-        containingClass: FirClass?,
-    ): Boolean {
-        if (containingClass == null) return false
-        if (declaration !is FirCallableDeclaration) return false
-        if (declaration is FirConstructor) return false
-        if (containingClass.typeParameters.all { it.symbol.variance == Variance.INVARIANT }) return false
-
-        if (declaration.receiverParameter?.typeRef?.contradictsWith(Variance.IN_VARIANCE) == true) {
-            return true
-        }
-        if (declaration.returnTypeRef.contradictsWith(
-                if (declaration is FirProperty && declaration.isVar) Variance.INVARIANT
-                else Variance.OUT_VARIANCE
-            )
-        ) {
-            return true
-        }
-        if (declaration is FirFunction) {
-            for (parameter in declaration.valueParameters) {
-                if (parameter.returnTypeRef.contradictsWith(Variance.IN_VARIANCE)) {
-                    return true
-                }
-            }
-        }
-        return false
-    }
-
-    private fun FirTypeRef.contradictsWith(requiredVariance: Variance): Boolean {
-        val type = coneTypeSafe<ConeKotlinType>() ?: return false
-        return contradictsWith(type, requiredVariance)
-    }
-
-    private fun contradictsWith(type: ConeKotlinType, requiredVariance: Variance): Boolean {
-        if (type is ConeTypeParameterType) {
-            return !type.lookupTag.typeParameterSymbol.fir.variance.allowsPosition(requiredVariance)
-        }
-        // TODO: handle other types (like flexible, DNN, captured, ...) KT-62134
-        if (type is ConeClassLikeType) {
-            val classLike = type.lookupTag.toSymbol(session)?.fir
-            for ((index, argument) in type.typeArguments.withIndex()) {
-                val typeParameterRef = classLike?.typeParameters?.getOrNull(index)
-                if (typeParameterRef !is FirTypeParameter) continue
-                val requiredVarianceForArgument = when (
-                    EnrichedProjectionKind.getEffectiveProjectionKind(typeParameterRef.variance, argument.variance)
-                ) {
-                    EnrichedProjectionKind.OUT -> requiredVariance
-                    EnrichedProjectionKind.IN -> requiredVariance.opposite()
-                    EnrichedProjectionKind.INV -> Variance.INVARIANT
-                    EnrichedProjectionKind.STAR -> continue // CONFLICTING_PROJECTION error was reported
-                }
-                val argType = argument.type ?: continue
-                if (contradictsWith(argType, requiredVarianceForArgument)) {
-                    return true
-                }
-            }
-        }
-        return false
-    }
-
-    private val ConeTypeProjection.variance: Variance
-        get() = when (this.kind) {
-            ProjectionKind.STAR -> Variance.OUT_VARIANCE
-            ProjectionKind.IN -> Variance.IN_VARIANCE
-            ProjectionKind.OUT -> Variance.OUT_VARIANCE
-            ProjectionKind.INVARIANT -> Variance.INVARIANT
-        }
-
     private fun resolveVisibility(
         declaration: FirDeclaration,
         containingClass: FirClass?,
@@ -415,11 +331,13 @@ class FirStatusResolver(
 
     private fun resolveModality(
         declaration: FirDeclaration,
+        containingProperty: FirProperty?,
         containingClass: FirClass?,
     ): Modality {
         return when (declaration) {
             is FirRegularClass -> if (declaration.classKind == ClassKind.INTERFACE) Modality.ABSTRACT else Modality.FINAL
             is FirCallableDeclaration -> {
+                val containingPropertyModality = containingProperty?.modality
                 when {
                     containingClass == null -> Modality.FINAL
                     containingClass.classKind == ClassKind.INTERFACE -> {
@@ -429,6 +347,7 @@ class FirStatusResolver(
                             else -> Modality.OPEN
                         }
                     }
+                    declaration is FirPropertyAccessor && containingPropertyModality != null -> containingPropertyModality
                     declaration.isOverride -> Modality.OPEN
                     else -> Modality.FINAL
                 }

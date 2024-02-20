@@ -23,7 +23,6 @@ import org.jetbrains.kotlin.analysis.api.symbols.pointers.KtSymbolPointer
 import org.jetbrains.kotlin.analysis.api.types.*
 import org.jetbrains.kotlin.analysis.project.structure.KtModule
 import org.jetbrains.kotlin.analysis.providers.createProjectWideOutOfBlockModificationTracker
-import org.jetbrains.kotlin.utils.exceptions.errorWithAttachment
 import org.jetbrains.kotlin.asJava.elements.KtLightElement
 import org.jetbrains.kotlin.asJava.elements.KtLightMember
 import org.jetbrains.kotlin.asJava.elements.psiType
@@ -39,6 +38,7 @@ import org.jetbrains.kotlin.light.classes.symbol.classes.modificationTrackerForC
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.SpecialNames
 import org.jetbrains.kotlin.psi.KtTypeParameterListOwner
+import org.jetbrains.kotlin.utils.exceptions.errorWithAttachment
 import java.util.*
 
 internal fun <L : Any> L.invalidAccess(): Nothing =
@@ -87,7 +87,7 @@ internal fun KtClassOrObjectSymbol.enumClassModality(): String? {
         return PsiModifier.ABSTRACT
     }
 
-    if (getDeclaredMemberScope().getCallableSymbols().none { it is KtEnumEntrySymbol && it.requiresSubClass() }) {
+    if (getStaticDeclaredMemberScope().getCallableSymbols().none { it is KtEnumEntrySymbol && it.requiresSubClass() }) {
         return PsiModifier.FINAL
     }
 
@@ -97,7 +97,7 @@ internal fun KtClassOrObjectSymbol.enumClassModality(): String? {
 context(KtAnalysisSession)
 private fun KtEnumEntrySymbol.requiresSubClass(): Boolean {
     val initializer = enumEntryInitializer ?: return false
-    return initializer.getDeclaredMemberScope().getAllSymbols().any { it !is KtConstructorSymbol }
+    return initializer.getCombinedDeclaredMemberScope().getAllSymbols().any { it !is KtConstructorSymbol }
 }
 
 internal fun KtSymbolWithVisibility.toPsiVisibilityForMember(): String = visibility.toPsiVisibilityForMember()
@@ -147,8 +147,10 @@ internal fun KtLightElement<*, *>.isOriginEquivalentTo(that: PsiElement?): Boole
     return kotlinOrigin?.isEquivalentTo(that) == true
 }
 
-internal fun KtAnalysisSession.getTypeNullability(ktType: KtType): NullabilityType {
-    if (ktType is KtClassErrorType) return NullabilityType.NotNull
+internal fun KtAnalysisSession.getTypeNullability(type: KtType): NullabilityType {
+    if (type is KtClassErrorType) return NullabilityType.NotNull
+
+    val ktType = type.fullyExpandedType
     if (ktType.nullabilityType != NullabilityType.NotNull) return ktType.nullabilityType
 
     if (ktType.isUnit) return NullabilityType.NotNull
@@ -197,18 +199,18 @@ internal fun KtAnnotationValue.toAnnotationMemberValue(parent: PsiElement): PsiA
             values.mapNotNull { element -> element.toAnnotationMemberValue(arrayLiteralParent) }
         }
 
-    is KtAnnotationApplicationValue ->
+    is KtAnnotationApplicationValue -> {
         SymbolLightSimpleAnnotation(
             fqName = annotationValue.classId?.asFqNameString(),
             parent = parent,
-            arguments = annotationValue.arguments,
+            arguments = annotationValue.normalizedArguments(),
             kotlinOrigin = annotationValue.psi,
         )
-
+    }
     is KtConstantAnnotationValue -> {
         constantValue.createPsiExpression(parent)?.let {
             when (it) {
-                is PsiLiteral -> SymbolPsiLiteral(sourcePsi, parent, it)
+                is PsiLiteralExpression -> SymbolPsiLiteral(sourcePsi, parent, it)
                 else -> SymbolPsiExpression(sourcePsi, parent, it)
             }
         }
@@ -218,6 +220,22 @@ internal fun KtAnnotationValue.toAnnotationMemberValue(parent: PsiElement): PsiA
     is KtKClassAnnotationValue -> toAnnotationMemberValue(parent)
     KtUnsupportedAnnotationValue -> null
 }
+
+internal fun KtAnnotationApplicationWithArgumentsInfo.normalizedArguments(): List<KtNamedAnnotationValue> {
+    val args = arguments
+    val ctorSymbolPointer = constructorSymbolPointer ?: return args
+    val element = psi ?: return args // May work incorrectly. See KT-63568
+
+    return analyzeForLightClasses(element) {
+        val constructorSymbol = ctorSymbolPointer.restoreSymbolOrThrowIfDisposed()
+        val params = constructorSymbol.valueParameters
+        val missingVarargParameterName =
+            params.singleOrNull { it.isVararg && !it.hasDefaultValue }?.name?.takeIf { name -> args.none { it.name == name } }
+        if (missingVarargParameterName == null) args
+        else args + KtNamedAnnotationValue(missingVarargParameterName, KtArrayAnnotationValue(emptyList(), null))
+    }
+}
+
 
 private fun KtEnumEntryAnnotationValue.asPsiReferenceExpression(parent: PsiElement): SymbolPsiReference? {
     val fqName = this.callableId?.asSingleFqName()?.asString() ?: return null

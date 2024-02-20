@@ -17,7 +17,7 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 
-internal class RunnerWithExecutor(
+internal open class RunnerWithExecutor(
     private val executor: Executor,
     private val testRun: TestRun
 ) : AbstractRunner<Unit>() {
@@ -27,33 +27,36 @@ internal class RunnerWithExecutor(
         get() = if (testRun.runParameters.has<TestRunParameter.WithTCTestLogger>()) TCTestOutputFilter else TestOutputFilter.NO_FILTERING
 
     private val programArgs = mutableListOf<String>().apply {
+        add(executable.executable.executableFile.absolutePath)
         testRun.runParameters.forEach { it.applyTo(this) }
     }
 
-    private fun inputStreamFromTestParameter(): InputStream =
+    private fun inputStreamFromTestParameter(): InputStream? =
         testRun.runParameters.firstIsInstanceOrNull<TestRunParameter.WithInputData>()
             ?.let {
                 ByteArrayInputStream(it.inputDataFile.readBytes())
-            } ?: ByteArrayInputStream(byteArrayOf())
+            }
 
     override fun buildRun() = AbstractRun {
-        val stdin = inputStreamFromTestParameter()
         val stdout = ByteArrayOutputStream()
         val stderr = ByteArrayOutputStream()
-        val request = ExecuteRequest(
-            executableAbsolutePath = executable.executableFile.absolutePath,
-            args = programArgs,
-            stdin = stdin,
-            stdout = stdout,
-            stderr = stderr,
-            timeout = testRun.checks.executionTimeoutCheck.timeout
-        )
+        val request = ExecuteRequest(programArgs[0]).apply {
+            this.args.addAll(programArgs.drop(1))
+            this.workingDirectory = executable.executable.executableFile.parentFile
+            inputStreamFromTestParameter()?.let {
+                this.stdin = it
+            }
+            this.stdout = stdout
+            this.stderr = stderr
+            this.timeout = testRun.checks.executionTimeoutCheck.timeout
+        }
         val response = executor.execute(request)
         RunResult(
+            testExecutable = executable,
             exitCode = response.exitCode,
             timeout = request.timeout,
             duration = response.executionTime,
-            hasFinishedOnTime = request.timeout >= response.executionTime,
+            hasFinishedOnTime = response.exitCode != null,
             processOutput = ProcessOutput(
                 stdOut = outputFilter.filter(stdout.toString("UTF-8")),
                 stdErr = stderr.toString("UTF-8")
@@ -71,7 +74,7 @@ internal class RunnerWithExecutor(
 
     override fun getLoggedParameters() = LoggedData.TestRunParameters(
         compilationToolCall = executable.loggedCompilationToolCall,
-        testCaseId = testRun.testCaseId,
+        testCaseId = testRun.testCase.id,
         runArgs = programArgs,
         runParameters = testRun.runParameters
     )

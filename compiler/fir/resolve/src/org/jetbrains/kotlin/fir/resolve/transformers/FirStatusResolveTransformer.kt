@@ -25,8 +25,8 @@ import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.toSymbol
 import org.jetbrains.kotlin.fir.utils.exceptions.withFirEntry
 import org.jetbrains.kotlin.fir.visitors.transformSingle
-import org.jetbrains.kotlin.utils.exceptions.errorWithAttachment
 import org.jetbrains.kotlin.util.PrivateForInline
+import org.jetbrains.kotlin.utils.exceptions.errorWithAttachment
 
 class FirStatusResolveProcessor(
     session: FirSession,
@@ -155,7 +155,7 @@ open class FirDesignatedStatusResolveTransformer(
     }
 }
 
-class StatusComputationSession {
+open class StatusComputationSession {
     private val statusMap = mutableMapOf<FirClass, StatusComputationStatus>()
         .withDefault { StatusComputationStatus.NotComputed }
 
@@ -328,35 +328,47 @@ abstract class AbstractFirStatusResolveTransformer(
 
     fun forceResolveStatusesOfSupertypes(regularClass: FirClass) {
         for (superTypeRef in regularClass.superTypeRefs) {
-            forceResolveStatusOfCorrespondingClass(superTypeRef)
+            for (classifierSymbol in superTypeToSymbols(superTypeRef)) {
+                forceResolveStatusOfCorrespondingClass(classifierSymbol)
+            }
         }
     }
 
-    private fun forceResolveStatusOfCorrespondingClass(typeRef: FirTypeRef) {
-        val superClassSymbol = typeRef.coneType.toSymbol(session)
+    /**
+     * @return symbols which should be resolved to [FirResolvePhase.STATUS] phase
+     */
+    protected open fun superTypeToSymbols(typeRef: FirTypeRef): List<FirClassifierSymbol<*>> {
+        return listOfNotNull(typeRef.coneType.toSymbol(session))
+    }
+
+    private fun forceResolveStatusOfCorrespondingClass(superClassSymbol: FirClassifierSymbol<*>) {
         if (isTransformerForLocalDeclarations) {
             if (superClassSymbol is FirClassSymbol) {
                 superClassSymbol.lazyResolveToPhaseWithCallableMembers(FirResolvePhase.STATUS)
             } else {
-                superClassSymbol?.lazyResolveToPhase(FirResolvePhase.STATUS)
+                superClassSymbol.lazyResolveToPhase(FirResolvePhase.STATUS)
             }
         } else {
-            superClassSymbol?.lazyResolveToPhase(FirResolvePhase.STATUS.previous)
+            superClassSymbol.lazyResolveToPhase(FirResolvePhase.STATUS.previous)
         }
 
         when (superClassSymbol) {
             is FirRegularClassSymbol -> forceResolveStatusesOfClass(superClassSymbol.fir)
-            is FirTypeAliasSymbol -> forceResolveStatusOfCorrespondingClass(superClassSymbol.fir.expandedTypeRef)
-            is FirTypeParameterSymbol, is FirAnonymousObjectSymbol, null -> {}
+            is FirTypeAliasSymbol -> {
+                for (classifierSymbol in superTypeToSymbols(superClassSymbol.fir.expandedTypeRef)) {
+                    forceResolveStatusOfCorrespondingClass(classifierSymbol)
+                }
+            }
+            is FirTypeParameterSymbol, is FirAnonymousObjectSymbol -> {}
         }
     }
 
     private fun forceResolveStatusesOfClass(regularClass: FirRegularClass) {
-        if (regularClass.origin is FirDeclarationOrigin.Java || regularClass.origin == FirDeclarationOrigin.Precompiled) {
+        if (regularClass.origin != FirDeclarationOrigin.Source) {
             /*
-             * If regular class has no corresponding file then it is platform class,
+             * If regular class has no corresponding file then it is platform or binary class,
              *   so we need to resolve supertypes of this class because they could
-             *   come from kotlin sources
+             *   come from kotlin sources (e.g. for java classes or cases of classpath substitution)
              */
             val statusComputationStatus = statusComputationSession[regularClass]
             if (!statusComputationStatus.requiresComputation) return
@@ -368,7 +380,6 @@ abstract class AbstractFirStatusResolveTransformer(
             return
         }
 
-        if (regularClass.origin != FirDeclarationOrigin.Source) return
         val statusComputationStatus = statusComputationSession[regularClass]
         if (!statusComputationStatus.requiresComputation) return
         if (!resolveClassForSuperType(regularClass)) return

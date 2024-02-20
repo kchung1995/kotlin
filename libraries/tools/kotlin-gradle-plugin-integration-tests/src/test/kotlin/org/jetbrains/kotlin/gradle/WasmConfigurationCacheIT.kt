@@ -32,12 +32,22 @@ class WasmConfigurationCacheIT : KGPBaseTest() {
     @GradleTest
     @GradleTestVersions(minVersion = TestVersions.Gradle.G_7_6)
     fun testD8Run(gradleVersion: GradleVersion) {
-        project("wasm-d8-simple-project", gradleVersion) {
+        project(
+            "wasm-d8-simple-project",
+            gradleVersion,
+            dependencyManagement = DependencyManagement.DisabledDependencyManagement // :d8Download adds custom ivy repository during build
+        ) {
             build("wasmJsD8Run", buildOptions = buildOptions) {
                 assertTasksExecuted(":wasmJsD8Run")
-                assertOutputContains(
-                    "Calculating task graph as no configuration cache is available for tasks: wasmJsD8Run"
-                )
+                if (gradleVersion < GradleVersion.version(TestVersions.Gradle.G_8_5)) {
+                    assertOutputContains(
+                        "Calculating task graph as no configuration cache is available for tasks: wasmJsD8Run"
+                    )
+                } else {
+                    assertOutputContains(
+                        "Calculating task graph as no cached configuration is available for tasks: wasmJsD8Run"
+                    )
+                }
 
                 assertConfigurationCacheStored()
             }
@@ -49,6 +59,19 @@ class WasmConfigurationCacheIT : KGPBaseTest() {
                 assertTasksExecuted(":wasmJsD8Run")
                 assertConfigurationCacheReused()
             }
+        }
+    }
+
+    @DisplayName("Browser case works correctly with configuration cache")
+    @GradleTest
+    @GradleTestVersions(minVersion = TestVersions.Gradle.G_7_6)
+    fun testBrowser(gradleVersion: GradleVersion) {
+        project("wasm-browser-simple-project", gradleVersion) {
+            assertSimpleConfigurationCacheScenarioWorks(
+                "assemble",
+                buildOptions = defaultBuildOptions,
+                executedTaskNames = listOf(":compileKotlinWasmJs", ":wasmJsBrowserDistribution")
+            )
         }
     }
 }

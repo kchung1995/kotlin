@@ -1,4 +1,3 @@
-// TODO: test fails, fix in subsequent commits
 // MODULE: m1-common
 // FILE: common.kt
 expect class DefaultArgsInNestedClass {
@@ -11,5 +10,5 @@ class DefaultArgsInNestedClassImpl {
     annotation class Nested(val p: String = "")
 }
 
-// Incompatible because of bug KT-31636
+// Incompatible in K1 because of bug KT-31636
 actual typealias <!NO_ACTUAL_CLASS_MEMBER_FOR_EXPECTED_CLASS!>DefaultArgsInNestedClass<!> = DefaultArgsInNestedClassImpl

@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -28,45 +28,45 @@ import java.util.regex.Pattern;
 @TestMetadata("analysis/analysis-api/testData/components/typeProvider/haveCommonSubtype")
 @TestDataPath("$PROJECT_ROOT")
 public class FirIdeNormalAnalysisSourceModuleHasCommonSubtypeTestGenerated extends AbstractHasCommonSubtypeTest {
-    @NotNull
-    @Override
-    public AnalysisApiTestConfigurator getConfigurator() {
-        return AnalysisApiFirTestConfiguratorFactory.INSTANCE.createConfigurator(
-            new AnalysisApiTestConfiguratorFactoryData(
-                FrontendKind.Fir,
-                TestModuleKind.Source,
-                AnalysisSessionMode.Normal,
-                AnalysisApiMode.Ide
-            )
-        );
-    }
+  @NotNull
+  @Override
+  public AnalysisApiTestConfigurator getConfigurator() {
+    return AnalysisApiFirTestConfiguratorFactory.INSTANCE.createConfigurator(
+      new AnalysisApiTestConfiguratorFactoryData(
+        FrontendKind.Fir,
+        TestModuleKind.Source,
+        AnalysisSessionMode.Normal,
+        AnalysisApiMode.Ide
+      )
+    );
+  }
 
-    @Test
-    public void testAllFilesPresentInHaveCommonSubtype() throws Exception {
-        KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/analysis-api/testData/components/typeProvider/haveCommonSubtype"), Pattern.compile("^(.+)\\.kt$"), null, true);
-    }
+  @Test
+  public void testAllFilesPresentInHaveCommonSubtype() {
+    KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/analysis-api/testData/components/typeProvider/haveCommonSubtype"), Pattern.compile("^(.+)\\.kt$"), null, true);
+  }
 
-    @Test
-    @TestMetadata("collections.kt")
-    public void testCollections() throws Exception {
-        runTest("analysis/analysis-api/testData/components/typeProvider/haveCommonSubtype/collections.kt");
-    }
+  @Test
+  @TestMetadata("collections.kt")
+  public void testCollections() {
+    runTest("analysis/analysis-api/testData/components/typeProvider/haveCommonSubtype/collections.kt");
+  }
 
-    @Test
-    @TestMetadata("dataClasses.kt")
-    public void testDataClasses() throws Exception {
-        runTest("analysis/analysis-api/testData/components/typeProvider/haveCommonSubtype/dataClasses.kt");
-    }
+  @Test
+  @TestMetadata("dataClasses.kt")
+  public void testDataClasses() {
+    runTest("analysis/analysis-api/testData/components/typeProvider/haveCommonSubtype/dataClasses.kt");
+  }
 
-    @Test
-    @TestMetadata("enums.kt")
-    public void testEnums() throws Exception {
-        runTest("analysis/analysis-api/testData/components/typeProvider/haveCommonSubtype/enums.kt");
-    }
+  @Test
+  @TestMetadata("enums.kt")
+  public void testEnums() {
+    runTest("analysis/analysis-api/testData/components/typeProvider/haveCommonSubtype/enums.kt");
+  }
 
-    @Test
-    @TestMetadata("simple.kt")
-    public void testSimple() throws Exception {
-        runTest("analysis/analysis-api/testData/components/typeProvider/haveCommonSubtype/simple.kt");
-    }
+  @Test
+  @TestMetadata("simple.kt")
+  public void testSimple() {
+    runTest("analysis/analysis-api/testData/components/typeProvider/haveCommonSubtype/simple.kt");
+  }
 }

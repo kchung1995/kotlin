@@ -114,8 +114,28 @@ class JsIrConfigurationCacheIT : KGPBaseTest() {
     fun testTestDependencies(gradleVersion: GradleVersion) {
         project("kotlin-js-project-with-test-dependencies", gradleVersion) {
             assertSimpleConfigurationCacheScenarioWorks(
+                "assemble", "kotlinStorePackageLock",
+                buildOptions = defaultBuildOptions.copy(
+                    jsOptions = defaultBuildOptions.jsOptions?.copy(
+                        yarn = false
+                    )
+                ),
+                executedTaskNames = listOf(":rootPackageJson")
+            )
+        }
+    }
+
+    @DisplayName("KT-48241: configuration cache works with test dependencies for yarn.lock")
+    @GradleTest
+    fun testTestDependenciesYarnLock(gradleVersion: GradleVersion) {
+        project("kotlin-js-project-with-test-dependencies", gradleVersion) {
+            assertSimpleConfigurationCacheScenarioWorks(
                 "assemble", "kotlinStoreYarnLock",
-                buildOptions = defaultBuildOptions,
+                buildOptions = defaultBuildOptions.copy(
+                    jsOptions = defaultBuildOptions.jsOptions?.copy(
+                        yarn = true
+                    )
+                ),
                 executedTaskNames = listOf(":rootPackageJson")
             )
         }
@@ -127,9 +147,15 @@ class JsIrConfigurationCacheIT : KGPBaseTest() {
         project("kotlin-js-nodejs-project", gradleVersion) {
             build("nodeRun", buildOptions = buildOptions) {
                 assertTasksExecuted(":nodeRun")
-                assertOutputContains(
-                    "Calculating task graph as no configuration cache is available for tasks: nodeRun"
-                )
+                if (gradleVersion < GradleVersion.version(TestVersions.Gradle.G_8_5)) {
+                    assertOutputContains(
+                        "Calculating task graph as no configuration cache is available for tasks: nodeRun"
+                    )
+                } else {
+                    assertOutputContains(
+                        "Calculating task graph as no cached configuration is available for tasks: nodeRun"
+                    )
+                }
 
                 assertConfigurationCacheStored()
             }

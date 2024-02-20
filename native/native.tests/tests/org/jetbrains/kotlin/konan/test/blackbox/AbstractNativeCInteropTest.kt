@@ -9,13 +9,15 @@ import com.intellij.openapi.util.text.StringUtilRt
 import com.intellij.testFramework.TestDataFile
 import org.jetbrains.kotlin.konan.target.Family
 import org.jetbrains.kotlin.konan.target.KonanTarget
+import org.jetbrains.kotlin.konan.test.blackbox.support.TestCInteropArgs
 import org.jetbrains.kotlin.konan.test.blackbox.support.TestCompilerArgs
 import org.jetbrains.kotlin.konan.test.blackbox.support.compilation.TestCompilationResult
 import org.jetbrains.kotlin.konan.test.blackbox.support.compilation.TestCompilationResult.Companion.assertSuccess
 import org.jetbrains.kotlin.konan.test.blackbox.support.util.getAbsoluteFile
-import org.jetbrains.kotlin.konan.test.blackbox.support.util.getContents
+import org.jetbrains.kotlin.konan.test.blackbox.support.util.dumpMetadata
 import org.jetbrains.kotlin.konan.util.CInteropHints
 import org.jetbrains.kotlin.test.services.JUnit5Assertions.assertEquals
+import org.jetbrains.kotlin.test.services.JUnit5Assertions.assertEqualsToFile
 import org.jetbrains.kotlin.test.services.JUnit5Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions
 import org.junit.jupiter.api.Tag
@@ -78,8 +80,8 @@ abstract class AbstractNativeCInteropTest : AbstractNativeCInteropBaseTest() {
         val includeFolder = testDataDir.resolve("include")
         val defFile = testPathFull.resolve(defFileName)
         val defContents = defFile.readText().split("\n").map { it.trim() }
-        val defHasObjC = defContents.any { it.endsWith("Objective-C") }
-        Assumptions.assumeFalse(defHasObjC && !targets.testTarget.family.isAppleFamily)
+
+        muteCInteropTestIfNecessary(defFile, targets.testTarget)
 
         val defHasHeaders = defContents.any { it.startsWith("headers") }
         Assumptions.assumeFalse(fmodules && defHasHeaders)
@@ -88,11 +90,11 @@ abstract class AbstractNativeCInteropTest : AbstractNativeCInteropBaseTest() {
             getBuiltinsGoldenFile(testPathFull)
         else
             getGoldenFile(testPathFull)
-        val fmodulesArgs = if (fmodules) TestCompilerArgs("-compiler-option", "-fmodules") else TestCompilerArgs.EMPTY
+        val fmodulesArgs = if (fmodules) TestCInteropArgs("-compiler-option", "-fmodules") else TestCompilerArgs.EMPTY
         val includeArgs = if (testDataDir.name.startsWith("framework"))
-            TestCompilerArgs("-compiler-option", "-F${testDataDir.canonicalPath}")
+            TestCInteropArgs("-compiler-option", "-F${testDataDir.canonicalPath}")
         else
-            TestCompilerArgs("-compiler-option", "-I${includeFolder.canonicalPath}")
+            TestCInteropArgs("-compiler-option", "-I${includeFolder.canonicalPath}")
 
         val testCompilationResult = cinteropToLibrary(targets, defFile, buildDir, includeArgs + fmodulesArgs)
         // If we are running fmodules-specific test without -fmodules then we want to be sure that cinterop fails the way we want it to.
@@ -103,18 +105,15 @@ abstract class AbstractNativeCInteropTest : AbstractNativeCInteropBaseTest() {
                 "Test failed. CInterop compilation result was: $testCompilationResult"
             }
         } else {
-            val klibContents = testCompilationResult.assertSuccess().resultingArtifact.getContents(kotlinNativeClassLoader.classLoader)
-                .let {
-                    if (ignoreExperimentalForeignApi) {
-                        it.replace("@ExperimentalForeignApi ", "")
-                    } else {
-                        it
-                    }
-                }
-            val expectedContents = goldenFile.readText()
-            assertEquals(StringUtilRt.convertLineSeparators(expectedContents), StringUtilRt.convertLineSeparators(klibContents)) {
-                "Test failed. CInterop compilation result was: $testCompilationResult"
-            }
+            val metadata = testCompilationResult.assertSuccess().resultingArtifact
+                .dumpMetadata(kotlinNativeClassLoader.classLoader, false, null)
+
+            val filteredMetadata = if (ignoreExperimentalForeignApi)
+                metadata.lineSequence().filterNot { it.trim() == "@kotlinx/cinterop/ExperimentalForeignApi" }.joinToString("\n")
+            else
+                metadata
+
+            assertEqualsToFile(goldenFile, filteredMetadata)
         }
     }
 
@@ -156,3 +155,21 @@ abstract class AbstractNativeCInteropTest : AbstractNativeCInteropBaseTest() {
         return testPathFull.resolve("contents.gold.${goldenFilePart}.txt")
     }
 }
+
+internal fun muteCInteropTestIfNecessary(defFile: File, target: KonanTarget) {
+    if (target.family.isAppleFamily) return
+
+    defFile.readLines().forEach { line ->
+        if (line.startsWith("---")) return
+
+        val parts = line.split('=')
+        if (parts.size == 2
+            && parts[0].trim().equals("language", ignoreCase = true)
+            && parts[1].trim().equals("Objective-C", ignoreCase = true)
+        ) {
+            Assumptions.abort<Nothing>("C-interop tests with Objective-C are not supported at non-Apple targets, def file: $defFile")
+        }
+    }
+}
+//Assumptions.assumeFalse(defHasObjC && !targets.testTarget.family.isAppleFamily)
+

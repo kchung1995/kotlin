@@ -5,11 +5,11 @@
 
 package org.jetbrains.kotlin.analysis.api.descriptors
 
-import com.intellij.openapi.project.Project
 import com.intellij.psi.search.GlobalSearchScope
 import org.jetbrains.kotlin.analysis.api.KtAnalysisApiInternals
 import org.jetbrains.kotlin.analysis.api.KtAnalysisNonPublicApi
 import org.jetbrains.kotlin.analysis.api.KtAnalysisSession
+import org.jetbrains.kotlin.analysis.api.NotSupportedForK1Exception
 import org.jetbrains.kotlin.analysis.api.components.*
 import org.jetbrains.kotlin.analysis.api.descriptors.components.*
 import org.jetbrains.kotlin.analysis.api.impl.base.components.KtAnalysisScopeProviderImpl
@@ -18,21 +18,14 @@ import org.jetbrains.kotlin.analysis.api.lifetime.KtLifetimeToken
 import org.jetbrains.kotlin.analysis.api.symbols.KtSymbolProvider
 import org.jetbrains.kotlin.analysis.api.symbols.KtSymbolProviderByJavaPsi
 import org.jetbrains.kotlin.analysis.project.structure.KtModule
-import org.jetbrains.kotlin.analysis.project.structure.ProjectStructureProvider
-import org.jetbrains.kotlin.psi.KtElement
-import org.jetbrains.kotlin.psi.KtFile
 
 @OptIn(KtAnalysisApiInternals::class, KtAnalysisNonPublicApi::class)
 @Suppress("LeakingThis")
 class KtFe10AnalysisSession(
     val analysisContext: Fe10AnalysisContext,
-    override val useSiteModule: KtModule
-) : KtAnalysisSession(analysisContext.token) {
-    constructor(project: Project, contextElement: KtElement, token: KtLifetimeToken) : this(
-        Fe10AnalysisContext(Fe10AnalysisFacade.getInstance(project), contextElement, token),
-        ProjectStructureProvider.getModule(project, contextElement, contextualModule = null)
-    )
-
+    override val useSiteModule: KtModule,
+    token: KtLifetimeToken,
+) : KtAnalysisSession(token) {
 
     override val smartCastProviderImpl: KtSmartCastProvider = KtFe10SmartCastProvider(this)
     override val diagnosticProviderImpl: KtDiagnosticProvider = KtFe10DiagnosticProvider(this)
@@ -73,10 +66,9 @@ class KtFe10AnalysisSession(
     override val compilerFacilityImpl: KtCompilerFacility = KtFe10CompilerFacility(this)
 
     override val metadataCalculatorImpl: KtMetadataCalculator
-        get() = throw UnsupportedOperationException()
-
+        get() = throw NotSupportedForK1Exception()
 
     @Suppress("AnalysisApiMissingLifetimeCheck")
-    override fun createContextDependentCopy(originalKtFile: KtFile, elementToReanalyze: KtElement): KtAnalysisSession =
-        KtFe10AnalysisSession(originalKtFile.project, elementToReanalyze, token)
+    override val substitutorProviderImpl: KtSubstitutorProvider
+        get() = throw NotSupportedForK1Exception()
 }

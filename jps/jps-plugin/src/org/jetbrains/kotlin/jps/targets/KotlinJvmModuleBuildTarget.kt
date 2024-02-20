@@ -36,6 +36,7 @@ import org.jetbrains.kotlin.jps.incremental.JpsIncrementalCache
 import org.jetbrains.kotlin.jps.incremental.JpsIncrementalJvmCache
 import org.jetbrains.kotlin.jps.model.k2JvmCompilerArguments
 import org.jetbrains.kotlin.jps.model.kotlinCompilerSettings
+import org.jetbrains.kotlin.jps.statistic.JpsBuilderMetricReporter
 import org.jetbrains.kotlin.load.kotlin.incremental.components.IncrementalCache
 import org.jetbrains.kotlin.load.kotlin.incremental.components.IncrementalCompilationComponents
 import org.jetbrains.kotlin.modules.KotlinModuleXmlBuilder
@@ -98,7 +99,8 @@ class KotlinJvmModuleBuildTarget(kotlinContext: KotlinCompileContext, jpsModuleB
     override fun compileModuleChunk(
         commonArguments: CommonCompilerArguments,
         dirtyFilesHolder: KotlinDirtySourceFilesHolder,
-        environment: JpsCompilerEnvironment
+        environment: JpsCompilerEnvironment,
+        buildMetricReporter: JpsBuilderMetricReporter?
     ): Boolean {
         require(chunk.representativeTarget == this)
 
@@ -143,7 +145,8 @@ class KotlinJvmModuleBuildTarget(kotlinContext: KotlinCompileContext, jpsModuleB
                 module.k2JvmCompilerArguments,
                 module.kotlinCompilerSettings,
                 environment,
-                moduleFile
+                moduleFile,
+                buildMetricReporter
             )
         } finally {
             if (System.getProperty(DELETE_MODULE_FILE_PROPERTY) != "false") {
@@ -199,7 +202,7 @@ class KotlinJvmModuleBuildTarget(kotlinContext: KotlinCompileContext, jpsModuleB
                 kotlinModuleId.name,
                 outputDir.absolutePath,
                 preprocessSources(allFiles),
-                target.findSourceRoots(dirtyFilesHolder.context),
+                target.findJavaSourceRoots(dirtyFilesHolder.context),
                 target.findClassPathRoots(),
                 preprocessSources(commonSourceFiles),
                 target.findModularJdkRoot(),
@@ -324,13 +327,14 @@ class KotlinJvmModuleBuildTarget(kotlinContext: KotlinCompileContext, jpsModuleB
         return File(url.substringAfter(URLUtil.JRT_PROTOCOL + URLUtil.SCHEME_SEPARATOR).substringBeforeLast(URLUtil.JAR_SEPARATOR))
     }
 
-    private fun findSourceRoots(context: CompileContext): List<JvmSourceRoot> {
+    private fun findJavaSourceRoots(context: CompileContext): List<JvmSourceRoot> {
         val roots = context.projectDescriptor.buildRootIndex.getTargetRoots(jpsModuleBuildTarget, context)
         val result = mutableListOf<JvmSourceRoot>()
         for (root in roots) {
             val file = root.rootFile
+            val filePath = file.toPath()
             val prefix = root.packagePrefix
-            if (Files.exists(file.toPath())) {
+            if (Files.exists(filePath) && (Files.isDirectory(filePath) || file.extension == "java")) {
                 result.add(JvmSourceRoot(file, prefix.ifEmpty { null }))
             }
         }
@@ -379,6 +383,9 @@ class KotlinJvmModuleBuildTarget(kotlinContext: KotlinCompileContext, jpsModuleB
 
             val className = generatedClass.outputClass.className
             if (!cache.isMultifileFacade(className)) return emptySet()
+
+            // In case of graph implementation of JPS
+            if (previousMappings == null) return emptySet()
 
             val name = previousMappings.getName(className.internalName)
             return previousMappings.getClassSources(name).toSet()

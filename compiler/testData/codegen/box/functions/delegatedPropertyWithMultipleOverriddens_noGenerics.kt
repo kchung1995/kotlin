@@ -1,6 +1,6 @@
 // ISSUE: KT-55828
 // DUMP_IR
-// IGNORE_CODEGEN_WITH_IR_FAKE_OVERRIDE_GENERATION: KT-61386
+// JVM_ABI_K1_K2_DIFF: KT-63828
 
 interface MyCollection {
     fun foo(): String

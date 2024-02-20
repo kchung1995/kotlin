@@ -16,6 +16,7 @@
 #endif
 
 #include "CompilerConstants.hpp"
+#include "CustomAllocator.hpp"
 #include "CustomLogging.hpp"
 #include "ExtraObjectData.hpp"
 #include "ExtraObjectPage.hpp"
@@ -35,9 +36,10 @@ namespace kotlin::alloc {
 
 bool SweepObject(uint8_t* object, FinalizerQueue& finalizerQueue, gc::GCHandle::GCSweepScope& gcHandle) noexcept {
     auto* heapObjHeader = reinterpret_cast<HeapObjHeader*>(object);
+    auto size = CustomAllocator::GetAllocatedHeapSize(heapObjHeader->object());
     if (gc::tryResetMark(heapObjHeader->objectData())) {
         CustomAllocDebug("SweepObject(%p): still alive", heapObjHeader);
-        gcHandle.addKeptObject();
+        gcHandle.addKeptObject(size);
         return true;
     }
     auto* extraObject = mm::ExtraObjectData::Get(heapObjHeader->object());
@@ -47,15 +49,28 @@ bool SweepObject(uint8_t* object, FinalizerQueue& finalizerQueue, gc::GCHandle::
             extraObject->setFlag(mm::ExtraObjectData::FLAGS_IN_FINALIZER_QUEUE);
             extraObject->ClearRegularWeakReferenceImpl();
             CustomAllocDebug("SweepObject: fromExtraObject(%p) = %p", extraObject, ExtraObjectCell::fromExtraObject(extraObject));
-            finalizerQueue.Push(ExtraObjectCell::fromExtraObject(extraObject));
-            gcHandle.addMarkedObject();
-            gcHandle.addKeptObject();
-            return true;
+            auto* cell = ExtraObjectCell::fromExtraObject(extraObject);
+            if (compiler::objcDisposeOnMain() && extraObject->getFlag(mm::ExtraObjectData::FLAGS_RELEASE_ON_MAIN_QUEUE)) {
+                finalizerQueue.mainThread.Push(cell);
+            } else {
+                finalizerQueue.regular.Push(cell);
+            }
+            if (HasFinalizersDataInObject(heapObjHeader->object())) {
+                // The object must survive until the finalizers for it are finished.
+                gcHandle.addMarkedObject();
+                gcHandle.addKeptObject(size);
+                return true;
+            }
+            // The object has a finalizer, but all the data for it resides in `ExtraObjectData`. So, detach the object from it, and free it.
+            extraObject->UnlinkFromBaseObject();
+            CustomAllocDebug("SweepObject(%p): can be reclaimed", heapObjHeader);
+            gcHandle.addSweptObject();
+            return false;
         }
         if (!extraObject->getFlag(mm::ExtraObjectData::FLAGS_FINALIZED)) {
             CustomAllocDebug("SweepObject(%p): already waiting to be finalized", heapObjHeader);
             gcHandle.addMarkedObject();
-            gcHandle.addKeptObject();
+            gcHandle.addKeptObject(size);
             return true;
         }
         extraObject->UnlinkFromBaseObject();
@@ -68,9 +83,11 @@ bool SweepObject(uint8_t* object, FinalizerQueue& finalizerQueue, gc::GCHandle::
 
 bool SweepExtraObject(mm::ExtraObjectData* extraObject, gc::GCHandle::GCSweepExtraObjectsScope& gcHandle) noexcept {
     if (extraObject->getFlag(mm::ExtraObjectData::FLAGS_SWEEPABLE)) {
+        gcHandle.addSweptObject();
         CustomAllocDebug("SweepExtraObject(%p): can be reclaimed", extraObject);
         return false;
     }
+    gcHandle.addKeptObject(sizeof(mm::ExtraObjectData));
     CustomAllocDebug("SweepExtraObject(%p): is still needed", extraObject);
     return true;
 }

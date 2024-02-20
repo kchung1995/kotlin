@@ -11,6 +11,7 @@ import org.jetbrains.kotlin.fir.declarations.utils.isSynthetic
 import org.jetbrains.kotlin.fir.symbols.ConeClassLikeLookupTag
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.ConeIntersectionType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
@@ -56,6 +57,8 @@ private object ContainingClassKey : FirDeclarationDataKey()
 var FirCallableDeclaration.containingClassForStaticMemberAttr: ConeClassLikeLookupTag? by FirDeclarationDataRegistry.data(ContainingClassKey)
 var FirRegularClass.containingClassForLocalAttr: ConeClassLikeLookupTag? by FirDeclarationDataRegistry.data(ContainingClassKey)
 var FirDanglingModifierList.containingClassAttr: ConeClassLikeLookupTag? by FirDeclarationDataRegistry.data(ContainingClassKey)
+val FirRegularClassSymbol.containingClassForLocalAttr: ConeClassLikeLookupTag?
+    get() = fir.containingClassForLocalAttr
 
 private object HasNoEnumEntriesKey : FirDeclarationDataKey()
 var FirClass.hasNoEnumEntriesAttr: Boolean? by FirDeclarationDataRegistry.data(HasNoEnumEntriesKey)
@@ -127,6 +130,9 @@ inline fun <reified D : FirCallableDeclaration> D.unwrapFakeOverridesOrDelegated
     } while (true)
 }
 
+inline fun <reified D : FirCallableSymbol<*>> D.unwrapFakeOverridesOrDelegated(): FirCallableSymbol<*> =
+    fir.unwrapFakeOverridesOrDelegated().symbol
+
 inline fun <reified D : FirCallableDeclaration> D.unwrapSubstitutionOverrides(): D {
     var current = this
 
@@ -146,6 +152,10 @@ inline fun <reified D : FirCallableDeclaration> D.unwrapUseSiteSubstitutionOverr
     } while (true)
 }
 
+inline fun <reified S : FirCallableSymbol<*>> S.unwrapUseSiteSubstitutionOverrides(): S {
+    return fir.unwrapUseSiteSubstitutionOverrides().symbol as S
+}
+
 inline fun <reified S : FirCallableSymbol<*>> S.unwrapFakeOverrides(): S = fir.unwrapFakeOverrides().symbol as S
 
 inline fun <reified S : FirCallableSymbol<*>> S.unwrapSubstitutionOverrides(): S = fir.unwrapSubstitutionOverrides().symbol as S
@@ -162,6 +172,11 @@ var <D : FirCallableDeclaration>
 
 private object InitialSignatureKey : FirDeclarationDataKey()
 
+/**
+ * Some Java declarations are renamed (CharSequence.charAt) or have signatures with erased (Object) value parameters (Collection.remove).
+ *
+ * When the receiver is a mapped declaration with a Kotlin signature, this property returns the declaration with the initial Java signature.
+ */
 var FirCallableDeclaration.initialSignatureAttr: FirCallableDeclaration? by FirDeclarationDataRegistry.data(InitialSignatureKey)
 
 private object MatchingParameterFunctionTypeKey : FirDeclarationDataKey()

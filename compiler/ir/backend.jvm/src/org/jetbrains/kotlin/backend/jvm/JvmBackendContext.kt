@@ -5,7 +5,7 @@
 
 package org.jetbrains.kotlin.backend.jvm
 
-import org.jetbrains.kotlin.KtDiagnosticReporterWithImplicitIrBasedContext
+import org.jetbrains.kotlin.ir.KtDiagnosticReporterWithImplicitIrBasedContext
 import org.jetbrains.kotlin.backend.common.CommonBackendContext
 import org.jetbrains.kotlin.backend.common.DefaultMapping
 import org.jetbrains.kotlin.backend.common.Mapping
@@ -111,7 +111,7 @@ class JvmBackendContext(
 
     override val mapping: Mapping = DefaultMapping()
 
-    val ktDiagnosticReporter = KtDiagnosticReporterWithImplicitIrBasedContext(state.diagnosticReporter, state.languageVersionSettings)
+    val ktDiagnosticReporter = KtDiagnosticReporterWithImplicitIrBasedContext(state.diagnosticReporter, config.languageVersionSettings)
 
     override val ir = JvmIr(this.symbolTable)
 
@@ -192,6 +192,8 @@ class JvmBackendContext(
     val publicAbiSymbols = mutableSetOf<IrClassSymbol>()
 
     val visitedDeclarationsForRegenerationLowering: MutableSet<IrDeclaration> = ConcurrentHashMap.newKeySet()
+
+    val optionalAnnotations = mutableListOf<MetadataSource.Class>()
 
     init {
         state.mapInlineClass = { descriptor ->

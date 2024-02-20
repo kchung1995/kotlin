@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -19,32 +19,32 @@ import java.util.regex.Pattern;
 @TestMetadata("analysis/low-level-api-fir/testData/nonLocalDeclarationAnchors")
 @TestDataPath("$PROJECT_ROOT")
 public class ScriptNonLocalDeclarationAnchorTestGenerated extends AbstractScriptNonLocalDeclarationAnchorTest {
-    @Test
-    public void testAllFilesPresentInNonLocalDeclarationAnchors() throws Exception {
-        KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/low-level-api-fir/testData/nonLocalDeclarationAnchors"), Pattern.compile("^(.+)\\.(kts)$"), null, true);
-    }
+  @Test
+  public void testAllFilesPresentInNonLocalDeclarationAnchors() {
+    KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/low-level-api-fir/testData/nonLocalDeclarationAnchors"), Pattern.compile("^(.+)\\.(kts)$"), null, true);
+  }
 
-    @Test
-    @TestMetadata("classWithMembersScript.kts")
-    public void testClassWithMembersScript() throws Exception {
-        runTest("analysis/low-level-api-fir/testData/nonLocalDeclarationAnchors/classWithMembersScript.kts");
-    }
+  @Test
+  @TestMetadata("classWithMembersScript.kts")
+  public void testClassWithMembersScript() {
+    runTest("analysis/low-level-api-fir/testData/nonLocalDeclarationAnchors/classWithMembersScript.kts");
+  }
 
-    @Test
-    @TestMetadata("classWithMembersWithPackage.kts")
-    public void testClassWithMembersWithPackage() throws Exception {
-        runTest("analysis/low-level-api-fir/testData/nonLocalDeclarationAnchors/classWithMembersWithPackage.kts");
-    }
+  @Test
+  @TestMetadata("classWithMembersWithPackage.kts")
+  public void testClassWithMembersWithPackage() {
+    runTest("analysis/low-level-api-fir/testData/nonLocalDeclarationAnchors/classWithMembersWithPackage.kts");
+  }
 
-    @Test
-    @TestMetadata("statements.kts")
-    public void testStatements() throws Exception {
-        runTest("analysis/low-level-api-fir/testData/nonLocalDeclarationAnchors/statements.kts");
-    }
+  @Test
+  @TestMetadata("statements.kts")
+  public void testStatements() {
+    runTest("analysis/low-level-api-fir/testData/nonLocalDeclarationAnchors/statements.kts");
+  }
 
-    @Test
-    @TestMetadata("topLevelFor.kts")
-    public void testTopLevelFor() throws Exception {
-        runTest("analysis/low-level-api-fir/testData/nonLocalDeclarationAnchors/topLevelFor.kts");
-    }
+  @Test
+  @TestMetadata("topLevelFor.kts")
+  public void testTopLevelFor() {
+    runTest("analysis/low-level-api-fir/testData/nonLocalDeclarationAnchors/topLevelFor.kts");
+  }
 }

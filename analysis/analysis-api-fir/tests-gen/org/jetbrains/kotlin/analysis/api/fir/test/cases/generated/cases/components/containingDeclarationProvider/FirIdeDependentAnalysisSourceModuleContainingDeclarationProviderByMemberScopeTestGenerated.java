@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -28,33 +28,33 @@ import java.util.regex.Pattern;
 @TestMetadata("analysis/analysis-api/testData/components/containingDeclarationProvider/containingDeclarationFromMemberScope")
 @TestDataPath("$PROJECT_ROOT")
 public class FirIdeDependentAnalysisSourceModuleContainingDeclarationProviderByMemberScopeTestGenerated extends AbstractContainingDeclarationProviderByMemberScopeTest {
-    @NotNull
-    @Override
-    public AnalysisApiTestConfigurator getConfigurator() {
-        return AnalysisApiFirTestConfiguratorFactory.INSTANCE.createConfigurator(
-            new AnalysisApiTestConfiguratorFactoryData(
-                FrontendKind.Fir,
-                TestModuleKind.Source,
-                AnalysisSessionMode.Dependent,
-                AnalysisApiMode.Ide
-            )
-        );
-    }
+  @NotNull
+  @Override
+  public AnalysisApiTestConfigurator getConfigurator() {
+    return AnalysisApiFirTestConfiguratorFactory.INSTANCE.createConfigurator(
+      new AnalysisApiTestConfiguratorFactoryData(
+        FrontendKind.Fir,
+        TestModuleKind.Source,
+        AnalysisSessionMode.Dependent,
+        AnalysisApiMode.Ide
+      )
+    );
+  }
 
-    @Test
-    public void testAllFilesPresentInContainingDeclarationFromMemberScope() throws Exception {
-        KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/analysis-api/testData/components/containingDeclarationProvider/containingDeclarationFromMemberScope"), Pattern.compile("^(.+)\\.kt$"), null, true);
-    }
+  @Test
+  public void testAllFilesPresentInContainingDeclarationFromMemberScope() {
+    KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/analysis-api/testData/components/containingDeclarationProvider/containingDeclarationFromMemberScope"), Pattern.compile("^(.+)\\.kt$"), null, true);
+  }
 
-    @Test
-    @TestMetadata("intersectionOverride.kt")
-    public void testIntersectionOverride() throws Exception {
-        runTest("analysis/analysis-api/testData/components/containingDeclarationProvider/containingDeclarationFromMemberScope/intersectionOverride.kt");
-    }
+  @Test
+  @TestMetadata("intersectionOverride.kt")
+  public void testIntersectionOverride() {
+    runTest("analysis/analysis-api/testData/components/containingDeclarationProvider/containingDeclarationFromMemberScope/intersectionOverride.kt");
+  }
 
-    @Test
-    @TestMetadata("subsitutionOverride.kt")
-    public void testSubsitutionOverride() throws Exception {
-        runTest("analysis/analysis-api/testData/components/containingDeclarationProvider/containingDeclarationFromMemberScope/subsitutionOverride.kt");
-    }
+  @Test
+  @TestMetadata("subsitutionOverride.kt")
+  public void testSubsitutionOverride() {
+    runTest("analysis/analysis-api/testData/components/containingDeclarationProvider/containingDeclarationFromMemberScope/subsitutionOverride.kt");
+  }
 }

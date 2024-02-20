@@ -27,16 +27,18 @@ import org.gradle.work.Incremental
 import org.gradle.work.NormalizeLineEndings
 import org.gradle.workers.WorkerExecutor
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
+import org.jetbrains.kotlin.gradle.InternalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmCompilerOptionsDefault
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmCompilerOptionsHelper
 import org.jetbrains.kotlin.gradle.plugin.KotlinCompilerArgumentsProducer.CreateCompilerArgumentsContext
 import org.jetbrains.kotlin.gradle.plugin.KotlinCompilerArgumentsProducer.CreateCompilerArgumentsContext.Companion.create
 import org.jetbrains.kotlin.gradle.report.BuildReportMode
+import org.jetbrains.kotlin.gradle.tasks.K2MultiplatformStructure
 import org.jetbrains.kotlin.gradle.tasks.KaptGenerateStubs
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.jetbrains.kotlin.gradle.tasks.toSingleCompilerPluginOptions
 import org.jetbrains.kotlin.gradle.utils.classpathAsList
-import org.jetbrains.kotlin.gradle.utils.configureExperimentalTryK2
+import org.jetbrains.kotlin.gradle.utils.configureExperimentalTryNext
 import org.jetbrains.kotlin.gradle.utils.destinationAsFile
 import org.jetbrains.kotlin.gradle.utils.toPathsArray
 import javax.inject.Inject
@@ -49,7 +51,7 @@ abstract class KaptGenerateStubsTask @Inject constructor(
 ) : KotlinCompile(
     objectFactory
         .newInstance(KotlinJvmCompilerOptionsDefault::class.java)
-        .configureExperimentalTryK2(project),
+        .configureExperimentalTryNext(project),
     workerExecutor,
     objectFactory
 ), KaptGenerateStubs {
@@ -58,6 +60,13 @@ abstract class KaptGenerateStubsTask @Inject constructor(
     // compatible with @Classpath and @Incremental annotations
     @get:Internal
     abstract override val libraries: ConfigurableFileCollection
+
+    /**
+     * [K2MultiplatformStructure] is not required for Kapt stubs
+     */
+    @InternalKotlinGradlePluginApi
+    @get:Internal
+    override val multiplatformStructure: K2MultiplatformStructure get() = super.multiplatformStructure
 
     /* Used as input as empty kapt classpath should not trigger stub generation, but a non-empty one should. */
     @Input
@@ -152,4 +161,7 @@ abstract class KaptGenerateStubsTask @Inject constructor(
             args.freeArgs += (scriptSources.asFileTree.files + javaSources.files + sources.asFileTree.files).map { it.absolutePath }
         }
     }
+
+    override fun isIncrementalCompilationEnabled(): Boolean =
+        super.isIncrementalCompilationEnabled() && !useK2Kapt.get() && ("-Xuse-kapt4" !in compilerOptions.freeCompilerArgs.get())
 }

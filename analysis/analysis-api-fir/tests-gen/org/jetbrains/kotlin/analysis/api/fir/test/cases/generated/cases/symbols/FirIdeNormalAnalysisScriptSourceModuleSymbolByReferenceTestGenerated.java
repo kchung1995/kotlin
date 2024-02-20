@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Copyright 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors.
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
@@ -28,31 +28,53 @@ import java.util.regex.Pattern;
 @TestMetadata("analysis/analysis-api/testData/symbols/symbolByReference")
 @TestDataPath("$PROJECT_ROOT")
 public class FirIdeNormalAnalysisScriptSourceModuleSymbolByReferenceTestGenerated extends AbstractSymbolByReferenceTest {
-    @NotNull
-    @Override
-    public AnalysisApiTestConfigurator getConfigurator() {
-        return AnalysisApiFirTestConfiguratorFactory.INSTANCE.createConfigurator(
-            new AnalysisApiTestConfiguratorFactoryData(
-                FrontendKind.Fir,
-                TestModuleKind.ScriptSource,
-                AnalysisSessionMode.Normal,
-                AnalysisApiMode.Ide
-            )
-        );
-    }
+  @NotNull
+  @Override
+  public AnalysisApiTestConfigurator getConfigurator() {
+    return AnalysisApiFirTestConfiguratorFactory.INSTANCE.createConfigurator(
+      new AnalysisApiTestConfiguratorFactoryData(
+        FrontendKind.Fir,
+        TestModuleKind.ScriptSource,
+        AnalysisSessionMode.Normal,
+        AnalysisApiMode.Ide
+      )
+    );
+  }
 
+  @Test
+  public void testAllFilesPresentInSymbolByReference() {
+    KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/analysis-api/testData/symbols/symbolByReference"), Pattern.compile("^(.+)\\.kts$"), null, true);
+  }
+
+  @Test
+  @TestMetadata("scriptArgument.kts")
+  public void testScriptArgument() {
+    runTest("analysis/analysis-api/testData/symbols/symbolByReference/scriptArgument.kts");
+  }
+
+  @Test
+  @TestMetadata("scriptResult.kts")
+  public void testScriptResult() {
+    runTest("analysis/analysis-api/testData/symbols/symbolByReference/scriptResult.kts");
+  }
+
+  @Nested
+  @TestMetadata("analysis/analysis-api/testData/symbols/symbolByReference/js")
+  @TestDataPath("$PROJECT_ROOT")
+  public class Js {
     @Test
-    public void testAllFilesPresentInSymbolByReference() throws Exception {
-        KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/analysis-api/testData/symbols/symbolByReference"), Pattern.compile("^(.+)\\.kts$"), null, true);
+    public void testAllFilesPresentInJs() {
+      KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/analysis-api/testData/symbols/symbolByReference/js"), Pattern.compile("^(.+)\\.kts$"), null, true);
     }
+  }
 
-    @Nested
-    @TestMetadata("analysis/analysis-api/testData/symbols/symbolByReference/withTestCompilerPluginEnabled")
-    @TestDataPath("$PROJECT_ROOT")
-    public class WithTestCompilerPluginEnabled {
-        @Test
-        public void testAllFilesPresentInWithTestCompilerPluginEnabled() throws Exception {
-            KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/analysis-api/testData/symbols/symbolByReference/withTestCompilerPluginEnabled"), Pattern.compile("^(.+)\\.kts$"), null, true);
-        }
+  @Nested
+  @TestMetadata("analysis/analysis-api/testData/symbols/symbolByReference/withTestCompilerPluginEnabled")
+  @TestDataPath("$PROJECT_ROOT")
+  public class WithTestCompilerPluginEnabled {
+    @Test
+    public void testAllFilesPresentInWithTestCompilerPluginEnabled() {
+      KtTestUtil.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("analysis/analysis-api/testData/symbols/symbolByReference/withTestCompilerPluginEnabled"), Pattern.compile("^(.+)\\.kts$"), null, true);
     }
+  }
 }

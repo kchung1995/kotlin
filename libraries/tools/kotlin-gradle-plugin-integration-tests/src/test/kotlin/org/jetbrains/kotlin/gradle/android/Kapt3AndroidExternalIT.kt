@@ -69,8 +69,11 @@ open class Kapt3AndroidExternalIT : Kapt3BaseIT() {
                 assertFileInProjectExists("app/build/generated/source/kapt/debug/com/example/dagger/kotlin/DaggerApplicationComponent.java")
                 assertFileInProjectExists("app/build/generated/source/kapt/debug/com/example/dagger/kotlin/ui/HomeActivity_MembersInjector.java")
 
-                val daggerJavaClassesDir =
+                val daggerJavaClassesDir = if (gradleVersion < GradleVersion.version(TestVersions.Gradle.G_8_5)) {
                     "app/build/intermediates/javac/debug/classes/com/example/dagger/kotlin/"
+                } else {
+                    "app/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes/com/example/dagger/kotlin/"
+                }
 
                 assertFileInProjectExists(daggerJavaClassesDir + "DaggerApplicationComponent.class")
 
@@ -90,7 +93,10 @@ open class Kapt3AndroidExternalIT : Kapt3BaseIT() {
             "android-dbflow".withPrefix,
             gradleVersion,
             buildOptions = defaultBuildOptions.copy(androidVersion = agpVersion),
-            buildJdk = jdkVersion.location
+            buildJdk = jdkVersion.location,
+            dependencyManagement = DependencyManagement.DefaultDependencyManagement(
+                setOf("https://jitpack.io")
+            )
         ) {
             build("assembleDebug") {
                 assertKaptSuccessful()
@@ -135,7 +141,7 @@ open class Kapt3AndroidExternalIT : Kapt3BaseIT() {
 
     @DisplayName("kapt works with databinding")
     @GradleAndroidTest
-    fun testDatabinding(
+    open fun testDatabinding(
         gradleVersion: GradleVersion,
         agpVersion: String,
         jdkVersion: JdkVersions.ProvidedJdk,
@@ -194,7 +200,6 @@ open class Kapt3AndroidExternalIT : Kapt3BaseIT() {
 
     @DisplayName("kapt works with androidx")
     @GradleAndroidTest
-    @AndroidTestVersions(minVersion = TestVersions.AGP.AGP_42, maxVersion = TestVersions.AGP.AGP_42)
     fun testDatabindingWithAndroidX(
         gradleVersion: GradleVersion,
         agpVersion: String,
@@ -214,7 +219,7 @@ open class Kapt3AndroidExternalIT : Kapt3BaseIT() {
 
     @DisplayName("KT-61622: common sources are attached in MPP + Android project")
     @GradleAndroidTest
-    fun testMppAndroidKapt(
+    open fun testMppAndroidKapt(
         gradleVersion: GradleVersion,
         agpVersion: String,
         jdkVersion: JdkVersions.ProvidedJdk,

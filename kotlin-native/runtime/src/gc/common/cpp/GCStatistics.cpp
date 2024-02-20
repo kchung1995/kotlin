@@ -43,6 +43,8 @@ namespace {
 constexpr KNativePtr heapPoolKey = const_cast<KNativePtr>(static_cast<const void*>("heap"));
 constexpr KNativePtr extraPoolKey = const_cast<KNativePtr>(static_cast<const void*>("extra"));
 
+constexpr auto kInvalidEpoch = std::numeric_limits<uint64_t>::max();
+
 struct MemoryUsage {
     uint64_t sizeBytes;
 };
@@ -178,7 +180,7 @@ GCHandle GCHandle::create(uint64_t epoch) {
     current.memoryUsageBefore.heap = currentHeapUsage();
     return getByEpoch(epoch);
 }
-GCHandle GCHandle::createFakeForTests() { return getByEpoch(invalid().getEpoch() - 1); }
+GCHandle GCHandle::createFakeForTests() { return getByEpoch(kInvalidEpoch - 1); }
 GCHandle GCHandle::getByEpoch(uint64_t epoch) {
     GCHandle handle{epoch};
     RuntimeAssert(handle.isValid(), "Must be valid");
@@ -195,7 +197,7 @@ std::optional<gc::GCHandle> gc::GCHandle::currentEpoch() noexcept {
 }
 
 GCHandle GCHandle::invalid() {
-    return GCHandle{std::numeric_limits<uint64_t>::max()};
+    return GCHandle{kInvalidEpoch};
 }
 void GCHandle::ClearForTests() {
     std::lock_guard guard(lock);
@@ -203,7 +205,7 @@ void GCHandle::ClearForTests() {
     last = {};
 }
 bool GCHandle::isValid() const {
-    return epoch_ != GCHandle::invalid().epoch_;
+    return epoch_ != kInvalidEpoch;
 }
 void GCHandle::finished() {
     std::lock_guard guard(lock);
@@ -379,6 +381,21 @@ MarkStats GCHandle::getMarked() {
     return MarkStats{};
 }
 
+size_t GCHandle::getKeptSizeBytes() noexcept {
+    std::lock_guard guard(lock);
+    if (auto* stat = statByEpoch(epoch_)) {
+        size_t result = 0;
+        if (stat->sweepStats.heap) {
+            result += stat->sweepStats.heap->keptSizeBytes;
+        }
+        if (stat->sweepStats.extra) {
+            result += stat->sweepStats.extra->keptSizeBytes;
+        }
+        return result;
+    }
+    return 0;
+}
+
 void GCHandle::swept(gc::SweepStats stats, uint64_t markedCount) noexcept {
     std::lock_guard guard(lock);
     if (auto* stat = statByEpoch(epoch_)) {
@@ -388,6 +405,7 @@ void GCHandle::swept(gc::SweepStats stats, uint64_t markedCount) noexcept {
         }
         heap->keptCount += stats.keptCount;
         heap->sweptCount += stats.sweptCount;
+        heap->keptSizeBytes += stats.keptSizeBytes;
         RuntimeAssert(static_cast<bool>(stat->markStats), "Mark must have already happened");
         stat->markStats->markedCount += markedCount;
     }
@@ -402,6 +420,7 @@ void GCHandle::sweptExtraObjects(gc::SweepStats stats) noexcept {
         }
         extra->keptCount += stats.keptCount;
         extra->sweptCount += stats.sweptCount;
+        extra->keptSizeBytes += stats.keptSizeBytes;
     }
 }
 
